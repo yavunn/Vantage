@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Yerel PostgreSQL (taşınabilir kurulum + veri dizini)
+.pgsql/
+
+# Üretilen sentetik veri (scripts/seed_dirty_data.py yeniden üretir)
+backend/fixtures/
+
+# Yerel DB / log
+*.db
+*.log

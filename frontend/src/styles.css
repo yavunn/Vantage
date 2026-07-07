@@ -1,0 +1,102 @@
+/* Renk sistemi: dataviz referans paleti — durum renkleri sabittir ve
+   asla seri rengi olarak kullanılmaz. Işık/karanlık tema otomatik. */
+:root {
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --border: rgba(11, 11, 11, 0.1);
+  --series-1: #2a78d6;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --status-neutral: #898781;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --border: rgba(255, 255, 255, 0.1);
+    --series-1: #3987e5;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page);
+  color: var(--text-primary);
+}
+
+.app { max-width: 1180px; margin: 0 auto; padding: 24px 20px 60px; }
+
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding-bottom: 16px; border-bottom: 1px solid var(--grid); margin-bottom: 20px;
+}
+.topbar h1 { font-size: 20px; margin: 0; flex: 1; min-width: 240px; }
+.topbar .sub { color: var(--text-secondary); font-size: 13px; width: 100%; }
+
+select, button.tab {
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 12px; font-size: 14px; font-family: inherit;
+}
+button.tab { cursor: pointer; }
+button.tab.active { border-color: var(--series-1); color: var(--series-1); font-weight: 600; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+}
+.card .metric-head { display: flex; align-items: center; gap: 8px; }
+.card .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.card h3 { font-size: 14px; margin: 0; font-weight: 600; }
+.card .value { font-size: 30px; font-weight: 650; margin: 8px 0 2px; }
+.card .value .unit { font-size: 14px; font-weight: 400; color: var(--text-secondary); margin-left: 4px; }
+.card .desc { font-size: 12px; color: var(--text-secondary); margin: 2px 0 8px; line-height: 1.4; }
+.card .meta { font-size: 11.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.card.insufficient .value { color: var(--muted); font-size: 18px; padding: 6px 0; }
+
+.status-label { font-size: 12px; font-weight: 600; }
+
+.section { margin-top: 28px; }
+.section h2 { font-size: 16px; margin: 0 0 12px; }
+
+.recs { display: flex; flex-direction: column; gap: 10px; }
+.rec {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-left: 4px solid var(--status-neutral);
+  border-radius: 10px; padding: 12px 14px; font-size: 14px; line-height: 1.5;
+}
+.rec.attention { border-left-color: var(--status-critical); }
+.rec.warning { border-left-color: var(--status-warning); }
+.rec.info { border-left-color: var(--series-1); }
+.rec .rule { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.chart-box { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.chart-box h3 { font-size: 13.5px; margin: 0 0 4px; }
+.chart-box .desc { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; }
+
+table.quality { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+table.quality th, table.quality td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--grid); }
+table.quality th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+table.quality td.num { font-variant-numeric: tabular-nums; }
+table.quality .na { color: var(--muted); font-style: italic; }
+
+.note {
+  background: var(--surface-1); border: 1px dashed var(--border); border-radius: 10px;
+  padding: 10px 14px; font-size: 12.5px; color: var(--text-secondary); margin-top: 16px; line-height: 1.5;
+}
+.error-box { color: var(--status-critical); padding: 14px; font-size: 14px; }
+.prev { font-size: 12px; color: var(--text-secondary); }
