@@ -23,9 +23,12 @@ def _dt(value: str | None) -> datetime | None:
 
 
 class GitLabProvider:
-    def __init__(self, base_url: str, token_env: str, projects: list[str]):
+    def __init__(self, base_url: str, token_env: str, projects: list[str],
+                 token: str | None = None):
+        """token verilirse doğrudan kullanılır (Faz 4: kullanıcı projesinin
+        decrypt edilmiş credential'ı); verilmezse env'den okunur."""
         self.base_url = base_url.rstrip("/")
-        self.token = os.environ.get(token_env, "")
+        self.token = token if token is not None else os.environ.get(token_env, "")
         self.projects = projects  # "grup/proje" yolları ya da sayısal id'ler
 
     def _client(self) -> httpx.Client:

@@ -88,6 +88,10 @@ class UserProject(Base):
     source_url: Mapped[str] = mapped_column(String(500))
     repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Faz 4: analiz durumu. pending | running | ok | error (None = hiç koşmadı)
+    last_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Kısa özet ya da hata mesajı — token/credential asla yazılmaz
+    last_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
