@@ -201,19 +201,27 @@ def team_quality(team_id: int, session: Session = Depends(get_session)):
 def me(
     session: Session = Depends(get_session),
     dev: Developer | None = Depends(current_dev),
+    user: User | None = Depends(current_user),
 ):
-    """Demo kullanıcı değiştirici için: kimim, hangi takımdayım, yönetici miyim."""
+    """Kimim: hesap (JWT'liyse email/rol) + geliştirici profili (varsa).
+    Admin hesabı developer'a bağlı olmayabilir — yine authenticated'dır."""
     cfg = get_config()
-    if dev is None:
+    if dev is None and user is None:
         return {"authenticated": False}
-    return {
-        "authenticated": True,
-        "id": dev.id,
-        "display_name": _mask_name(dev, cfg),
-        "teams": [
-            {"team_id": m.team_id, "role": m.role} for m in dev.memberships
-        ],
-    }
+    out = {"authenticated": True}
+    if user is not None:
+        out["account"] = {"email": user.email, "role": user.role}
+    if dev is not None:
+        out.update(
+            {
+                "id": dev.id,
+                "display_name": _mask_name(dev, cfg),
+                "teams": [
+                    {"team_id": m.team_id, "role": m.role} for m in dev.memberships
+                ],
+            }
+        )
+    return out
 
 
 @router.get("/directory")

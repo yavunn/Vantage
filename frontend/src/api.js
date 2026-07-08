@@ -47,16 +47,21 @@ async function tryRefresh() {
   return true;
 }
 
-function doFetch(path) {
+function doFetch(path, { method = "GET", body } = {}) {
   const headers = {};
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-  return fetch(path, { headers });
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  return fetch(path, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
 }
 
-export async function api(path) {
-  let resp = await doFetch(path);
+export async function api(path, options) {
+  let resp = await doFetch(path, options);
   if (resp.status === 401 && accessToken && (await tryRefresh())) {
-    resp = await doFetch(path);
+    resp = await doFetch(path, options);
   }
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));

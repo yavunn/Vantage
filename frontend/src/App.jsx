@@ -1,26 +1,20 @@
 // Engineering Health Dashboard — varsayılan görünüm TAKIM'dır (İlke E).
 // Bireysel sekme yalnızca yetkiliyse içerik gösterir; leaderboard yoktur.
+// Faz 2: rol bazlı görünüm — admin'e Yönetim sekmesi, kimlik AuthContext'te.
 import { useEffect, useState } from "react";
 import { api, isLoggedIn, logout } from "./api.js";
-import IndividualView from "./components/IndividualView.jsx";
+import { AuthContext } from "./AuthContext.jsx";
+import AdminDashboard from "./components/AdminDashboard.jsx";
 import LoginPage from "./components/LoginPage.jsx";
-import MetricCard from "./components/MetricCard.jsx";
-import TrendChart from "./components/TrendChart.jsx";
-
-const SERIES_KEYS = ["cycle_time", "pr_review_time", "review_latency", "deployment_frequency", "rework"];
+import UserDashboard from "./components/UserDashboard.jsx";
 
 export default function App() {
   const [authed, setAuthed] = useState(isLoggedIn());
-  const [me, setMe] = useState(null);             // /api/me — JWT'den kimlik
+  const [me, setMe] = useState(null);             // /api/me — hesap + geliştirici profili
   const [uiConfig, setUiConfig] = useState(null);
   const [teams, setTeams] = useState([]);
   const [teamId, setTeamId] = useState(null);
-  const [summary, setSummary] = useState(null);
-  const [series, setSeries] = useState([]);
-  const [quality, setQuality] = useState([]);
   const [directory, setDirectory] = useState([]);
-  const [devId, setDevId] = useState(null);       // giriş yapan kişinin developer id'si
-  const [viewDevId, setViewDevId] = useState(null); // bireysel sekmede bakılan kişi
   const [tab, setTab] = useState("team");
   const [error, setError] = useState(null);
 
@@ -38,156 +32,73 @@ export default function App() {
         setDirectory(dir);
         setMe(who);
         if (tms.length) setTeamId(tms[0].id);
-        if (who.authenticated) setDevId(who.id);
       })
       .catch(setError);
   }, [authed]);
 
-  useEffect(() => {
-    if (teamId == null) return;
-    api(`/api/teams/${teamId}/summary`).then(setSummary).catch(setError);
-    api(`/api/teams/${teamId}/quality`).then(setQuality).catch(() => setQuality([]));
-    Promise.all(
-      SERIES_KEYS.map((k) => api(`/api/teams/${teamId}/series/${k}`).catch(() => null))
-    ).then((all) => setSeries(all.filter(Boolean)));
-  }, [teamId]);
-
-  useEffect(() => {
-    if (devId != null && viewDevId == null) setViewDevId(devId);
-  }, [devId]);
-
   if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
   if (error) return <div className="error-box">Hata: {error.message}</div>;
-  if (!uiConfig) return <div className="app">Yükleniyor…</div>;
+  if (!uiConfig || !me) return <div className="app">Yükleniyor…</div>;
 
   const individualAvailable = uiConfig.individual_view_enabled;
+  const isAdmin = me.account?.role === "admin";
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <h1>Engineering Health Dashboard</h1>
-        <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))}>
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
-        <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
-          Takım görünümü
-        </button>
-        {individualAvailable && (
-          <button
-            className={`tab ${tab === "me" ? "active" : ""}`}
-            onClick={() => setTab("me")}
-          >
-            Bireysel görünüm
-          </button>
-        )}
-        <span className="sub">
-          Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı,
-          "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
-          {uiConfig.anonymize_individuals && " · Anonim mod açık (takım-agregat)."}
-        </span>
-        <span className="sub">
-          {me?.authenticated ? me.display_name : me ? "Hesap (panel kimliği yok)" : ""}
-        </span>
-        <button
-          className="tab"
-          onClick={() => {
-            logout();
-            setAuthed(false);
-            setMe(null);
-            setDevId(null);
-            setViewDevId(null);
-          }}
-        >
-          Çıkış
-        </button>
-      </header>
-
-      {tab === "team" && summary && (
-        <>
-          <div className="cards">
-            {summary.metrics.map((m) => (
-              <MetricCard key={m.key} metric={m} />
+    <AuthContext.Provider value={me}>
+      <div className="app">
+        <header className="topbar">
+          <h1>Engineering Health Dashboard</h1>
+          <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))}>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
             ))}
-          </div>
-
-          {summary.recommendations.length > 0 && (
-            <section className="section">
-              <h2>Süreç önerileri</h2>
-              <div className="recs">
-                {summary.recommendations.map((r) => (
-                  <div key={r.rule} className={`rec ${r.severity}`}>
-                    <div className="rule">{r.rule.replaceAll("_", " ")}</div>
-                    {r.message}
-                  </div>
-                ))}
-              </div>
-            </section>
+          </select>
+          <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
+            Takım görünümü
+          </button>
+          {individualAvailable && (
+            <button
+              className={`tab ${tab === "me" ? "active" : ""}`}
+              onClick={() => setTab("me")}
+            >
+              Bireysel görünüm
+            </button>
           )}
-
-          <section className="section">
-            <h2>Haftalık trend</h2>
-            <div className="charts">
-              {series.map((s) => (
-                <TrendChart key={s.metric} series={s} />
-              ))}
-            </div>
-          </section>
-
-          {quality.some((q) => q.snapshot) && (
-            <section className="section">
-              <h2>Kod kalitesi (araç ölçümü)</h2>
-              <table className="quality">
-                <thead>
-                  <tr>
-                    <th>Repo</th><th>Coverage</th><th>Complexity</th>
-                    <th>Duplication</th><th>Code Smells</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {quality.map((q) => (
-                    <tr key={q.repo}>
-                      <td>{q.repo}</td>
-                      {["coverage", "complexity", "duplication", "code_smells"].map((f) => (
-                        <td key={f} className="num">
-                          {q.snapshot && q.snapshot[f] != null ? (
-                            f === "coverage" || f === "duplication"
-                              ? `%${Number(q.snapshot[f]).toFixed(1)}`
-                              : Number(q.snapshot[f]).toFixed(0)
-                          ) : (
-                            <span className="na">veri yok</span>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
+          {isAdmin && (
+            <button
+              className={`tab ${tab === "admin" ? "active" : ""}`}
+              onClick={() => setTab("admin")}
+            >
+              Yönetim
+            </button>
           )}
-        </>
-      )}
+          <span className="sub">
+            Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı,
+            "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
+            {uiConfig.anonymize_individuals && " · Anonim mod açık (takım-agregat)."}
+          </span>
+          <span className="sub">
+            {me.display_name ?? me.account?.email ?? ""}
+          </span>
+          <button
+            className="tab"
+            onClick={() => {
+              logout();
+              setAuthed(false);
+              setMe(null);
+              setTab("team");
+            }}
+          >
+            Çıkış
+          </button>
+        </header>
 
-      {tab === "me" &&
-        (devId == null ? (
-          <p className="desc">Bu hesap bir geliştirici profiline bağlı değil.</p>
+        {tab === "admin" && isAdmin ? (
+          <AdminDashboard />
         ) : (
-          <>
-            {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar */}
-            <div style={{ marginBottom: 12 }}>
-              <select
-                value={viewDevId ?? devId}
-                onChange={(e) => setViewDevId(Number(e.target.value))}
-              >
-                {directory.map((d) => (
-                  <option key={d.id} value={d.id}>{d.display_name}</option>
-                ))}
-              </select>
-            </div>
-            <IndividualView devId={viewDevId ?? devId} />
-          </>
-        ))}
-    </div>
+          <UserDashboard tab={tab} teamId={teamId} directory={directory} />
+        )}
+      </div>
+    </AuthContext.Provider>
   );
 }
