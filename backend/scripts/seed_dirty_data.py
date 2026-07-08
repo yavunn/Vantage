@@ -25,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.adapters.factory import FIXTURE_DIR  # noqa: E402
 from app.core.db import Base, get_engine, get_sessionmaker  # noqa: E402
-from app.models import Developer, Team, TeamMembership  # noqa: E402
+from app.core.security import hash_password  # noqa: E402
+from app.models import Developer, Team, TeamMembership, User  # noqa: E402
 
 rng = random.Random(42)
 NOW = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
@@ -287,6 +288,21 @@ def seed_org(session) -> None:
     session.commit()
 
 
+def seed_users(session) -> None:
+    """Demo giriş hesapları (Faz 1). Her geliştiriciye e-postasıyla bir User
+    (parola: demo123), ayrıca developer'a bağlı olmayan bir admin hesabı.
+    Parolalar yalnızca bcrypt hash olarak yazılır."""
+    for dev in session.query(Developer).all():
+        email = (dev.external_ids or {}).get("git")
+        if not email:
+            continue
+        session.add(User(email=email, password_hash=hash_password("demo123"),
+                         role="user", developer_id=dev.id))
+    session.add(User(email="admin@corp.local", password_hash=hash_password("admin123"),
+                     role="admin", developer_id=None))
+    session.commit()
+
+
 def main() -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     datasets = {
@@ -308,6 +324,11 @@ def main() -> None:
             print("  organizasyon: 3 takım, 15 kişi (3 yönetici)")
         else:
             print("  organizasyon zaten mevcut, atlandı")
+        if session.query(User).count() == 0:
+            seed_users(session)
+            print("  hesaplar: her geliştirici (demo123) + admin@corp.local (admin123)")
+        else:
+            print("  hesaplar zaten mevcut, atlandı")
     finally:
         session.close()
 

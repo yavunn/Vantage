@@ -9,3 +9,7 @@ httpx>=0.27
 APScheduler>=3.10
 python-dateutil>=2.9
 pytest>=8.3
+python-jose[cryptography]>=3.3
+# passlib bakımsız ve bcrypt>=4.1 ile kırık; bcrypt doğrudan kullanılır
+bcrypt>=4.1
+python-multipart>=0.0.9

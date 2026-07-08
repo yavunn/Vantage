@@ -1,14 +1,17 @@
 // Engineering Health Dashboard — varsayılan görünüm TAKIM'dır (İlke E).
 // Bireysel sekme yalnızca yetkiliyse içerik gösterir; leaderboard yoktur.
 import { useEffect, useState } from "react";
-import { api, setCurrentDevId } from "./api.js";
+import { api, isLoggedIn, logout } from "./api.js";
 import IndividualView from "./components/IndividualView.jsx";
+import LoginPage from "./components/LoginPage.jsx";
 import MetricCard from "./components/MetricCard.jsx";
 import TrendChart from "./components/TrendChart.jsx";
 
 const SERIES_KEYS = ["cycle_time", "pr_review_time", "review_latency", "deployment_frequency", "rework"];
 
 export default function App() {
+  const [authed, setAuthed] = useState(isLoggedIn());
+  const [me, setMe] = useState(null);             // /api/me — JWT'den kimlik
   const [uiConfig, setUiConfig] = useState(null);
   const [teams, setTeams] = useState([]);
   const [teamId, setTeamId] = useState(null);
@@ -16,21 +19,29 @@ export default function App() {
   const [series, setSeries] = useState([]);
   const [quality, setQuality] = useState([]);
   const [directory, setDirectory] = useState([]);
-  const [devId, setDevId] = useState(null);       // demo kimlik seçici
+  const [devId, setDevId] = useState(null);       // giriş yapan kişinin developer id'si
   const [viewDevId, setViewDevId] = useState(null); // bireysel sekmede bakılan kişi
   const [tab, setTab] = useState("team");
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    Promise.all([api("/api/config/ui"), api("/api/teams"), api("/api/directory")])
-      .then(([cfg, tms, dir]) => {
+    if (!authed) return;
+    Promise.all([
+      api("/api/config/ui"),
+      api("/api/teams"),
+      api("/api/directory"),
+      api("/api/me"),
+    ])
+      .then(([cfg, tms, dir, who]) => {
         setUiConfig(cfg);
         setTeams(tms);
         setDirectory(dir);
+        setMe(who);
         if (tms.length) setTeamId(tms[0].id);
+        if (who.authenticated) setDevId(who.id);
       })
       .catch(setError);
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
     if (teamId == null) return;
@@ -42,10 +53,10 @@ export default function App() {
   }, [teamId]);
 
   useEffect(() => {
-    setCurrentDevId(devId);
     if (devId != null && viewDevId == null) setViewDevId(devId);
   }, [devId]);
 
+  if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
   if (error) return <div className="error-box">Hata: {error.message}</div>;
   if (!uiConfig) return <div className="app">Yükleniyor…</div>;
 
@@ -58,23 +69,6 @@ export default function App() {
         <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))}>
           {teams.map((t) => (
             <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
-        {/* Demo kimlik seçici — gerçek kurulumda SSO'dan gelir */}
-        <select
-          value={devId ?? ""}
-          onChange={(e) => {
-            const v = e.target.value ? Number(e.target.value) : null;
-            setDevId(v);
-            setViewDevId(v);
-          }}
-        >
-          <option value="">Kimlik seç (demo)</option>
-          {directory.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.display_name}
-              {d.roles.some((r) => r.role === "manager") ? " (yönetici)" : ""}
-            </option>
           ))}
         </select>
         <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
@@ -93,6 +87,21 @@ export default function App() {
           "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
           {uiConfig.anonymize_individuals && " · Anonim mod açık (takım-agregat)."}
         </span>
+        <span className="sub">
+          {me?.authenticated ? me.display_name : me ? "Hesap (panel kimliği yok)" : ""}
+        </span>
+        <button
+          className="tab"
+          onClick={() => {
+            logout();
+            setAuthed(false);
+            setMe(null);
+            setDevId(null);
+            setViewDevId(null);
+          }}
+        >
+          Çıkış
+        </button>
       </header>
 
       {tab === "team" && summary && (
@@ -162,7 +171,7 @@ export default function App() {
 
       {tab === "me" &&
         (devId == null ? (
-          <p className="desc">Bireysel görünüm için yukarıdan kimlik seçin (demo).</p>
+          <p className="desc">Bu hesap bir geliştirici profiline bağlı değil.</p>
         ) : (
           <>
             {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar */}

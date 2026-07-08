@@ -15,6 +15,9 @@ app:
   # Metrik hesaplama penceresi (gün) ve zaman serisi kova boyu (gün)
   window_days: 30
   bucket_days: 7
+  # Faz 1: demo kimlik (X-Dev-Id başlığı). Prod'da false → yalnız JWT.
+  # JWT için SECRET_KEY ortam değişkenini ayarlayın (config'e yazılmaz).
+  demo_auth_enabled: true
 
 database:
   # On-prem PostgreSQL. Ortam değişkeni DATABASE_URL bunu ezer.

@@ -24,6 +24,8 @@ class AppSettings(BaseModel):
     anonymize_individuals: bool = False
     window_days: int = 30
     bucket_days: int = 7
+    # Faz 1: X-Dev-Id başlığıyla demo kimlik. Prod'da false yapın → yalnız JWT.
+    demo_auth_enabled: bool = True
 
 
 class DatabaseSettings(BaseModel):

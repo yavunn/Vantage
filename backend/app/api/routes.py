@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth import current_user
 from app.core.config import Config, get_config
 from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
@@ -28,6 +29,7 @@ from app.models import (
     Repo,
     Team,
     TeamMembership,
+    User,
 )
 from app.services.health import METRIC_META, STATUS_LABELS, health_status
 
@@ -38,11 +40,19 @@ router = APIRouter(prefix="/api")
 
 def current_dev(
     session: Session = Depends(get_session),
+    user: User | None = Depends(current_user),
     x_dev_id: int | None = Header(default=None),
 ) -> Developer | None:
-    if x_dev_id is None:
-        return None
-    return session.get(Developer, x_dev_id)
+    """TEK kimlik noktası (Faz 1). Öncelik JWT'dedir: Bearer → User →
+    Developer. Demo modunda (app.demo_auth_enabled) X-Dev-Id başlığı da
+    kabul edilir; prod'da bayrak kapatılır, yalnız JWT kalır."""
+    if user is not None:
+        if user.developer_id is None:
+            return None
+        return session.get(Developer, user.developer_id)
+    if get_config().app.demo_auth_enabled and x_dev_id is not None:
+        return session.get(Developer, x_dev_id)
+    return None
 
 
 def _is_manager_of(session: Session, manager: Developer, dev: Developer) -> bool:

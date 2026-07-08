@@ -6,7 +6,7 @@ sistemi asla çökertmez (İlke A: kirli veri hata değil, ana özelliktir).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
@@ -46,6 +46,33 @@ class Developer(Base):
     anonymizable: Mapped[bool] = mapped_column(Boolean, default=True)
 
     memberships: Mapped[list["TeamMembership"]] = relationship(back_populates="developer")
+
+
+class User(Base):
+    """Giriş hesabı (Faz 1). Developer = metrik/veri varlığı, User = kimlik;
+    ikisi developer_id ile bağlanır, alanlar çoğaltılmaz. Parola yalnızca
+    bcrypt hash olarak tutulur; plain parola hiçbir yerde saklanmaz."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), default="user")  # admin | user
+    developer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("developers.id"), nullable=True, unique=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    developer: Mapped[Developer | None] = relationship()
 
 
 class TeamMembership(Base):
