@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.routes import router
+from app.api.user_projects import router as user_projects_router
 from app.core.config import PROJECT_ROOT, get_config
 from app.core.db import Base, get_engine
 from app.services.pipeline import run_pipeline
@@ -48,6 +49,7 @@ app = FastAPI(
 )
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(user_projects_router)
 app.include_router(router)
 
 if FRONTEND_DIST.exists():

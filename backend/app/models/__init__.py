@@ -75,6 +75,52 @@ class User(Base):
     developer: Mapped[Developer | None] = relationship()
 
 
+class UserProject(Base):
+    """Kullanıcının bağladığı dış kaynak (Faz 3). repo_id: analiz (Faz 4)
+    veriyi mevcut Repo/Commit modeline yazar — ayrı veri adası yoktur."""
+
+    __tablename__ = "user_projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    project_name: Mapped[str] = mapped_column(String(200))
+    source_type: Mapped[str] = mapped_column(String(50))  # github | gitlab | jira | trello
+    source_url: Mapped[str] = mapped_column(String(500))
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user: Mapped[User] = relationship()
+    credential: Mapped["ProjectCredential | None"] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class ProjectCredential(Base):
+    """Bağlı kaynağın erişim token'ı — YALNIZ Fernet ile şifreli saklanır.
+    Plain token DB'ye, log'a, response'a ve URL'ye asla yazılmaz."""
+
+    __tablename__ = "project_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("user_projects.id"), unique=True
+    )
+    encrypted_value: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    project: Mapped[UserProject] = relationship(back_populates="credential")
+
+
 class TeamMembership(Base):
     __tablename__ = "team_memberships"
     __table_args__ = (UniqueConstraint("team_id", "developer_id"),)

@@ -13,3 +13,4 @@ python-jose[cryptography]>=3.3
 # passlib bakımsız ve bcrypt>=4.1 ile kırık; bcrypt doğrudan kullanılır
 bcrypt>=4.1
 python-multipart>=0.0.9
+cryptography>=43.0

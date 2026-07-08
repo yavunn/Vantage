@@ -6,6 +6,7 @@ import { api, isLoggedIn, logout } from "./api.js";
 import { AuthContext } from "./AuthContext.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
 import LoginPage from "./components/LoginPage.jsx";
+import ProjectList from "./components/ProjectList.jsx";
 import UserDashboard from "./components/UserDashboard.jsx";
 
 export default function App() {
@@ -64,6 +65,12 @@ export default function App() {
               Bireysel görünüm
             </button>
           )}
+          <button
+            className={`tab ${tab === "projects" ? "active" : ""}`}
+            onClick={() => setTab("projects")}
+          >
+            Projelerim
+          </button>
           {isAdmin && (
             <button
               className={`tab ${tab === "admin" ? "active" : ""}`}
@@ -95,6 +102,8 @@ export default function App() {
 
         {tab === "admin" && isAdmin ? (
           <AdminDashboard />
+        ) : tab === "projects" ? (
+          <ProjectList />
         ) : (
           <UserDashboard tab={tab} teamId={teamId} directory={directory} />
         )}
