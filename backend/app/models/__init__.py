@@ -48,6 +48,34 @@ class Developer(Base):
     memberships: Mapped[list["TeamMembership"]] = relationship(back_populates="developer")
 
 
+class User(Base):
+    """Giriş hesabı. Mevcut `users` tablosuna eşlenir (email + bcrypt hash).
+
+    Bir kullanıcı isteğe bağlı olarak bir Developer'a bağlıdır (developer_id):
+    dashboard'daki kimlik/yetki katmanı bu bağ üzerinden çalışır. Saf admin
+    hesapları (developer_id = NULL) da olabilir.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), default="user")  # user | admin
+    developer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("developers.id"), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    developer: Mapped["Developer | None"] = relationship()
+
+
 class TeamMembership(Base):
     __tablename__ = "team_memberships"
     __table_args__ = (UniqueConstraint("team_id", "developer_id"),)

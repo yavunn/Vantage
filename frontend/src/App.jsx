@@ -1,14 +1,36 @@
-// Engineering Health Dashboard — varsayılan görünüm TAKIM'dır (İlke E).
-// Bireysel sekme yalnızca yetkiliyse içerik gösterir; leaderboard yoktur.
+// Nabız — Mühendislik Sağlığı Panosu.
+// Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
+// içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { useEffect, useState } from "react";
-import { api, setCurrentDevId } from "./api.js";
+import { api, fetchMe, getStoredUser, getToken, logout, setCurrentDevId } from "./api.js";
+import AdminPanel from "./components/AdminPanel.jsx";
+import ChangePassword from "./components/ChangePassword.jsx";
 import IndividualView from "./components/IndividualView.jsx";
+import Login from "./components/Login.jsx";
 import MetricCard from "./components/MetricCard.jsx";
 import TrendChart from "./components/TrendChart.jsx";
 
 const SERIES_KEYS = ["cycle_time", "pr_review_time", "review_latency", "deployment_frequency", "rework"];
 
+function BrandMark() {
+  return (
+    <span className="topbar-mark" aria-hidden="true">
+      <svg viewBox="0 0 96 28" width="96" height="28">
+        <polyline
+          className="ecg"
+          points="0,14 18,14 24,14 29,4 36,24 42,14 48,14 53,9 58,19 63,14 96,14"
+          fill="none" stroke="currentColor" strokeWidth="2.2"
+          strokeLinecap="round" strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
+}
+
 export default function App() {
+  const [authReady, setAuthReady] = useState(false);
+  const [user, setUser] = useState(null);
+
   const [uiConfig, setUiConfig] = useState(null);
   const [teams, setTeams] = useState([]);
   const [teamId, setTeamId] = useState(null);
@@ -16,21 +38,39 @@ export default function App() {
   const [series, setSeries] = useState([]);
   const [quality, setQuality] = useState([]);
   const [directory, setDirectory] = useState([]);
-  const [devId, setDevId] = useState(null);       // demo kimlik seçici
-  const [viewDevId, setViewDevId] = useState(null); // bireysel sekmede bakılan kişi
+  const [viewDevId, setViewDevId] = useState(null);
   const [tab, setTab] = useState("team");
   const [error, setError] = useState(null);
+  const [showPw, setShowPw] = useState(false);
 
+  // Oturum doğrulama: token varsa /me ile tazele, yoksa giriş ekranı.
   useEffect(() => {
+    const stored = getStoredUser();
+    if (getToken() && stored) {
+      setCurrentDevId(stored.developer_id);
+      setUser(stored);
+      fetchMe()
+        .then((u) => setUser(u))
+        .catch(() => { logout(); setUser(null); })
+        .finally(() => setAuthReady(true));
+    } else {
+      setAuthReady(true);
+    }
+  }, []);
+
+  // Giriş sonrası çekirdek veriyi yükle.
+  useEffect(() => {
+    if (!user) return;
+    setViewDevId(user.developer_id);
     Promise.all([api("/api/config/ui"), api("/api/teams"), api("/api/directory")])
       .then(([cfg, tms, dir]) => {
         setUiConfig(cfg);
         setTeams(tms);
         setDirectory(dir);
-        if (tms.length) setTeamId(tms[0].id);
+        if (tms.length) setTeamId((cur) => cur ?? tms[0].id);
       })
       .catch(setError);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (teamId == null) return;
@@ -41,59 +81,75 @@ export default function App() {
     ).then((all) => setSeries(all.filter(Boolean)));
   }, [teamId]);
 
-  useEffect(() => {
-    setCurrentDevId(devId);
-    if (devId != null && viewDevId == null) setViewDevId(devId);
-  }, [devId]);
+  function doLogout() {
+    logout();
+    setUser(null);
+    setUiConfig(null);
+    setTeams([]);
+    setTeamId(null);
+    setSummary(null);
+    setTab("team");
+  }
+
+  if (!authReady) return <div className="app">Yükleniyor…</div>;
+  if (!user) return <Login onSuccess={(u) => setUser(u)} />;
 
   if (error) return <div className="error-box">Hata: {error.message}</div>;
   if (!uiConfig) return <div className="app">Yükleniyor…</div>;
 
   const individualAvailable = uiConfig.individual_view_enabled;
+  const isAdmin = user.role === "admin";
 
   return (
     <div className="app">
       <header className="topbar">
-        <h1>Engineering Health Dashboard</h1>
+        <div className="topbar-brand">
+          <BrandMark />
+          <div>
+            <h1>Nabız</h1>
+            <span className="topbar-suffix">Mühendislik Sağlığı Panosu</span>
+          </div>
+        </div>
+
         <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))}>
           {teams.map((t) => (
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </select>
-        {/* Demo kimlik seçici — gerçek kurulumda SSO'dan gelir */}
-        <select
-          value={devId ?? ""}
-          onChange={(e) => {
-            const v = e.target.value ? Number(e.target.value) : null;
-            setDevId(v);
-            setViewDevId(v);
-          }}
-        >
-          <option value="">Kimlik seç (demo)</option>
-          {directory.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.display_name}
-              {d.roles.some((r) => r.role === "manager") ? " (yönetici)" : ""}
-            </option>
-          ))}
-        </select>
+
         <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
           Takım görünümü
         </button>
         {individualAvailable && (
-          <button
-            className={`tab ${tab === "me" ? "active" : ""}`}
-            onClick={() => setTab("me")}
-          >
+          <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
             Bireysel görünüm
           </button>
         )}
+        {isAdmin && (
+          <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
+            Yönetici paneli
+          </button>
+        )}
+
+        <div className="topbar-user">
+          <span className="user-chip">
+            {user.display_name}
+            {isAdmin && <span className="role-badge">admin</span>}
+          </span>
+          <button className="mini ghost" onClick={() => setShowPw(true)}>Parola</button>
+          <button className="mini ghost" onClick={doLogout}>Çıkış</button>
+        </div>
+
         <span className="sub">
           Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı,
           "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
           {uiConfig.anonymize_individuals && " · Anonim mod açık (takım-agregat)."}
         </span>
       </header>
+
+      {showPw && <ChangePassword onClose={() => setShowPw(false)} />}
+
+      {tab === "admin" && isAdmin && <AdminPanel teams={teams} />}
 
       {tab === "team" && summary && (
         <>
@@ -160,25 +216,26 @@ export default function App() {
         </>
       )}
 
-      {tab === "me" &&
-        (devId == null ? (
-          <p className="desc">Bireysel görünüm için yukarıdan kimlik seçin (demo).</p>
-        ) : (
-          <>
-            {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar */}
-            <div style={{ marginBottom: 12 }}>
-              <select
-                value={viewDevId ?? devId}
-                onChange={(e) => setViewDevId(Number(e.target.value))}
-              >
-                {directory.map((d) => (
-                  <option key={d.id} value={d.id}>{d.display_name}</option>
-                ))}
-              </select>
-            </div>
-            <IndividualView devId={viewDevId ?? devId} />
-          </>
-        ))}
+      {tab === "me" && (
+        <>
+          {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar */}
+          <div style={{ marginBottom: 12 }}>
+            <select
+              value={viewDevId ?? user.developer_id ?? ""}
+              onChange={(e) => setViewDevId(Number(e.target.value))}
+            >
+              {directory.map((d) => (
+                <option key={d.id} value={d.id}>{d.display_name}</option>
+              ))}
+            </select>
+          </div>
+          {(viewDevId ?? user.developer_id) != null ? (
+            <IndividualView devId={viewDevId ?? user.developer_id} />
+          ) : (
+            <p className="desc">Bu hesap bir geliştiriciye bağlı değil.</p>
+          )}
+        </>
+      )}
     </div>
   );
 }

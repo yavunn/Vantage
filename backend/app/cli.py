@@ -3,6 +3,7 @@
   python -m app.cli init-db   # şemayı oluştur
   python -m app.cli sync      # çek + hesapla + öner (tek seferlik)
   python -m app.cli serve     # API + dashboard sun
+  python -m app.cli set-password <email> <parola>  # bir hesabın parolasını ayarla
 """
 from __future__ import annotations
 
@@ -29,7 +30,41 @@ def serve() -> None:
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000)
 
 
-COMMANDS = {"init-db": init_db, "sync": sync, "serve": serve}
+def set_password() -> None:
+    """python -m app.cli set-password <email> <parola>"""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.core.db import get_sessionmaker
+    from app.core.security import hash_password
+    from app.models import User
+
+    if len(sys.argv) < 4:
+        print("Kullanım: python -m app.cli set-password <email> <parola>")
+        sys.exit(1)
+    email, password = sys.argv[2].lower(), sys.argv[3]
+    session = get_sessionmaker()()
+    try:
+        user = session.scalar(select(User).where(User.email == email))
+        if user is None:
+            print(f"Hesap yok: {email}")
+            sys.exit(1)
+        user.password_hash = hash_password(password)
+        user.is_active = True
+        user.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        print(f"Parola ayarlandı: {email} (role={user.role})")
+    finally:
+        session.close()
+
+
+COMMANDS = {
+    "init-db": init_db,
+    "sync": sync,
+    "serve": serve,
+    "set-password": set_password,
+}
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""

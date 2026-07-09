@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.api.auth import router as auth_router
 from app.api.routes import router
 from app.core.config import PROJECT_ROOT, get_config
 from app.core.db import Base, get_engine
@@ -44,6 +45,7 @@ app = FastAPI(
                 "bireysel gözetim aracı DEĞİLDİR.",
     lifespan=lifespan,
 )
+app.include_router(auth_router)
 app.include_router(router)
 
 if FRONTEND_DIST.exists():
