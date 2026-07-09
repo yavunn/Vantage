@@ -130,6 +130,49 @@ cd ..\backend
 
 Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 
+## Nabız — hesap yönetimi ve ek modüller
+
+Ürün arayüzü **Nabız** adıyla gerçek giriş sistemi ve İK/çalışan modülleri içerir.
+
+### Giriş ve hesaplar
+- **Gerçek giriş:** e-posta + parola (bcrypt hash) → JWT (`python-jose`, HS256).
+  İmza anahtarı `EHD_SECRET` ortam değişkeninden okunur (üretimde MUTLAKA verin;
+  yoksa güvensiz geliştirme varsayılanı kullanılır). Oturum 12 saat geçerli.
+- **İlk kurulum sihirbazı:** sistemde hiç aktif yönetici yoksa açılışta ilk admin
+  hesabı oluşturulur (CLI gerektirmez). Alternatif: `python -m app.cli set-password <email> <parola>`.
+- **İlk-giriş zorunlu parola:** admin geçici parola verir/sıfırlar; kullanıcı ilk
+  girişte kendi parolasını belirlemeden panoya geçemez.
+- **Yönetici paneli:** çalışan ekle/sil, rol (çalışan/admin), aktif/pasif,
+  parola sıfırla, takım atama, toplu pasifleştir, arama/sıralama/sayfalama.
+  Son aktif yönetici düşürülemez/silinemez (kilitlenme koruması).
+- **Ayarlar sayfası:** profil, kendi parolasını değiştirme, tema (açık/koyu/oto),
+  oturumu kapatma.
+
+### Projelerim (GitHub) + commit değerlendirme
+- Kullanıcı kendi GitHub reposunu ekler; commitler `project_commits` tablosuna
+  (takım metriklerinden **izole**) çekilir — httpx ile GitHub REST API.
+- **Commit pratiği değerlendirmesi:** mesaj netliği, başlık uzunluğu, gövde
+  kullanımı, konvansiyon, düzen boyutlarında 0–100 skor + yapıcı geri bildirim.
+  LLM açıksa (config `llm.enabled`) AI, değilse **kural tabanlı** çalışır (çökmez).
+  Skor kişiye değil **commit pratiğine** aittir. Kullanıcı kendininkini görür;
+  admin tüm kullanıcılarınkine erişebilir.
+
+### İzin panosu (İK)
+- Aylık takvim; çalışan kendi + takım arkadaşlarının izinli günlerini, admin
+  herkesi görür. Tür: yıllık / rapor / diğer. Admin için ay bazında kişi başına
+  toplam izin günü özeti. İzin verisi **metrik/performans hesabına karışmaz**.
+
+### Ortam değişkenleri
+| Değişken | Amaç | Zorunlu |
+|----------|------|---------|
+| `EHD_SECRET` | JWT imza anahtarı | Üretimde evet |
+| `DATABASE_URL` | config'teki DB url'ini ezer | Hayır |
+| `GITHUB_TOKEN` | GitHub oran sınırını artırır / özel repo | Hayır (public repo tokensiz) |
+| `ANTHROPIC_API_KEY` | commit AI değerlendirme (provider=claude) | Yalnızca AI açıksa |
+
+> Kimlik iki katmanlıdır: auth uçları JWT (Bearer), dashboard uçları `X-Dev-Id`
+> başlığı kullanır (frontend giriş sonrası oturum sahibinin developer_id'siyle doldurur).
+
 ## Config referansı (`config/config.yaml`)
 
 Her şey config'ten yönetilir; **hiçbir metrik zorunlu (elle girilen) veriye bağlı

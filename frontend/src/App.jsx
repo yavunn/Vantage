@@ -2,12 +2,16 @@
 // Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { useEffect, useState } from "react";
-import { api, fetchMe, getStoredUser, getToken, logout, setCurrentDevId } from "./api.js";
+import { api, fetchMe, getStoredUser, getToken, logout, setCurrentDevId, setupStatus } from "./api.js";
 import AdminPanel from "./components/AdminPanel.jsx";
-import ChangePassword from "./components/ChangePassword.jsx";
+import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import IndividualView from "./components/IndividualView.jsx";
+import LeavesPanel from "./components/LeavesPanel.jsx";
 import Login from "./components/Login.jsx";
 import MetricCard from "./components/MetricCard.jsx";
+import ProjectsPanel from "./components/ProjectsPanel.jsx";
+import Settings from "./components/Settings.jsx";
+import Setup from "./components/Setup.jsx";
 import TrendChart from "./components/TrendChart.jsx";
 
 const SERIES_KEYS = ["cycle_time", "pr_review_time", "review_latency", "deployment_frequency", "rework"];
@@ -27,8 +31,15 @@ function BrandMark() {
   );
 }
 
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+  else delete root.dataset.theme;
+}
+
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [user, setUser] = useState(null);
 
   const [uiConfig, setUiConfig] = useState(null);
@@ -41,26 +52,55 @@ export default function App() {
   const [viewDevId, setViewDevId] = useState(null);
   const [tab, setTab] = useState("team");
   const [error, setError] = useState(null);
-  const [showPw, setShowPw] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("nabiz_theme") || "auto");
 
-  // Oturum doğrulama: token varsa /me ile tazele, yoksa giriş ekranı.
+  // Tema uygula + kalıcılaştır.
   useEffect(() => {
-    const stored = getStoredUser();
-    if (getToken() && stored) {
-      setCurrentDevId(stored.developer_id);
-      setUser(stored);
-      fetchMe()
-        .then((u) => setUser(u))
-        .catch(() => { logout(); setUser(null); })
-        .finally(() => setAuthReady(true));
-    } else {
-      setAuthReady(true);
-    }
+    applyTheme(theme);
+    localStorage.setItem("nabiz_theme", theme);
+  }, [theme]);
+
+  // Açılış: önce kurulum gerekli mi, sonra token doğrula.
+  useEffect(() => {
+    setupStatus()
+      .then((s) => {
+        if (s.needs_setup) {
+          setNeedsSetup(true);
+          setAuthReady(true);
+          return;
+        }
+        const stored = getStoredUser();
+        if (getToken() && stored) {
+          setCurrentDevId(stored.developer_id);
+          setUser(stored);
+          fetchMe()
+            .then((u) => setUser(u))
+            .catch(() => { logout(); setUser(null); })
+            .finally(() => setAuthReady(true));
+        } else {
+          setAuthReady(true);
+        }
+      })
+      .catch(() => setAuthReady(true));
   }, []);
 
-  // Giriş sonrası çekirdek veriyi yükle.
+  // Oturum süresi dolunca (401) temiz düşür.
   useEffect(() => {
-    if (!user) return;
+    function onExpired() {
+      setUser(null);
+      setUiConfig(null);
+      setTeams([]);
+      setTeamId(null);
+      setSummary(null);
+      setTab("team");
+    }
+    window.addEventListener("nabiz:session-expired", onExpired);
+    return () => window.removeEventListener("nabiz:session-expired", onExpired);
+  }, []);
+
+  // Giriş sonrası çekirdek veriyi yükle (parola değiştirme beklemiyorsa).
+  useEffect(() => {
+    if (!user || user.must_change_password) return;
     setViewDevId(user.developer_id);
     Promise.all([api("/api/config/ui"), api("/api/teams"), api("/api/directory")])
       .then(([cfg, tms, dir]) => {
@@ -91,8 +131,45 @@ export default function App() {
     setTab("team");
   }
 
+  function cycleTheme() {
+    setTheme((t) => (t === "auto" ? "light" : t === "light" ? "dark" : "auto"));
+  }
+  const themeLabel = theme === "auto" ? "Tema: Oto" : theme === "light" ? "Tema: Açık" : "Tema: Koyu";
+
+  function exportCsv() {
+    if (!summary) return;
+    const teamName = teams.find((t) => t.id === teamId)?.name || "takim";
+    const rows = [["Metrik", "Değer", "Birim", "Durum", "Veri tamlığı"]];
+    summary.metrics.forEach((m) => {
+      rows.push([
+        m.title || m.key,
+        m.value ?? "",
+        m.unit ?? "",
+        m.status_label ?? m.status ?? "",
+        m.data_completeness != null ? `%${Math.round(m.data_completeness * 100)}` : "",
+      ]);
+    });
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `nabiz-${teamName}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (!authReady) return <div className="app">Yükleniyor…</div>;
+  if (needsSetup) return <Setup onSuccess={(u) => { setNeedsSetup(false); setUser(u); }} />;
   if (!user) return <Login onSuccess={(u) => setUser(u)} />;
+  if (user.must_change_password) {
+    return (
+      <ForceChangePassword
+        onDone={() => fetchMe().then(setUser).catch(doLogout)}
+        onLogout={doLogout}
+      />
+    );
+  }
 
   if (error) return <div className="error-box">Hata: {error.message}</div>;
   if (!uiConfig) return <div className="app">Yükleniyor…</div>;
@@ -111,7 +188,7 @@ export default function App() {
           </div>
         </div>
 
-        <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))}>
+        <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))} aria-label="Takım seç">
           {teams.map((t) => (
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
@@ -125,18 +202,27 @@ export default function App() {
             Bireysel görünüm
           </button>
         )}
+        <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
+          Projelerim
+        </button>
+        <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
+          İzinler
+        </button>
         {isAdmin && (
           <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
             Yönetici paneli
           </button>
         )}
+        <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
+          Ayarlar
+        </button>
 
         <div className="topbar-user">
+          <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
           <span className="user-chip">
             {user.display_name}
             {isAdmin && <span className="role-badge">admin</span>}
           </span>
-          <button className="mini ghost" onClick={() => setShowPw(true)}>Parola</button>
           <button className="mini ghost" onClick={doLogout}>Çıkış</button>
         </div>
 
@@ -147,12 +233,28 @@ export default function App() {
         </span>
       </header>
 
-      {showPw && <ChangePassword onClose={() => setShowPw(false)} />}
+      {tab === "settings" && (
+        <Settings
+          user={user}
+          theme={theme}
+          onCycleTheme={cycleTheme}
+          themeLabel={themeLabel}
+          onLogout={doLogout}
+        />
+      )}
+
+      {tab === "projects" && <ProjectsPanel isAdmin={isAdmin} />}
+
+      {tab === "leaves" && <LeavesPanel user={user} isAdmin={isAdmin} />}
 
       {tab === "admin" && isAdmin && <AdminPanel teams={teams} me={user} />}
 
       {tab === "team" && summary && (
         <>
+          <div className="team-toolbar">
+            <button className="mini" onClick={exportCsv}>CSV indir</button>
+            <button className="mini" onClick={() => window.print()}>Yazdır / PDF</button>
+          </div>
           <div className="cards">
             {summary.metrics.map((m) => (
               <MetricCard key={m.key} metric={m} />
@@ -223,6 +325,7 @@ export default function App() {
             <select
               value={viewDevId ?? user.developer_id ?? ""}
               onChange={(e) => setViewDevId(Number(e.target.value))}
+              aria-label="Kişi seç"
             >
               {directory.map((d) => (
                 <option key={d.id} value={d.id}>{d.display_name}</option>

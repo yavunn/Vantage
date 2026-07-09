@@ -8,9 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from datetime import date
+
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -66,6 +69,10 @@ class User(Base):
         ForeignKey("developers.id"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Admin'in verdiği geçici parola: ilk girişte değiştirme zorunlu.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -209,6 +216,94 @@ class MetricResult(Base):
     # Hangi katman/kaynaktan üretildi (git | jira_status | pr_merge ...)
     source_layer: Mapped[str | None] = mapped_column(String(50), nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UserProject(Base):
+    """Kullanıcının kendi eklediği dış proje (örn. GitHub reposu).
+
+    Bilinçli izolasyon: bu projenin commitleri ayrı `project_commits`
+    tablosuna gider — takım metriklerini besleyen `commits` tablosuna
+    KARIŞMAZ (kullanıcı reposu takım delivery metriğini kirletmesin)."""
+
+    __tablename__ = "user_projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    project_name: Mapped[str] = mapped_column(String(200))
+    source_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # github
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(20), nullable=True)  # ok | error
+    last_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    commits: Mapped[list["ProjectCommit"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    reviews: Mapped[list["CommitReview"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class ProjectCommit(Base):
+    """Dış projeden çekilen ham commit. Metrik motoruna girmez."""
+
+    __tablename__ = "project_commits"
+    __table_args__ = (UniqueConstraint("user_project_id", "sha"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_project_id: Mapped[int] = mapped_column(ForeignKey("user_projects.id"))
+    sha: Mapped[str] = mapped_column(String(64))
+    author_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    author_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    additions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deletions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    changed_files: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    project: Mapped[UserProject] = relationship(back_populates="commits")
+
+
+class CommitReview(Base):
+    """Bir projenin commit pratiği için üretilmiş değerlendirme (AI veya kural).
+    Skor KİŞİYE değil commit PRATİĞİNE aittir (mesaj kalitesi, atomiklik, düzen)."""
+
+    __tablename__ = "commit_reviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_project_id: Mapped[int] = mapped_column(ForeignKey("user_projects.id"))
+    commit_count: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0..100
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # boyut kırılımı
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # rule | local | claude
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    project: Mapped[UserProject] = relationship(back_populates="reviews")
+
+
+class Leave(Base):
+    """İzin kaydı. İK/kapasite bağlamıdır — performans metriğine KARIŞMAZ.
+
+    Mevcut `leaves` tablosuna eşlenir (onay alanlarıyla)."""
+
+    __tablename__ = "leaves"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    developer_id: Mapped[int | None] = mapped_column(ForeignKey("developers.id"), nullable=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    leave_type: Mapped[str] = mapped_column(String(20))  # annual | sick | other
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="approved")
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Recommendation(Base):

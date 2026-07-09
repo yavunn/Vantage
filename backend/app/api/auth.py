@@ -33,6 +33,7 @@ from app.models import (
     PRReview,
     PullRequest,
     Task,
+    Team,
     TeamMembership,
     User,
 )
@@ -68,6 +69,17 @@ class SetPasswordBody(BaseModel):
 class UpdateEmployeeBody(BaseModel):
     role: str | None = None          # user | admin
     is_active: bool | None = None
+
+
+class SetupBody(BaseModel):
+    display_name: str = Field(min_length=1)
+    email: str
+    password: str = Field(min_length=6)
+
+
+class MembershipBody(BaseModel):
+    team_id: int
+    role: str = "member"  # member | manager
 
 
 # --- yardımcılar --------------------------------------------------------------
@@ -114,6 +126,19 @@ def _developer_has_history(session: Session, developer_id: int) -> bool:
     return any(session.scalar(q.limit(1)) is not None for q in checks)
 
 
+def _memberships_out(session: Session, developer_id: int | None) -> list[dict]:
+    if developer_id is None:
+        return []
+    rows = session.scalars(
+        select(TeamMembership).where(TeamMembership.developer_id == developer_id)
+    ).all()
+    out = []
+    for m in rows:
+        team = session.get(Team, m.team_id)
+        out.append({"team_id": m.team_id, "team_name": team.name if team else "?", "role": m.role})
+    return out
+
+
 def _user_out(session: Session, user: User) -> dict:
     dev = session.get(Developer, user.developer_id) if user.developer_id else None
     return {
@@ -121,8 +146,10 @@ def _user_out(session: Session, user: User) -> dict:
         "email": user.email,
         "role": user.role,
         "is_active": user.is_active,
+        "must_change_password": user.must_change_password,
         "developer_id": user.developer_id,
         "display_name": dev.display_name if dev else user.email.split("@")[0],
+        "teams": _memberships_out(session, user.developer_id),
     }
 
 
@@ -151,6 +178,7 @@ def change_password(
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Mevcut parola hatalı")
     user.password_hash = hash_password(body.new_password)
+    user.must_change_password = False
     user.updated_at = datetime.now(timezone.utc)
     session.commit()
     return {"ok": True}
@@ -192,6 +220,7 @@ def create_employee(
         role=body.role,
         developer_id=dev.id,
         is_active=True,
+        must_change_password=True,  # admin geçici parola verdi; ilk girişte değiştir
         created_at=now,
         updated_at=now,
     )
@@ -281,6 +310,99 @@ def set_employee_password(
     if user is None:
         raise HTTPException(status_code=404, detail="Hesap bulunamadı")
     user.password_hash = hash_password(body.new_password)
+    user.must_change_password = True  # sıfırlanan parola geçici; kullanıcı değiştirsin
     user.updated_at = datetime.now(timezone.utc)
     session.commit()
     return {"ok": True}
+
+
+# --- takım üyeliği yönetimi (admin) -------------------------------------------
+
+@router.post("/employees/{user_id}/memberships", status_code=201)
+def add_membership(
+    user_id: int,
+    body: MembershipBody,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    user = session.get(User, user_id)
+    if user is None or user.developer_id is None:
+        raise HTTPException(status_code=404, detail="Hesap bir geliştiriciye bağlı değil")
+    if session.get(Team, body.team_id) is None:
+        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+    role = body.role if body.role in ("member", "manager") else "member"
+    existing = session.scalar(
+        select(TeamMembership).where(
+            TeamMembership.developer_id == user.developer_id,
+            TeamMembership.team_id == body.team_id,
+        )
+    )
+    if existing:
+        existing.role = role  # zaten üye: rolü güncelle
+    else:
+        session.add(
+            TeamMembership(team_id=body.team_id, developer_id=user.developer_id, role=role)
+        )
+    session.commit()
+    return _user_out(session, user)
+
+
+@router.delete("/employees/{user_id}/memberships/{team_id}")
+def remove_membership(
+    user_id: int,
+    team_id: int,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    user = session.get(User, user_id)
+    if user is None or user.developer_id is None:
+        raise HTTPException(status_code=404, detail="Hesap bir geliştiriciye bağlı değil")
+    m = session.scalar(
+        select(TeamMembership).where(
+            TeamMembership.developer_id == user.developer_id,
+            TeamMembership.team_id == team_id,
+        )
+    )
+    if m is None:
+        raise HTTPException(status_code=404, detail="Üyelik bulunamadı")
+    session.delete(m)
+    session.commit()
+    return _user_out(session, user)
+
+
+# --- ilk kurulum sihirbazı (public — yalnızca hiç admin yokken) ---------------
+
+@router.get("/setup-status")
+def setup_status(session: Session = Depends(get_session)):
+    """Sistemde hiç aktif yönetici yoksa kurulum gerekir. Public uç."""
+    return {"needs_setup": _active_admin_count(session) == 0}
+
+
+@router.post("/setup", status_code=201)
+def setup(body: SetupBody, session: Session = Depends(get_session)):
+    # Güvenlik: yalnızca sistemde hiç aktif admin yoksa çalışır (aksi halde
+    # herkes admin oluşturabilirdi). İlk admin kurulduktan sonra bu uç kapanır.
+    if _active_admin_count(session) > 0:
+        raise HTTPException(status_code=403, detail="Kurulum zaten tamamlanmış")
+    email = body.email.lower()
+    if session.scalar(select(User).where(User.email == email)):
+        raise HTTPException(status_code=409, detail="Bu e-posta zaten kayıtlı")
+
+    dev = Developer(display_name=body.display_name, external_ids={}, anonymizable=True)
+    session.add(dev)
+    session.flush()
+    now = datetime.now(timezone.utc)
+    user = User(
+        email=email,
+        password_hash=hash_password(body.password),
+        role="admin",
+        developer_id=dev.id,
+        is_active=True,
+        must_change_password=False,  # kendi parolasını kendi belirledi
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(user)
+    session.commit()
+    token = create_access_token(user.id, user.role)
+    return {"access_token": token, "token_type": "bearer", "user": _user_out(session, user)}
