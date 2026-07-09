@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
-import { createEmployee, listEmployees, setEmployeePassword } from "../api.js";
+import {
+  createEmployee,
+  deleteEmployee,
+  listEmployees,
+  setEmployeePassword,
+  updateEmployee,
+} from "../api.js";
+
+// Kolay okunur, güçlü geçici parola üretir (karışan karakterler hariç).
+function randomPassword() {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const syms = "!@#$%*?";
+  let out = "";
+  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out + syms[Math.floor(Math.random() * syms.length)];
+}
 
 // Yönetici paneli: yeni çalışan + hesap oluşturma, mevcut hesapların
 // parolasını sıfırlama. Parola çalışana verilir; çalışan sonradan
 // profilinden kendi parolasını değiştirebilir.
-export default function AdminPanel({ teams }) {
+export default function AdminPanel({ teams, me }) {
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
     display_name: "",
@@ -18,6 +33,7 @@ export default function AdminPanel({ teams }) {
   const [error, setError] = useState(null);
   const [resetFor, setResetFor] = useState(null);
   const [resetPw, setResetPw] = useState("");
+  const [query, setQuery] = useState("");
 
   function refresh() {
     listEmployees().then(setEmployees).catch((e) => setError(e.message));
@@ -73,6 +89,34 @@ export default function AdminPanel({ teams }) {
     }
   }
 
+  async function doDelete(u) {
+    if (!window.confirm(`${u.display_name} (${u.email}) hesabı silinsin mi? Bu işlem geri alınamaz.`)) return;
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await deleteEmployee(u.id);
+      setEmployees((list) => list.filter((x) => x.id !== u.id));
+      setMsg(
+        res.developer_removed
+          ? "Hesap ve geliştirici kaydı silindi."
+          : "Hesap silindi (geçmiş metrikler korundu)."
+      );
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function patch(userId, changes) {
+    setError(null);
+    setMsg(null);
+    try {
+      const updated = await updateEmployee(userId, changes);
+      setEmployees((list) => list.map((u) => (u.id === userId ? { ...u, ...updated } : u)));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="admin-panel">
       <section className="section">
@@ -98,13 +142,23 @@ export default function AdminPanel({ teams }) {
           </label>
           <label>
             Başlangıç parolası
-            <input
-              value={form.password}
-              onChange={(e) => upd("password", e.target.value)}
-              placeholder="en az 6 karakter"
-              minLength={6}
-              required
-            />
+            <span className="input-with-btn">
+              <input
+                value={form.password}
+                onChange={(e) => upd("password", e.target.value)}
+                placeholder="en az 6 karakter"
+                minLength={6}
+                required
+              />
+              <button
+                type="button"
+                className="mini"
+                onClick={() => upd("password", randomPassword())}
+                title="Rastgele güçlü parola üret"
+              >
+                Üret
+              </button>
+            </span>
           </label>
           <label>
             Rol
@@ -140,7 +194,15 @@ export default function AdminPanel({ teams }) {
       </section>
 
       <section className="section">
-        <h2>Hesaplar</h2>
+        <div className="section-head">
+          <h2>Hesaplar ({employees.length})</h2>
+          <input
+            className="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Ada veya e-postaya göre ara…"
+          />
+        </div>
         <table className="quality">
           <thead>
             <tr>
@@ -148,12 +210,43 @@ export default function AdminPanel({ teams }) {
             </tr>
           </thead>
           <tbody>
-            {employees.map((u) => (
-              <tr key={u.id}>
+            {employees
+              .filter((u) => {
+                const q = query.trim().toLowerCase();
+                if (!q) return true;
+                return (
+                  u.display_name.toLowerCase().includes(q) ||
+                  u.email.toLowerCase().includes(q)
+                );
+              })
+              .map((u) => {
+              const isSelf = me && u.id === me.id;
+              return (
+              <tr key={u.id} className={u.is_active ? "" : "row-inactive"}>
                 <td>{u.display_name}</td>
                 <td>{u.email}</td>
-                <td>{u.role === "admin" ? "Yönetici" : "Çalışan"}</td>
-                <td>{u.is_active ? "Aktif" : "Pasif"}</td>
+                <td>
+                  <select
+                    className="cell-select"
+                    value={u.role}
+                    disabled={isSelf}
+                    title={isSelf ? "Kendi rolünü değiştiremezsin" : ""}
+                    onChange={(e) => patch(u.id, { role: e.target.value })}
+                  >
+                    <option value="user">Çalışan</option>
+                    <option value="admin">Yönetici</option>
+                  </select>
+                </td>
+                <td>
+                  <button
+                    className={`mini ${u.is_active ? "" : "ghost"}`}
+                    disabled={isSelf}
+                    title={isSelf ? "Kendi durumunu değiştiremezsin" : ""}
+                    onClick={() => patch(u.id, { is_active: !u.is_active })}
+                  >
+                    {u.is_active ? "Aktif" : "Pasif"}
+                  </button>
+                </td>
                 <td>
                   {resetFor === u.id ? (
                     <span className="reset-row">
@@ -172,9 +265,18 @@ export default function AdminPanel({ teams }) {
                       Parola sıfırla
                     </button>
                   )}
+                  <button
+                    className="mini danger"
+                    disabled={isSelf}
+                    title={isSelf ? "Kendi hesabını silemezsin" : "Hesabı sil"}
+                    onClick={() => doDelete(u)}
+                  >
+                    Sil
+                  </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>

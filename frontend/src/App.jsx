@@ -149,7 +149,7 @@ export default function App() {
 
       {showPw && <ChangePassword onClose={() => setShowPw(false)} />}
 
-      {tab === "admin" && isAdmin && <AdminPanel teams={teams} />}
+      {tab === "admin" && isAdmin && <AdminPanel teams={teams} me={user} />}
 
       {tab === "team" && summary && (
         <>

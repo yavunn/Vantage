@@ -68,6 +68,24 @@ export async function apiPost(path, body) {
   return resp.json();
 }
 
+// Genel JSON PATCH
+export async function apiPatch(path, body) {
+  const resp = await fetch(path, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return resp.json();
+}
+
+// Genel DELETE
+export async function apiDelete(path) {
+  const resp = await fetch(path, { method: "DELETE", headers: authHeaders() });
+  if (!resp.ok) throw await parseError(resp);
+  return resp.json();
+}
+
 // --- oturum uçları ------------------------------------------------------------
 
 export async function login(email, password) {
@@ -97,4 +115,12 @@ export function createEmployee(payload) {
 
 export function setEmployeePassword(userId, new_password) {
   return apiPost(`/api/auth/employees/${userId}/password`, { new_password });
+}
+
+export function updateEmployee(userId, patch) {
+  return apiPatch(`/api/auth/employees/${userId}`, patch);
+}
+
+export function deleteEmployee(userId) {
+  return apiDelete(`/api/auth/employees/${userId}`);
 }

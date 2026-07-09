@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_session
@@ -27,7 +27,15 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import Developer, TeamMembership, User
+from app.models import (
+    Commit,
+    Developer,
+    PRReview,
+    PullRequest,
+    Task,
+    TeamMembership,
+    User,
+)
 
 router = APIRouter(prefix="/api/auth")
 
@@ -57,6 +65,11 @@ class SetPasswordBody(BaseModel):
     new_password: str = Field(min_length=6)
 
 
+class UpdateEmployeeBody(BaseModel):
+    role: str | None = None          # user | admin
+    is_active: bool | None = None
+
+
 # --- yardımcılar --------------------------------------------------------------
 
 def current_user(
@@ -79,6 +92,26 @@ def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Bu işlem için yönetici yetkisi gerekli")
     return user
+
+
+def _active_admin_count(session: Session) -> int:
+    return session.scalar(
+        select(func.count()).select_from(User).where(
+            User.role == "admin", User.is_active.is_(True)
+        )
+    ) or 0
+
+
+def _developer_has_history(session: Session, developer_id: int) -> bool:
+    """Bu geliştiriciye bağlı metrik verisi (commit/PR/review/task) var mı?
+    Varsa hesap silinse de geliştirici kaydı korunur (geçmiş bozulmasın)."""
+    checks = (
+        select(Commit.id).where(Commit.author_id == developer_id),
+        select(PullRequest.id).where(PullRequest.author_id == developer_id),
+        select(PRReview.id).where(PRReview.reviewer_id == developer_id),
+        select(Task.id).where(Task.assignee_id == developer_id),
+    )
+    return any(session.scalar(q.limit(1)) is not None for q in checks)
 
 
 def _user_out(session: Session, user: User) -> dict:
@@ -165,6 +198,76 @@ def create_employee(
     session.add(user)
     session.commit()
     return _user_out(session, user)
+
+
+@router.patch("/employees/{user_id}")
+def update_employee(
+    user_id: int,
+    body: UpdateEmployeeBody,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    # Kendini kilitleme koruması: admin kendi rolünü/aktifliğini bu uçtan bozamaz.
+    if user.id == admin.id and (
+        (body.role is not None and body.role != user.role)
+        or (body.is_active is not None and body.is_active != user.is_active)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Kendi rolünü ya da aktiflik durumunu buradan değiştiremezsin",
+        )
+    # Son aktif yöneticiyi düşürme/pasifleştirme koruması (kilitlenme önleme).
+    demoting = body.role is not None and body.role != "admin" and user.role == "admin"
+    deactivating = body.is_active is False and user.is_active and user.role == "admin"
+    if (demoting or deactivating) and _active_admin_count(session) <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Sistemde en az bir aktif yönetici kalmalı",
+        )
+    if body.role is not None:
+        if body.role not in ("user", "admin"):
+            raise HTTPException(status_code=422, detail="role yalnızca 'user' veya 'admin' olabilir")
+        user.role = body.role
+    if body.is_active is not None:
+        user.is_active = body.is_active
+    user.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return _user_out(session, user)
+
+
+@router.delete("/employees/{user_id}")
+def delete_employee(
+    user_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    if user.id == admin.id:
+        raise HTTPException(status_code=400, detail="Kendi hesabını silemezsin")
+    if user.role == "admin" and _active_admin_count(session) <= 1:
+        raise HTTPException(status_code=400, detail="Sistemde en az bir aktif yönetici kalmalı")
+
+    dev_id = user.developer_id
+    session.delete(user)
+    # Geliştiricinin metrik geçmişi yoksa developer + üyelikleri de temizlenir;
+    # geçmiş varsa developer korunur (commit/PR/task bağları bozulmasın).
+    developer_removed = False
+    if dev_id is not None and not _developer_has_history(session, dev_id):
+        for m in session.scalars(
+            select(TeamMembership).where(TeamMembership.developer_id == dev_id)
+        ).all():
+            session.delete(m)
+        dev = session.get(Developer, dev_id)
+        if dev is not None:
+            session.delete(dev)
+            developer_removed = True
+    session.commit()
+    return {"ok": True, "developer_removed": developer_removed}
 
 
 @router.post("/employees/{user_id}/password")
