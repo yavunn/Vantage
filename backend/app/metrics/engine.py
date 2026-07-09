@@ -14,8 +14,8 @@ Hepsi TAKIM seviyesinde sağlık göstergesidir; bireysel çıktı sayacı deği
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -52,6 +52,27 @@ def _is_done(status: str | None) -> bool:
     return (status or "").strip().lower() in DONE_STATUSES
 
 
+def leave_overlap_days(start_ts: datetime, end_ts: datetime, leave_days: set[date]) -> int:
+    """[start_ts, end_ts] aralığına düşen onaylı izin takvim günü sayısı.
+    Boş küme = 0 (eski davranış). Faz 5 metrik entegrasyonunun çekirdeği."""
+    if not leave_days:
+        return 0
+    d, last = start_ts.date(), end_ts.date()
+    count = 0
+    while d <= last:
+        if d in leave_days:
+            count += 1
+        d += timedelta(days=1)
+    return count
+
+
+def _duration_days(start_ts: datetime, end_ts: datetime, leave_days: set[date]) -> float:
+    """Süre (gün), onaylı izin günleri düşülerek. İzin ortada kalan bir işin
+    cycle time'ını şişirmez — izin bağlamdır, gecikme değildir (spec Faz 5)."""
+    raw = (end_ts - start_ts).total_seconds() / 86400
+    return max(0.0, raw - leave_overlap_days(start_ts, end_ts, leave_days))
+
+
 @dataclass
 class MetricOutcome:
     value: float | None
@@ -75,6 +96,10 @@ class TeamData:
     tasks: list[Task]            # takımın tüm task'ları (WIP için hepsi gerekir)
     start: datetime
     end: datetime
+    # Faz 5: bu kapsamdaki ONAYLI izin takvim günleri. Takım kapsamında boş
+    # bırakılır (izin bireysel bağlamdır); bireysel görünümde doldurulur ve
+    # cycle time'dan düşülür. Boşken tüm hesaplar birebir eski davranışta kalır.
+    leave_days: set[date] = field(default_factory=set)
 
 
 def load_team_data(session: Session, team: Team, start: datetime, end: datetime) -> TeamData:
@@ -153,7 +178,7 @@ def cycle_time(data: TeamData, cfg: Config) -> MetricOutcome:
                 start_ts = _task_started_at(t) if layer == "jira_status" else as_utc(t.created_at)
                 end_ts = _task_done_at(t)
                 if start_ts and end_ts and end_ts >= start_ts:
-                    durations.append((end_ts - start_ts).total_seconds() / 86400)
+                    durations.append(_duration_days(start_ts, end_ts, data.leave_days))
             if durations:
                 return MetricOutcome(
                     value=sum(durations) / len(durations),
@@ -167,7 +192,7 @@ def cycle_time(data: TeamData, cfg: Config) -> MetricOutcome:
                 if (m := as_utc(p.merged_at)) and data.start <= m <= data.end
             ]
             durations = [
-                (as_utc(p.merged_at) - as_utc(p.opened_at)).total_seconds() / 86400
+                _duration_days(as_utc(p.opened_at), as_utc(p.merged_at), data.leave_days)
                 for p in merged
                 if p.opened_at and as_utc(p.merged_at) >= as_utc(p.opened_at)
             ]

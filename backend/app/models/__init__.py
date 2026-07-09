@@ -6,11 +6,12 @@ sistemi asla çökertmez (İlke A: kirli veri hata değil, ana özelliktir).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -123,6 +124,40 @@ class ProjectCredential(Base):
     )
 
     project: Mapped[UserProject] = relationship(back_populates="credential")
+
+
+class Leave(Base):
+    """İzin/tatil kaydı (Faz 5). Self-servis talep + admin/yönetici onayı.
+
+    Etik çerçeve (spec Faz 5):
+    - İzin BAĞLAM'dır, ceza değil: onaylı izin günleri metrik penceresinden
+      hariç tutulur (izindeki kişinin düşük aktivitesi anomali sayılmaz).
+    - Görünürlük bireyseldir: çalışan yalnız KENDİ taleplerini görür, yönetici
+      yalnız KENDİ takımını. `description` hassastır, takvim/leaderboard'a sızmaz.
+    - developer_id: metrik penceresinden düşme bu bağ üzerinden yapılır; User
+      bir Developer'a bağlı değilse izin yine kaydedilir, yalnız metriğe yansımaz.
+    """
+
+    __tablename__ = "leaves"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    developer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("developers.id"), nullable=True
+    )
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    leave_type: Mapped[str] = mapped_column(String(20))  # yillik | hastalik | rapor
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | rejected
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])
+    developer: Mapped[Developer | None] = relationship()
 
 
 class TeamMembership(Base):

@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { api, isLoggedIn, logout } from "./api.js";
 import { AuthContext } from "./AuthContext.jsx";
 import AdminDashboard from "./components/AdminDashboard.jsx";
+import LeaveApprovalList from "./components/LeaveApprovalList.jsx";
+import LeaveCalendar from "./components/LeaveCalendar.jsx";
+import LeaveRequestForm from "./components/LeaveRequestForm.jsx";
 import LoginPage from "./components/LoginPage.jsx";
 import ProjectList from "./components/ProjectList.jsx";
 import UserDashboard from "./components/UserDashboard.jsx";
@@ -71,6 +74,12 @@ export default function App() {
           >
             Projelerim
           </button>
+          <button
+            className={`tab ${tab === "leave" ? "active" : ""}`}
+            onClick={() => setTab("leave")}
+          >
+            İzinler
+          </button>
           {isAdmin && (
             <button
               className={`tab ${tab === "admin" ? "active" : ""}`}
@@ -104,6 +113,12 @@ export default function App() {
           <AdminDashboard />
         ) : tab === "projects" ? (
           <ProjectList />
+        ) : tab === "leave" ? (
+          <>
+            <LeaveApprovalList />
+            <LeaveRequestForm />
+            <LeaveCalendar teamId={teamId} />
+          </>
         ) : (
           <UserDashboard tab={tab} teamId={teamId} directory={directory} />
         )}

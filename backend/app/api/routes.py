@@ -299,6 +299,7 @@ def _dev_metrics(
     """Kişinin kendi işleri üzerinden takım metriklerinin bireysel izdüşümü.
     Takım verisi yüklenir, kişiye filtrelenir; ayrı bir 'çıktı sayacı' yoktur."""
     from app.metrics.engine import TeamData, cycle_time, pr_review_time, review_latency, wip
+    from app.services.leave import approved_leave_dates
 
     team_ids = [m.team_id for m in dev.memberships]
     if not team_ids:
@@ -314,6 +315,9 @@ def _dev_metrics(
         tasks=[t for t in data.tasks if t.assignee_id == dev.id],
         start=start,
         end=end,
+        # Faz 5: kişinin onaylı izin günleri cycle time'dan düşülür — izindeki
+        # düşük aktivite anomali sayılmaz (spec Faz 5 metrik entegrasyonu).
+        leave_days=approved_leave_dates(session, dev.id, start, end),
     )
     out = {}
     for key, func in (

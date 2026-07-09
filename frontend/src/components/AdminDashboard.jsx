@@ -12,12 +12,14 @@ export default function AdminDashboard() {
 
   function reload() {
     api("/api/admin/stats").then(setStats).catch(setError);
-    api("/api/admin/users").then(setUsers).catch(setError);
+    // Pasifleştirilenler de gelsin — yeniden aktifleştirme için
+    api("/api/admin/users?include_inactive=true").then(setUsers).catch(setError);
   }
 
   useEffect(reload, []);
 
   async function changeRole(u, role) {
+    setError(null);
     try {
       await api(`/api/admin/users/${u.id}`, { method: "PUT", body: { role } });
       reload();
@@ -27,9 +29,18 @@ export default function AdminDashboard() {
   }
 
   async function softDelete(u) {
-    if (!window.confirm(`${u.email} hesabı pasifleştirilsin mi?`)) return;
+    if (!window.confirm(`${u.email} hesabı pasifleştirilsin mi? (ileride geri açılabilir)`)) return;
     try {
       await api(`/api/admin/users/${u.id}`, { method: "DELETE" });
+      reload();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function reactivate(u) {
+    try {
+      await api(`/api/admin/users/${u.id}/reactivate`, { method: "POST" });
       reload();
     } catch (err) {
       setError(err);
@@ -69,33 +80,45 @@ export default function AdminDashboard() {
       <section className="section">
         <h2>Hesaplar</h2>
         <p className="desc">
-          Bu liste hesap yönetimi içindir; metrik içermez. Silme, hesabı
-          pasifleştirir (soft delete) — kayıt denetim izi için durur.
+          Bu liste hesap yönetimi içindir; metrik içermez. Pasifleştirme
+          (soft delete) hesabı silmez — kayıt durur, ileride yeniden
+          aktifleştirilebilir. Admin kendi rolünü ve son admini düşüremez.
         </p>
         <table className="quality">
           <thead>
             <tr>
-              <th>E-posta</th><th>Rol</th><th>Geliştirici bağı</th><th></th>
+              <th>E-posta</th><th>Rol</th><th>Durum</th>
+              <th>Geliştirici bağı</th><th></th>
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td>{u.email}</td>
-                <td>
-                  <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </td>
-                <td>{u.developer_id != null ? `#${u.developer_id}` : <span className="na">yok</span>}</td>
-                <td>
-                  {u.email !== me?.account?.email && (
-                    <button onClick={() => softDelete(u)}>Pasifleştir</button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const self = u.email === me?.account?.email;
+              return (
+                <tr key={u.id} className={u.is_active ? "" : "inactive-row"}>
+                  <td>{u.email}</td>
+                  <td>
+                    <select
+                      value={u.role}
+                      disabled={!u.is_active || self}
+                      onChange={(e) => changeRole(u, e.target.value)}
+                    >
+                      <option value="user">user</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>{u.is_active ? "aktif" : <span className="na">pasif</span>}</td>
+                  <td>{u.developer_id != null ? `#${u.developer_id}` : <span className="na">yok</span>}</td>
+                  <td>
+                    {!u.is_active ? (
+                      <button onClick={() => reactivate(u)}>Aktifleştir</button>
+                    ) : (
+                      !self && <button onClick={() => softDelete(u)}>Pasifleştir</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>

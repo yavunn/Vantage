@@ -32,19 +32,24 @@ def check_admin_role(user: User | None = Depends(current_user)) -> User:
 
 @router.get("/users")
 def list_users(
+    include_inactive: bool = False,
     admin: User = Depends(check_admin_role),
     session: Session = Depends(get_session),
 ):
-    """Aktif hesaplar. Soft-delete edilenler görünmez; metrik alanı YOK."""
-    users = session.scalars(
-        select(User).where(User.is_active.is_(True)).order_by(User.id)
-    ).all()
+    """Hesap listesi; metrik alanı YOK. Varsayılan yalnız aktifler.
+    include_inactive=true ile pasifleştirilenler de gelir (yeniden
+    aktifleştirme için) — pasif hesap silinmez, geri açılabilir."""
+    stmt = select(User).order_by(User.id)
+    if not include_inactive:
+        stmt = stmt.where(User.is_active.is_(True))
+    users = session.scalars(stmt).all()
     return [
         {
             "id": u.id,
             "email": u.email,
             "role": u.role,
             "developer_id": u.developer_id,
+            "is_active": u.is_active,
             "created_at": u.created_at.isoformat() if u.created_at else None,
         }
         for u in users
@@ -67,6 +72,18 @@ def update_user_role(
     user = session.get(User, user_id)
     if user is None or not user.is_active:
         raise HTTPException(404, "Kullanıcı bulunamadı")
+    # Kilitlenme koruması: admin kendi rolünü düşüremez; son admin de düşürülemez
+    # (aksi halde sistem yönetimsiz kalır, panele kimse giremez).
+    if body.role != "admin" and user.role == "admin":
+        if user.id == admin.id:
+            raise HTTPException(400, "Kendi admin rolünüzü kaldıramazsınız")
+        other_admins = session.scalar(
+            select(func.count()).select_from(User).where(
+                User.role == "admin", User.is_active.is_(True), User.id != user.id
+            )
+        )
+        if not other_admins:
+            raise HTTPException(400, "Son admin rolü kaldırılamaz")
     user.role = body.role
     session.commit()
     return {"id": user.id, "email": user.email, "role": user.role}
@@ -88,6 +105,24 @@ def soft_delete_user(
     user.is_active = False
     session.commit()
     return {"id": user.id, "deleted": True}
+
+
+@router.post("/users/{user_id}/reactivate")
+def reactivate_user(
+    user_id: int,
+    admin: User = Depends(check_admin_role),
+    session: Session = Depends(get_session),
+):
+    """Pasifleştirilmiş hesabı yeniden açar. Soft delete geri alınabilir —
+    kayıt hiç silinmediği için hesap, geliştirici bağı ve geçmişiyle döner."""
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    if user.is_active:
+        return {"id": user.id, "reactivated": False, "detail": "Hesap zaten aktif"}
+    user.is_active = True
+    session.commit()
+    return {"id": user.id, "reactivated": True}
 
 
 @router.get("/stats")

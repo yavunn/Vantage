@@ -91,6 +91,48 @@ def test_rol_degisimi(client, session):
                       headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
+def test_admin_kendi_rolunu_dusuremez(client, session):
+    """Kilitlenme koruması: admin kendini user yaparsa panele kimse giremez."""
+    headers = auth_headers(client, session)
+    from sqlalchemy import select
+
+    from app.models import User
+
+    admin = session.scalars(select(User).where(User.email == "admin@corp.local")).first()
+    resp = client.put(f"/api/admin/users/{admin.id}", headers=headers, json={"role": "user"})
+    assert resp.status_code == 400
+    session.expire_all()
+    assert session.get(User, admin.id).role == "admin"  # değişmedi
+
+
+def test_baska_admin_dusurulebilir(client, session):
+    """Guard fazla bloklamaz: başka bir admin varken düşürme serbest."""
+    headers = auth_headers(client, session)  # admin@corp.local
+    second = make_user(session, "admin2@corp.local", "gizli123", role="admin")
+    assert client.put(f"/api/admin/users/{second.id}", headers=headers,
+                      json={"role": "user"}).status_code == 200
+
+
+def test_pasiflestir_ve_yeniden_aktiflestir(client, session):
+    headers = auth_headers(client, session)
+    victim = make_user(session, "u@corp.local", "gizli123", role="user")
+    # Pasifleştir → varsayılan listede yok, login engelli
+    client.delete(f"/api/admin/users/{victim.id}", headers=headers)
+    emails = [u["email"] for u in client.get("/api/admin/users", headers=headers).json()]
+    assert "u@corp.local" not in emails
+    # include_inactive ile görünür ve is_active=False
+    all_users = client.get("/api/admin/users?include_inactive=true", headers=headers).json()
+    row = next(u for u in all_users if u["email"] == "u@corp.local")
+    assert row["is_active"] is False
+    # Yeniden aktifleştir
+    resp = client.post(f"/api/admin/users/{victim.id}/reactivate", headers=headers)
+    assert resp.status_code == 200 and resp.json()["reactivated"] is True
+    # Artık listede ve login çalışır
+    emails = [u["email"] for u in client.get("/api/admin/users", headers=headers).json()]
+    assert "u@corp.local" in emails
+    assert login(client, "u@corp.local", "gizli123").status_code == 200
+
+
 def test_stats_agregat_kisiye_inmez(client, session):
     headers = auth_headers(client, session)
     make_team(session)
