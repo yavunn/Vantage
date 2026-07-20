@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.auth import current_user
 from app.core.config import Config, get_config
 from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
@@ -29,7 +30,12 @@ from app.models import (
     Team,
     TeamMembership,
 )
-from app.services.health import METRIC_META, STATUS_LABELS, health_status
+from app.services.health import (
+    METRIC_META,
+    METRIC_THRESHOLD_MAP,
+    STATUS_LABELS,
+    health_status,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -79,6 +85,8 @@ def _metric_payload(row: MetricResult, cfg: Config) -> dict:
         "status_label": STATUS_LABELS[status],
         "data_completeness": row.data_completeness,
         "source_layer": row.source_layer,
+        "sample_size": row.sample_size,
+        "stats": row.stats,
         "period": row.period,
     }
 
@@ -104,7 +112,12 @@ def team_summary(team_id: int, session: Session = Depends(get_session)):
         except ValueError:
             span = 0
         if span >= window_days - 1:
-            overall[row.metric_key] = row
+            # Aynı metriğin birden çok pencere satırı olabilir (period anahtarı
+            # her sync'te tarihle kayar, eski satırlar kalır). En güncel hesap
+            # kazanır — yoksa stale satır gösterilip yeni alanlar kaybolur.
+            prev = overall.get(row.metric_key)
+            if prev is None or (row.computed_at and prev.computed_at and row.computed_at > prev.computed_at):
+                overall[row.metric_key] = row
     recs = session.scalars(
         select(Recommendation).where(
             Recommendation.scope == "team", Recommendation.scope_id == team_id
@@ -122,6 +135,45 @@ def team_summary(team_id: int, session: Session = Depends(get_session)):
     }
 
 
+@router.get("/teams/{team_id}/report")
+def team_report(
+    team_id: int,
+    days: int = Query(default=30),
+    session: Session = Depends(get_session),
+):
+    """Seçilen aralık (7/30/90) için anlık hesaplanan metrikler + delta +
+    sağlık sinyalleri + trend. Precompute'a değil, canlı motora dayanır."""
+    from app.services.report import VALID_DAYS, live_report
+
+    if days not in VALID_DAYS:
+        raise HTTPException(422, f"days yalnızca {sorted(VALID_DAYS)} olabilir")
+    cfg = get_config()
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    return live_report(session, team, days, cfg)
+
+
+@router.get("/teams/{team_id}/metric/{metric_key}/breakdown")
+def team_metric_breakdown(
+    team_id: int,
+    metric_key: str,
+    days: int = Query(default=30),
+    session: Session = Depends(get_session),
+):
+    """Drill-down: bir metriğin altındaki ham kayıtlar (hangi iş/PR/commit bu
+    sayıyı oluşturuyor). Şeffaflık için — sayı gökten inmiyor."""
+    from app.services.report import VALID_DAYS, metric_breakdown
+
+    if days not in VALID_DAYS:
+        raise HTTPException(422, f"days yalnızca {sorted(VALID_DAYS)} olabilir")
+    cfg = get_config()
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    return metric_breakdown(session, team, metric_key, days, cfg)
+
+
 @router.get("/teams/{team_id}/series/{metric_key}")
 def team_series(team_id: int, metric_key: str, session: Session = Depends(get_session)):
     cfg = get_config()
@@ -134,25 +186,111 @@ def team_series(team_id: int, metric_key: str, session: Session = Depends(get_se
             MetricResult.metric_key == metric_key,
         )
     ).all()
-    points = []
+    # period başına en güncel hesap (eski sync'lerden kalan stale kovaları ele)
+    by_period: dict[str, MetricResult] = {}
     for row in rows:
         try:
             p_start, p_end = row.period.split("/")
             span = (datetime.fromisoformat(p_end) - datetime.fromisoformat(p_start)).days
         except ValueError:
             continue
-        if span < cfg.app.window_days - 1:  # yalnızca kovalar
-            points.append(
-                {
-                    "period_start": p_start,
-                    "period_end": p_end,
-                    "value": row.value,
-                    "data_completeness": row.data_completeness,
-                }
-            )
+        if span >= cfg.app.window_days - 1:  # pencere satırı seriye girmez
+            continue
+        prev = by_period.get(row.period)
+        if prev is None or (row.computed_at and prev.computed_at and row.computed_at > prev.computed_at):
+            by_period[row.period] = row
+    points = [
+        {
+            "period_start": r.period.split("/")[0],
+            "period_end": r.period.split("/")[1],
+            "value": r.value,
+            "data_completeness": r.data_completeness,
+        }
+        for r in by_period.values()
+    ]
     points.sort(key=lambda p: p["period_start"])
     name, description = METRIC_META.get(metric_key, (metric_key, ""))
     return {"metric": metric_key, "name": name, "description": description, "points": points}
+
+
+# --- Kişi-bazlı kod sağlığı (kendi kodu / admin herkesi) ----------------------
+# Kimlik JWT (current_user). Erişim: kişinin KENDİSİ ya da admin. Kıyaslamalı
+# leaderboard YOK — her kişiye tekil, kendi kodunun geri bildirimi.
+
+def _dev_access(dev_id: int, user):
+    if user.role != "admin" and user.developer_id != dev_id:
+        raise HTTPException(403, "Bu görünümü yalnızca kişinin kendisi ve admin görebilir")
+
+
+@router.get("/me/code-health")
+def my_code_health(session: Session = Depends(get_session), user=Depends(current_user)):
+    from app.services.code_health import developer_code_health
+    if user.developer_id is None:
+        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+    return developer_code_health(session, user.developer_id, get_config())
+
+
+@router.get("/me/code-health/breakdown")
+def my_code_health_breakdown(session: Session = Depends(get_session), user=Depends(current_user)):
+    from app.services.code_health import developer_code_health_breakdown
+    if user.developer_id is None:
+        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+    return developer_code_health_breakdown(session, user.developer_id)
+
+
+@router.post("/me/code-analysis/run")
+def my_code_analysis_run(session: Session = Depends(get_session), user=Depends(current_user)):
+    """Kullanıcı KENDİ kodunu analiz eder (git yazarı = kendisi)."""
+    from app.services.code_analysis import run_code_analysis
+    if user.developer_id is None:
+        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+    return run_code_analysis(session, get_config(), only_developer_id=user.developer_id)
+
+
+@router.get("/developers/{dev_id}/code-health")
+def developer_code_health_endpoint(dev_id: int, session: Session = Depends(get_session),
+                                   user=Depends(current_user)):
+    from app.services.code_health import developer_code_health
+    _dev_access(dev_id, user)
+    return developer_code_health(session, dev_id, get_config())
+
+
+@router.get("/developers/{dev_id}/code-health/breakdown")
+def developer_code_health_breakdown_endpoint(dev_id: int, session: Session = Depends(get_session),
+                                             user=Depends(current_user)):
+    from app.services.code_health import developer_code_health_breakdown
+    _dev_access(dev_id, user)
+    return developer_code_health_breakdown(session, dev_id)
+
+
+@router.get("/teams/{team_id}/code-health")
+def team_code_health_endpoint(team_id: int, session: Session = Depends(get_session)):
+    """AI kod sağlığı kartı: composite + modül kırılımı (kişi değil)."""
+    from app.services.code_health import team_code_health
+
+    if session.get(Team, team_id) is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    return team_code_health(session, team_id, get_config())
+
+
+@router.get("/teams/{team_id}/code-health/breakdown")
+def team_code_health_breakdown_endpoint(team_id: int, session: Session = Depends(get_session)):
+    """Drill-down: en çok dikkat isteyen dosyalar + AI önerileri."""
+    from app.services.code_health import team_code_health_breakdown
+
+    if session.get(Team, team_id) is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    return team_code_health_breakdown(session, team_id)
+
+
+@router.get("/teams/{team_id}/code-health/series")
+def team_code_health_series_endpoint(team_id: int, session: Session = Depends(get_session)):
+    """Haftalık kod sağlığı trendi."""
+    from app.services.code_health import team_code_health_series
+
+    if session.get(Team, team_id) is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    return team_code_health_series(session, team_id, get_config())
 
 
 @router.get("/teams/{team_id}/quality")
@@ -340,6 +478,12 @@ def ai_advice(team_id: int, session: Session = Depends(get_session)):
 def ui_config():
     """Frontend'in neyi gösterip gizleyeceği: kapalı metrik kart bile olmaz."""
     cfg = get_config()
+    # Trend grafiklerine hedef/eşik çizgisi için: metrik → {green, red, direction}
+    thresholds = {}
+    for metric_key, (field, direction) in METRIC_THRESHOLD_MAP.items():
+        th = getattr(cfg.health_thresholds, field, None)
+        if th is not None:
+            thresholds[metric_key] = {"green": th.green, "red": th.red, "direction": direction}
     return {
         "enabled_metrics": [k for k, m in cfg.metrics.items() if m.enabled],
         "individual_view_enabled": cfg.app.individual_view_enabled
@@ -347,4 +491,5 @@ def ui_config():
         "anonymize_individuals": cfg.app.anonymize_individuals,
         "window_days": cfg.app.window_days,
         "llm_enabled": cfg.llm.enabled,
+        "metric_thresholds": thresholds,
     }

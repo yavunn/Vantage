@@ -5,6 +5,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,12 +18,32 @@ function fmtDate(s) {
   return `${d.getDate()}.${d.getMonth() + 1}`;
 }
 
-export default function TrendChart({ series }) {
+// Anotasyon tarihini, içine düştüğü kovaya eşle → o kovanın etiketinde işaret.
+function annotationsForBuckets(points, annotations) {
+  if (!annotations || annotations.length === 0) return [];
+  const out = [];
+  for (const a of annotations) {
+    const ad = a.date; // YYYY-MM-DD
+    const bucket = points.find((p) => ad >= p.period_start && ad <= p.period_end);
+    if (bucket) out.push({ bucketLabel: fmtDate(bucket.period_start), text: a.label, kind: a.kind });
+  }
+  return out;
+}
+
+const KIND_COLOR = {
+  holiday: "var(--status-good)",
+  incident: "var(--status-critical)",
+  release: "var(--series-1)",
+  other: "var(--muted)",
+};
+
+export default function TrendChart({ series, threshold, annotations }) {
   const data = series.points.map((p) => ({
     label: fmtDate(p.period_start),
     value: p.value,
     completeness: p.data_completeness,
   }));
+  const marks = annotationsForBuckets(series.points, annotations);
   const hasAny = data.some((d) => d.value != null);
   return (
     <div className="chart-box">
@@ -58,6 +79,35 @@ export default function TrendChart({ series }) {
               }}
               formatter={(v) => [formatValue(series.metric, v), series.name]}
             />
+            {/* Hedef/eşik çizgileri: yeşil = sağlıklı sınır, kırmızı = zorlanma */}
+            {threshold && (
+              <ReferenceLine
+                y={threshold.green}
+                stroke="var(--status-good)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.7}
+                label={{ value: `hedef ${threshold.green}`, position: "insideTopRight", fill: "var(--muted)", fontSize: 10 }}
+              />
+            )}
+            {threshold && (
+              <ReferenceLine
+                y={threshold.red}
+                stroke="var(--status-critical)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.6}
+                label={{ value: `eşik ${threshold.red}`, position: "insideBottomRight", fill: "var(--muted)", fontSize: 10 }}
+              />
+            )}
+            {/* Anotasyonlar: tatil/incident/sürüm — tepe/çukur yanlış okunmasın */}
+            {marks.map((m, i) => (
+              <ReferenceLine
+                key={`ann-${i}`}
+                x={m.bucketLabel}
+                stroke={KIND_COLOR[m.kind] || KIND_COLOR.other}
+                strokeWidth={1.5}
+                label={{ value: `⚑ ${m.text}`, position: "top", fill: KIND_COLOR[m.kind] || KIND_COLOR.other, fontSize: 10 }}
+              />
+            ))}
             <Line
               type="monotone"
               dataKey="value"

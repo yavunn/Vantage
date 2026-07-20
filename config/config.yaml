@@ -78,6 +78,14 @@ metrics:
     # Deploy sonrası N gün içinde hotfix/bug-fix gelirse başarısız sayılır.
     # TAKIM seviyesinde DORA metriğidir; asla kişi sinyali değildir.
     hotfix_window_days: 3
+  mttr:
+    enabled: true
+    # 4. DORA metriği — Toparlanma Süresi. source: incident başlangıç+çözüm
+    # damgası nereden gelsin. jira_incident: 'incident' iş tipi (created→resolved);
+    # git_revert: revert commit ile orijinal commit arası. İkisi de yoksa
+    # metrik 'veri yetersiz' gösterir — asla uydurulmaz.
+    source: jira_incident      # jira_incident | git_revert
+    fallback: git_revert
   wip:
     enabled: true              # aynı anda açık iş (tıkanma göstergesi)
   rework:
@@ -97,6 +105,7 @@ health_thresholds:
   review_latency_days:    { green: 1,  red: 4 }
   deployment_frequency:   { green: 3,  red: 1 }     # haftalık deploy; yüksek iyi
   change_failure_rate:    { green: 0.15, red: 0.30 }
+  mttr_hours:             { green: 24, red: 72 }    # toparlanma süresi (saat); düşük iyi
   wip_per_dev:            { green: 3,  red: 5 }
   rework_rate:            { green: 0.15, red: 0.35 }
   process_hygiene:        { green: 0.8, red: 0.5 }  # tamlık oranı; yüksek iyi

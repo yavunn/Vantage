@@ -215,6 +215,11 @@ class MetricResult(Base):
     data_completeness: Mapped[float] = mapped_column(Float, default=1.0)
     # Hangi katman/kaynaktan üretildi (git | jira_status | pr_merge ...)
     source_layer: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Değerin dayandığı kayıt sayısı — az örneklem yanıltıcı olmasın diye gösterilir
+    sample_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Süre metriklerinde dağılım: {"median": .., "p90": .., "min": .., "max": ..}
+    # Ortalama tek başına yanıltıcı; medyan/p90 yanına eklenir. Yoksa NULL.
+    stats: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -318,3 +323,69 @@ class Recommendation(Base):
     message: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20), default="info")  # info | warning | attention
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class TrendAnnotation(Base):
+    """Trend grafiklerine düşen işaret (tatil, incident, sürüm). Bir tepe/çukur
+    yanlış okunmasın diye bağlam verir. team_id NULL = tüm takımlar (ör. resmi
+    tatil). Metrik verisini DEĞİŞTİRMEZ; yalnızca görsel bağlamdır."""
+
+    __tablename__ = "trend_annotations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    date: Mapped[date] = mapped_column(Date)
+    label: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20), default="other")  # holiday | incident | release | other
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CodeAnalysis(Base):
+    """AI kod analizi sonucu (repo/dosya düzeyi — KİŞİ DEĞİL). Her boyut 0-100.
+    diff_hash: analiz edilen diff'in SHA256'sı — aynı diff tekrar analiz
+    edilmesin (maliyet). Değer yoksa None: 'analiz bekliyor' gösterilir."""
+
+    __tablename__ = "code_analyses"
+    __table_args__ = (UniqueConstraint("repo_id", "diff_hash", name="uq_code_analysis"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), nullable=True)
+    # Kod git commit YAZARINA atfedilir (kişi-bazlı analiz). NULL = atfedilmemiş.
+    developer_id: Mapped[int | None] = mapped_column(ForeignKey("developers.id"), nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_path: Mapped[str] = mapped_column(Text)
+    diff_hash: Mapped[str] = mapped_column(String(64))
+    diff_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 7 boyut (0-100). None = üretilemedi.
+    readability: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    complexity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    maintainability: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    test_adequacy: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    security: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    code_smells: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    conventions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    composite: Mapped[float | None] = mapped_column(Float, nullable=True)
+    suggestions: Mapped[list | None] = mapped_column(JSON, nullable=True)  # [{"text":...}]
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # claude | local
+    model: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class CodeAnalysisAudit(Base):
+    """LLM'e HANGİ verinin gittiğinin denetim kaydı (İlke: gizlilik/denetlenebilir).
+    İçerik saklanmaz — yalnızca meta: dosya, hash, boyut, maskelenen secret sayısı."""
+
+    __tablename__ = "code_analysis_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id"), nullable=True)
+    file_path: Mapped[str] = mapped_column(Text)
+    diff_hash: Mapped[str] = mapped_column(String(64))
+    chars_sent: Mapped[int] = mapped_column(Integer)
+    masked_secrets: Mapped[int] = mapped_column(Integer, default=0)
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20))  # ok | error | skipped
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

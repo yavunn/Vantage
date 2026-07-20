@@ -8,13 +8,17 @@ import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import IndividualView from "./components/IndividualView.jsx";
 import LeavesPanel from "./components/LeavesPanel.jsx";
 import Login from "./components/Login.jsx";
+import CodeHealthCard from "./components/CodeHealthCard.jsx";
+import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
+import MetricDrilldown from "./components/MetricDrilldown.jsx";
 import ProjectsPanel from "./components/ProjectsPanel.jsx";
 import Settings from "./components/Settings.jsx";
 import Setup from "./components/Setup.jsx";
+import SignalsBlock from "./components/SignalsBlock.jsx";
 import TrendChart from "./components/TrendChart.jsx";
 
-const SERIES_KEYS = ["cycle_time", "pr_review_time", "review_latency", "deployment_frequency", "rework"];
+const RANGE_OPTIONS = [7, 30, 90];
 
 function BrandMark() {
   return (
@@ -47,7 +51,14 @@ export default function App() {
   const [teamId, setTeamId] = useState(null);
   const [summary, setSummary] = useState(null);
   const [series, setSeries] = useState([]);
+  const [signals, setSignals] = useState([]);
   const [quality, setQuality] = useState([]);
+  const [annotations, setAnnotations] = useState([]);
+  const [range, setRange] = useState(30);
+  const [codeHealth, setCodeHealth] = useState(null);
+  const [codeHealthSeries, setCodeHealthSeries] = useState(null);
+  const [codeDrill, setCodeDrill] = useState(false);
+  const [drill, setDrill] = useState(null); // {key, name} — açık drill-down metriği
   const [directory, setDirectory] = useState([]);
   const [viewDevId, setViewDevId] = useState(null);
   const [tab, setTab] = useState("team");
@@ -112,13 +123,25 @@ export default function App() {
       .catch(setError);
   }, [user]);
 
+  // Rapor: seçilen aralığa (7/30/90) göre ANLIK hesap — metrik+trend+sinyal+delta.
   useEffect(() => {
     if (teamId == null) return;
-    api(`/api/teams/${teamId}/summary`).then(setSummary).catch(setError);
+    api(`/api/teams/${teamId}/report?days=${range}`)
+      .then((rep) => {
+        setSummary(rep);
+        setSeries(rep.series || []);
+        setSignals(rep.signals || []);
+      })
+      .catch(setError);
+  }, [teamId, range]);
+
+  // Kaliteyi ve anotasyonları aralıktan bağımsız yükle (takım değişince).
+  useEffect(() => {
+    if (teamId == null) return;
     api(`/api/teams/${teamId}/quality`).then(setQuality).catch(() => setQuality([]));
-    Promise.all(
-      SERIES_KEYS.map((k) => api(`/api/teams/${teamId}/series/${k}`).catch(() => null))
-    ).then((all) => setSeries(all.filter(Boolean)));
+    api(`/api/annotations?team_id=${teamId}`).then(setAnnotations).catch(() => setAnnotations([]));
+    api(`/api/teams/${teamId}/code-health`).then(setCodeHealth).catch(() => setCodeHealth(null));
+    api(`/api/teams/${teamId}/code-health/series`).then(setCodeHealthSeries).catch(() => setCodeHealthSeries(null));
   }, [teamId]);
 
   function doLogout() {
@@ -252,14 +275,36 @@ export default function App() {
       {tab === "team" && summary && (
         <>
           <div className="team-toolbar">
+            <div className="range-picker" role="group" aria-label="Tarih aralığı">
+              {RANGE_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  className={`mini${range === d ? " active" : ""}`}
+                  onClick={() => setRange(d)}
+                >
+                  {d} gün
+                </button>
+              ))}
+            </div>
+            <span style={{ flex: 1 }} />
             <button className="mini" onClick={exportCsv}>CSV indir</button>
             <button className="mini" onClick={() => window.print()}>Yazdır / PDF</button>
           </div>
           <div className="cards">
             {summary.metrics.map((m) => (
-              <MetricCard key={m.key} metric={m} />
+              <MetricCard
+                key={m.key}
+                metric={m}
+                previous={m.previous_value}
+                onClick={() => setDrill({ key: m.key, name: m.name })}
+              />
             ))}
+            {codeHealth && (
+              <CodeHealthCard health={codeHealth} onClick={() => setCodeDrill(true)} />
+            )}
           </div>
+
+          <SignalsBlock signals={signals} />
 
           {summary.recommendations.length > 0 && (
             <section className="section">
@@ -276,11 +321,19 @@ export default function App() {
           )}
 
           <section className="section">
-            <h2>Haftalık trend</h2>
+            <h2>Trend ({range} gün)</h2>
             <div className="charts">
               {series.map((s) => (
-                <TrendChart key={s.metric} series={s} />
+                <TrendChart
+                  key={s.metric}
+                  series={s}
+                  threshold={uiConfig.metric_thresholds?.[s.metric]}
+                  annotations={annotations}
+                />
               ))}
+              {codeHealthSeries && codeHealthSeries.points?.some((p) => p.value != null) && (
+                <TrendChart series={codeHealthSeries} annotations={annotations} />
+              )}
             </div>
           </section>
 
@@ -338,6 +391,24 @@ export default function App() {
             <p className="desc">Bu hesap bir geliştiriciye bağlı değil.</p>
           )}
         </>
+      )}
+
+      {drill && (
+        <MetricDrilldown
+          teamId={teamId}
+          metricKey={drill.key}
+          metricName={drill.name}
+          days={range}
+          onClose={() => setDrill(null)}
+        />
+      )}
+
+      {codeDrill && (
+        <CodeHealthDrilldown
+          path={`/api/teams/${teamId}/code-health/breakdown`}
+          title="Kod Sağlığı — dikkat isteyen bölümler (takım)"
+          onClose={() => setCodeDrill(false)}
+        />
       )}
     </div>
   );

@@ -78,8 +78,64 @@ button.tab.active { border-color: var(--series-1); color: var(--series-1); font-
 .card .desc { font-size: 12px; color: var(--text-secondary); margin: 2px 0 8px; line-height: 1.4; }
 .card .meta { font-size: 11.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 .card.insufficient .value { color: var(--muted); font-size: 18px; padding: 6px 0; }
+.card .dist { display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; }
+.card .dist span { background: var(--surface-2, rgba(127,127,127,0.1)); padding: 1px 7px; border-radius: 6px; }
+.card .sample { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.card .sample.low { color: var(--status-warning); font-weight: 600; }
 
 .status-label { font-size: 12px; font-weight: 600; }
+
+/* Delta oku (önceki döneme göre) — renk yönü metriğe göre kurulur */
+.delta { margin-left: auto; font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 6px; white-space: nowrap; }
+.delta.good { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
+.delta.bad { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 14%, transparent); }
+.delta.flat { color: var(--muted); }
+
+/* Tıklanabilir kart (drill-down) */
+.card.clickable { cursor: pointer; transition: transform .08s ease, box-shadow .08s ease; }
+.card.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+.card.clickable:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+/* Tarih aralığı seçici */
+.range-picker { display: inline-flex; gap: 4px; }
+.range-picker .mini.active { background: var(--series-1); color: #fff; border-color: var(--series-1); }
+.team-toolbar { display: flex; align-items: center; gap: 8px; }
+
+/* Drill-down tablo */
+.drill-scroll { max-height: 55vh; overflow: auto; }
+.drill-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.drill-table th, .drill-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.drill-table th.num, .drill-table td.num { text-align: right; }
+.drill-table td.muted { color: var(--muted); }
+
+/* Anotasyon formu + admin tablo */
+.inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.inline-form input, .inline-form select { padding: 6px 8px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.error-inline { color: var(--status-critical); font-size: 13px; }
+.ok-inline { color: var(--status-good); font-size: 13px; }
+
+/* Kod sağlığı drill-down */
+.ch-file { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ch-file-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ch-file-head code { font-size: 12.5px; word-break: break-all; }
+.ch-score { margin-left: auto; font-weight: 700; }
+.ch-dims { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; font-size: 11.5px; }
+.ch-dims span { background: var(--surface-2, rgba(127,127,127,0.1)); padding: 1px 6px; border-radius: 6px; color: var(--text-secondary); }
+.ch-dims span.low { color: var(--status-critical); font-weight: 600; }
+.ch-sugg { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); }
+.ch-sugg li { margin: 2px 0; }
+
+/* AI kod analizi ayar paneli */
+.ca-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 8px; }
+.ca-row label { font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.ca-row input[type="number"] { width: 90px; padding: 5px 7px; }
+.ca-weights { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ca-weights label { display: flex; flex-direction: column; font-size: 12.5px; gap: 4px; }
+.ca-weights input { padding: 5px 7px; }
+.ca-block { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ca-block textarea { font-family: monospace; font-size: 12.5px; padding: 8px; }
 
 .section { margin-top: 28px; }
 .section h2 { font-size: 16px; margin: 0 0 12px; }

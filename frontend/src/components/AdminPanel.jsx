@@ -6,6 +6,8 @@ import {
   setEmployeePassword,
   updateEmployee,
 } from "../api.js";
+import AnnotationsPanel from "./AnnotationsPanel.jsx";
+import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
 
@@ -172,9 +174,15 @@ export default function AdminPanel({ teams, me }) {
       <div className="subtabs">
         <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
         <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
+        <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
+        <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
       </div>
 
       {subtab === "integration" && <IntegrationPanel />}
+
+      {subtab === "annotations" && <AnnotationsPanel teams={teams} />}
+
+      {subtab === "code" && <CodeAnalysisPanel />}
 
       {subtab === "accounts" && (
         <>

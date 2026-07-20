@@ -24,6 +24,20 @@ def sync() -> None:
     print("Senkron tamam:", stats)
 
 
+def analyze_code() -> None:
+    """python -m app.cli analyze-code — git_log repolarındaki değişen dosyaları
+    AI ile analiz eder (llm.enabled + code_analysis.enabled gerektirir)."""
+    from app.core.config import get_config
+    from app.core.db import get_sessionmaker
+    from app.services.code_analysis import run_code_analysis
+
+    session = get_sessionmaker()()
+    try:
+        print("Kod analizi:", run_code_analysis(session, get_config()))
+    finally:
+        session.close()
+
+
 def serve() -> None:
     import uvicorn
 
@@ -62,6 +76,7 @@ def set_password() -> None:
 COMMANDS = {
     "init-db": init_db,
     "sync": sync,
+    "analyze-code": analyze_code,
     "serve": serve,
     "set-password": set_password,
 }

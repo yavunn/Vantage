@@ -121,6 +121,7 @@ class HealthThresholds(BaseModel):
     review_latency_days: Threshold = Threshold(green=1, red=4)
     deployment_frequency: Threshold = Threshold(green=3, red=1)
     change_failure_rate: Threshold = Threshold(green=0.15, red=0.30)
+    mttr_hours: Threshold = Threshold(green=24, red=72)  # toparlanma süresi (saat); düşük iyi
     wip_per_dev: Threshold = Threshold(green=3, red=5)
     rework_rate: Threshold = Threshold(green=0.15, red=0.35)
     process_hygiene: Threshold = Threshold(green=0.8, red=0.5)
@@ -158,6 +159,32 @@ class LLMSettings(BaseModel):
     claude: LLMClaude = Field(default_factory=LLMClaude)
 
 
+class CodeAnalysisSettings(BaseModel):
+    """AI kod analizi ayarları. Kişiyi puanlamaz — repo/modül düzeyinde toplar.
+    Rubrik ağırlıkları composite skoru belirler; toplamları 0 değilse normalize
+    edilir. exclude_globs: analiz dışı klasörler (üretilen/vendor kod)."""
+
+    enabled: bool = False
+    # 7 boyut ağırlığı (composite skor için). Eşit varsayılan.
+    weights: dict[str, float] = Field(default_factory=lambda: {
+        "readability": 1.0,
+        "complexity": 1.0,
+        "maintainability": 1.0,
+        "test_adequacy": 1.0,
+        "security": 1.0,
+        "code_smells": 1.0,
+        "conventions": 1.0,
+    })
+    exclude_globs: list[str] = Field(default_factory=lambda: [
+        "generated/*", "vendor/*", "node_modules/*", "dist/*", "build/*",
+        "*.min.js", "*.lock", "*.map",
+    ])
+    # Bir çalıştırmada en fazla kaç diff analiz edilsin (maliyet freni)
+    max_files_per_run: int = 40
+    # Diff'te bu satır sayısını aşan dosyalar kırpılır (token freni)
+    max_diff_lines: int = 400
+
+
 class Config(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -167,6 +194,7 @@ class Config(BaseModel):
     health_thresholds: HealthThresholds = Field(default_factory=HealthThresholds)
     rules: dict[str, RuleConfig] = Field(default_factory=dict)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    code_analysis: CodeAnalysisSettings = Field(default_factory=CodeAnalysisSettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —

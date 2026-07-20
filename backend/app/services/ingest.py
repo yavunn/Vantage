@@ -33,21 +33,30 @@ from app.models import (
 
 
 class Ingestor:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, repo_team_map: dict[str, str] | None = None):
         self.session = session
         self._repo_cache: dict[str, Repo] = {}
         self._dev_cache: dict[str, Developer] = {}
         self._team_cache: dict[str, Team] = {}
+        self._repo_team_map: dict[str, str] = repo_team_map or {}
 
     # --- yardımcı çözümleyiciler ---------------------------------------------
 
     def _repo(self, name: str, team_name: str | None = None) -> Repo:
         if name in self._repo_cache:
             return self._repo_cache[name]
+        # Commit/PR/kalite normalize kaydı takım taşımaz; config'teki repo→takım
+        # eşlemesinden çözülür (git_log/gitlab/sonarqube gerçek kaynaklarında
+        # takım panosunun dolması için gerekli).
+        team_name = team_name or self._repo_team_map.get(name)
         repo = self.session.scalar(select(Repo).where(Repo.name == name))
         if repo is None:
             repo = Repo(name=name, team_id=self._team(team_name).id if team_name else None)
             self.session.add(repo)
+            self.session.flush()
+        elif team_name and repo.team_id is None:
+            # Daha önce takımsız oluşmuşsa (ör. fixture kalıntısı) şimdi bağla
+            repo.team_id = self._team(team_name).id
             self.session.flush()
         self._repo_cache[name] = repo
         return repo
@@ -202,9 +211,12 @@ def run_ingest(
     git: GitProvider | None,
     tasks: TaskProvider | None,
     quality: QualityProvider | None,
+    repo_team_map: dict[str, str] | None = None,
 ) -> dict[str, int]:
-    """Tüm kaynaklardan çek + normalize et + yaz. Kaynak yoksa atlanır."""
-    ing = Ingestor(session)
+    """Tüm kaynaklardan çek + normalize et + yaz. Kaynak yoksa atlanır.
+    repo_team_map: repo adı → takım adı (config'ten; commit/PR/kalite kaynağı
+    takım taşımadığında panonun dolması için)."""
+    ing = Ingestor(session, repo_team_map=repo_team_map)
     stats = {"commits": 0, "pull_requests": 0, "tasks": 0, "quality_snapshots": 0}
     if git is not None:
         stats["commits"] = ing.ingest_commits(git.fetch_commits())

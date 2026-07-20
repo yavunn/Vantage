@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { changePassword } from "../api.js";
+import MyCodeHealth from "./MyCodeHealth.jsx";
 
 // Profil / Ayarlar sayfası: profil bilgisi, parola değiştirme, tema, oturum.
 export default function Settings({ user, theme, onCycleTheme, themeLabel, onLogout }) {
@@ -88,6 +89,8 @@ export default function Settings({ user, theme, onCycleTheme, themeLabel, onLogo
         <p className="desc">Tema tercihi cihazında saklanır.</p>
         <button className="mini" onClick={onCycleTheme}>{themeLabel}</button>
       </section>
+
+      <MyCodeHealth user={user} />
 
       <section className="section">
         <h2>Oturum</h2>

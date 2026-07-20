@@ -58,9 +58,53 @@ class MetricOutcome:
     completeness: float
     source_layer: str | None
     sample: int  # değerin dayandığı kayıt sayısı (şeffaflık için)
+    stats: dict | None = None  # süre metriklerinde {median, p90, min, max}
 
 
 ZERO = MetricOutcome(value=None, completeness=0.0, source_layer=None, sample=0)
+
+
+def _percentile(sorted_vals: list[float], q: float) -> float:
+    """Doğrusal enterpolasyonlu yüzdelik (q: 0..1). Küçük örneklemde de tutarlı."""
+    if not sorted_vals:
+        return 0.0
+    if len(sorted_vals) == 1:
+        return sorted_vals[0]
+    pos = q * (len(sorted_vals) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(sorted_vals) - 1)
+    frac = pos - lo
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac
+
+
+def _distribution(values: list[float]) -> dict | None:
+    """Ortalama yanıltıcı olabilir: medyan + p90 + uç değerleri birlikte döndür.
+    Ortalama ATILMAZ, çağıran ayrıca value olarak taşır; bu yalnızca yanına eklenir."""
+    if not values:
+        return None
+    s = sorted(values)
+    return {
+        "median": _percentile(s, 0.5),
+        "p90": _percentile(s, 0.9),
+        "min": s[0],
+        "max": s[-1],
+    }
+
+
+def _duration_outcome(
+    durations: list[float], denom: int, source_layer: str
+) -> MetricOutcome:
+    """Süre metrikleri için ortak çıktı: ortalama + medyan/p90 dağılımı + örneklem.
+    denom: completeness paydası (aday kayıt sayısı). Boşsa 'veri yetersiz'."""
+    if not durations:
+        return MetricOutcome(None, 0.0, source_layer, 0)
+    return MetricOutcome(
+        value=sum(durations) / len(durations),
+        completeness=len(durations) / max(1, denom),
+        source_layer=source_layer,
+        sample=len(durations),
+        stats=_distribution(durations),
+    )
 
 
 @dataclass
@@ -155,12 +199,7 @@ def cycle_time(data: TeamData, cfg: Config) -> MetricOutcome:
                 if start_ts and end_ts and end_ts >= start_ts:
                     durations.append((end_ts - start_ts).total_seconds() / 86400)
             if durations:
-                return MetricOutcome(
-                    value=sum(durations) / len(durations),
-                    completeness=len(durations) / len(done_in_window),
-                    source_layer=layer,
-                    sample=len(durations),
-                )
+                return _duration_outcome(durations, len(done_in_window), layer)
         elif layer == "pr_merge":
             merged = [
                 p for p in data.prs
@@ -172,12 +211,7 @@ def cycle_time(data: TeamData, cfg: Config) -> MetricOutcome:
                 if p.opened_at and as_utc(p.merged_at) >= as_utc(p.opened_at)
             ]
             if durations:
-                return MetricOutcome(
-                    value=sum(durations) / len(durations),
-                    completeness=len(durations) / max(1, len(merged)),
-                    source_layer="pr_merge",
-                    sample=len(durations),
-                )
+                return _duration_outcome(durations, len(merged), "pr_merge")
     return ZERO
 
 
@@ -191,14 +225,7 @@ def pr_review_time(data: TeamData, cfg: Config) -> MetricOutcome:
         for p in merged
         if p.opened_at and as_utc(p.merged_at) >= as_utc(p.opened_at)
     ]
-    if not durations:
-        return MetricOutcome(None, 0.0, "git", 0)
-    return MetricOutcome(
-        value=sum(durations) / len(durations),
-        completeness=len(durations) / len(merged),
-        source_layer="git",
-        sample=len(durations),
-    )
+    return _duration_outcome(durations, len(merged), "git")
 
 
 def review_latency(data: TeamData, cfg: Config) -> MetricOutcome:
@@ -221,6 +248,7 @@ def review_latency(data: TeamData, cfg: Config) -> MetricOutcome:
         completeness=dated / max(1, total),
         source_layer="git",
         sample=len(latencies),
+        stats=_distribution(latencies),
     )
 
 
@@ -351,6 +379,77 @@ def estimate_accuracy(data: TeamData, cfg: Config) -> MetricOutcome:
     return MetricOutcome(sum(ratios) / len(ratios), completeness, "manual", len(ratios))
 
 
+INCIDENT_TYPES = {"incident", "outage", "olay", "kesinti"}
+INCIDENT_HINTS = ("incident", "outage", "sev1", "sev2", "p1", "p2", "olay", "kesinti")
+
+
+def _revert_target_sha(message: str | None) -> str | None:
+    """'Revert "..." This reverts commit <sha>.' örüntüsünden hedef sha'yı çıkarır.
+    Git'in standart revert mesaj biçimidir; bulunamazsa None."""
+    if not message:
+        return None
+    low = message.lower()
+    if "reverts commit" in low:
+        after = low.split("reverts commit", 1)[1].strip()
+        token = after.split()[0].strip(".") if after.split() else ""
+        if len(token) >= 7 and all(c in "0123456789abcdef" for c in token):
+            return token
+    return None
+
+
+def mttr(data: TeamData, cfg: Config) -> MetricOutcome:
+    """4. DORA metriği — Toparlanma Süresi (MTTR): incident başladıktan normale
+    dönene kadar (saat). TAKIM sağlık göstergesi; asla kişi sinyali değildir.
+
+    İki aday veri katmanı (config: source):
+      - jira_incident: type/başlık 'incident' olan task'ın açılış→bitiş süresi.
+      - git_revert: bir revert commit'i ile geri aldığı orijinal commit
+        arasındaki süre (Git standart 'This reverts commit <sha>' mesajından).
+
+    Hiçbir katmanda veri yoksa value=None döner ('veri yetersiz'). Uydurma YOK.
+    Gerçek incident yönetimi için önerilen kaynak: PagerDuty/Opsgenie olay
+    başlangıç+çözüm damgaları ya da Jira 'incident' iş tipi (created→resolved).
+    """
+    mc = cfg.metric("mttr")
+    chain = [mc.source or "jira_incident"]
+    if mc.fallback and mc.fallback not in chain:
+        chain.append(mc.fallback)
+
+    for layer in chain:
+        if layer == "jira_incident":
+            incidents = [
+                t for t in data.tasks
+                if ((t.type or "").strip().lower() in INCIDENT_TYPES
+                    or any(h in (t.title or "").lower() for h in INCIDENT_HINTS))
+                and (d := _task_done_at(t)) is not None and data.start <= d <= data.end
+            ]
+            hours = []
+            for t in incidents:
+                start_ts = as_utc(t.created_at)
+                end_ts = _task_done_at(t)
+                if start_ts and end_ts and end_ts >= start_ts:
+                    hours.append((end_ts - start_ts).total_seconds() / 3600)
+            if hours:
+                out = _duration_outcome(hours, len(incidents), "jira_incident")
+                return out
+        elif layer == "git_revert":
+            by_sha = {c.sha[:12]: c for c in data.commits if c.sha}
+            hours = []
+            considered = 0
+            for c in data.commits:
+                target = _revert_target_sha(c.message)
+                if target is None:
+                    continue
+                considered += 1
+                orig = by_sha.get(target[:12])
+                rev_ts, orig_ts = as_utc(c.committed_at), as_utc(orig.committed_at) if orig else None
+                if orig_ts and rev_ts and rev_ts >= orig_ts:
+                    hours.append((rev_ts - orig_ts).total_seconds() / 3600)
+            if hours:
+                return _duration_outcome(hours, max(considered, len(hours)), "git_revert")
+    return ZERO
+
+
 def process_hygiene(data: TeamData, cfg: Config) -> MetricOutcome:
     """Eksik verinin kendisi metriktir (İlke A). Bileşenler:
     estimate doluluk, status güncelleme, PR review'lanma, commit kimliği.
@@ -388,6 +487,7 @@ METRIC_FUNCS = {
     "review_latency": review_latency,
     "deployment_frequency": deployment_frequency,
     "change_failure_rate": change_failure_rate,
+    "mttr": mttr,
     "wip": wip,
     "rework": rework_rate,
     "estimate_accuracy": estimate_accuracy,
@@ -419,6 +519,8 @@ def _upsert(session: Session, scope: str, scope_id: int, metric_key: str,
     row.value = outcome.value
     row.data_completeness = outcome.completeness
     row.source_layer = outcome.source_layer
+    row.sample_size = outcome.sample
+    row.stats = outcome.stats
     row.computed_at = now
 
 
@@ -428,6 +530,13 @@ def compute_all(session: Session, cfg: Config) -> int:
     end = now
     start = end - timedelta(days=cfg.app.window_days)
     written = 0
+
+    # Team-scope metrikler her çalıştırmada tümüyle yeniden üretilir. Period
+    # anahtarı tarihle kaydığından eski satırlar upsert'e uğramaz, birikir ve
+    # trendi/özeti kirletir. Bu yüzden önce temizlenir (developer/project scope
+    # bu fonksiyonda üretilmediğinden dokunulmaz).
+    from app.models import MetricResult as _MR
+    session.query(_MR).filter(_MR.scope == "team").delete(synchronize_session=False)
 
     for team in session.scalars(select(Team)):
         data = load_team_data(session, team, start, end)
