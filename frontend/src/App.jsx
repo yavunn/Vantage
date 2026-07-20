@@ -1,22 +1,28 @@
 // Nabız — Mühendislik Sağlığı Panosu.
 // Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, fetchMe, getStoredUser, getToken, logout, setCurrentDevId, setupStatus } from "./api.js";
-import AdminPanel from "./components/AdminPanel.jsx";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
-import IndividualView from "./components/IndividualView.jsx";
-import LeavesPanel from "./components/LeavesPanel.jsx";
 import Login from "./components/Login.jsx";
 import CodeHealthCard from "./components/CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
 import MetricDrilldown from "./components/MetricDrilldown.jsx";
-import ProjectsPanel from "./components/ProjectsPanel.jsx";
-import Settings from "./components/Settings.jsx";
 import Setup from "./components/Setup.jsx";
 import SignalsBlock from "./components/SignalsBlock.jsx";
+import ToastHost from "./components/ToastHost.jsx";
 import TrendChart from "./components/TrendChart.jsx";
+
+// Varsayılan (takım) görünümde gerekmeyen ağır panelleri tembel yükle —
+// ilk açılış paketi küçülür.
+const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
+const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
+const LeavesPanel = lazy(() => import("./components/LeavesPanel.jsx"));
+const ProjectsPanel = lazy(() => import("./components/ProjectsPanel.jsx"));
+const Settings = lazy(() => import("./components/Settings.jsx"));
+
+const LazyFallback = <div className="app">Yükleniyor…</div>;
 
 const RANGE_OPTIONS = [7, 30, 90];
 
@@ -41,6 +47,32 @@ function applyTheme(theme) {
   else delete root.dataset.theme;
 }
 
+// Gezinme durumu: URL hash (paylaşılabilir/yer imi) öncelikli, yoksa
+// localStorage (reload'da kaldığın yer). #tab=team&team=1&range=30
+function readNav() {
+  const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+  const ls = (k) => localStorage.getItem(k) || undefined;
+  const rangeRaw = h.get("range") || ls("nabiz_range");
+  const teamRaw = h.get("team") || ls("nabiz_team");
+  return {
+    tab: h.get("tab") || ls("nabiz_tab") || "team",
+    range: [7, 30, 90].includes(Number(rangeRaw)) ? Number(rangeRaw) : 30,
+    team: teamRaw != null ? Number(teamRaw) : null,
+  };
+}
+
+function writeNav({ tab, team, range }) {
+  if (tab) localStorage.setItem("nabiz_tab", tab);
+  if (team != null) localStorage.setItem("nabiz_team", String(team));
+  if (range) localStorage.setItem("nabiz_range", String(range));
+  const p = new URLSearchParams();
+  if (tab) p.set("tab", tab);
+  if (team != null) p.set("team", String(team));
+  if (range) p.set("range", String(range));
+  const next = "#" + p.toString();
+  if (location.hash !== next) history.replaceState(null, "", next);
+}
+
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -54,14 +86,14 @@ export default function App() {
   const [signals, setSignals] = useState([]);
   const [quality, setQuality] = useState([]);
   const [annotations, setAnnotations] = useState([]);
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useState(() => readNav().range);
   const [codeHealth, setCodeHealth] = useState(null);
   const [codeHealthSeries, setCodeHealthSeries] = useState(null);
   const [codeDrill, setCodeDrill] = useState(false);
   const [drill, setDrill] = useState(null); // {key, name} — açık drill-down metriği
   const [directory, setDirectory] = useState([]);
   const [viewDevId, setViewDevId] = useState(null);
-  const [tab, setTab] = useState("team");
+  const [tab, setTab] = useState(() => readNav().tab);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("nabiz_theme") || "auto");
 
@@ -70,6 +102,20 @@ export default function App() {
     applyTheme(theme);
     localStorage.setItem("nabiz_theme", theme);
   }, [theme]);
+
+  // Gezinme durumunu kalıcılaştır (reload'da kal, URL paylaşılabilir).
+  useEffect(() => {
+    writeNav({ tab, team: teamId, range });
+  }, [tab, teamId, range]);
+
+  // Geçerli olmayan sekmeyi (ör. saklanmış 'admin' ama kullanıcı admin değil) düzelt.
+  useEffect(() => {
+    if (!user || !uiConfig) return;
+    const allowed = new Set(["team", "projects", "leaves", "settings"]);
+    if (uiConfig.individual_view_enabled) allowed.add("me");
+    if (user.role === "admin") allowed.add("admin");
+    if (!allowed.has(tab)) setTab("team");
+  }, [user, uiConfig, tab]);
 
   // Açılış: önce kurulum gerekli mi, sonra token doğrula.
   useEffect(() => {
@@ -118,7 +164,11 @@ export default function App() {
         setUiConfig(cfg);
         setTeams(tms);
         setDirectory(dir);
-        if (tms.length) setTeamId((cur) => cur ?? tms[0].id);
+        if (tms.length) {
+          const saved = readNav().team;
+          const valid = tms.some((t) => t.id === saved);
+          setTeamId((cur) => cur ?? (valid ? saved : tms[0].id));
+        }
       })
       .catch(setError);
   }, [user]);
@@ -256,21 +306,36 @@ export default function App() {
         </span>
       </header>
 
-      {tab === "settings" && (
-        <Settings
-          user={user}
-          theme={theme}
-          onCycleTheme={cycleTheme}
-          themeLabel={themeLabel}
-          onLogout={doLogout}
-        />
+      <Suspense fallback={LazyFallback}>
+        {tab === "settings" && (
+          <Settings
+            user={user}
+            theme={theme}
+            onCycleTheme={cycleTheme}
+            themeLabel={themeLabel}
+            onLogout={doLogout}
+          />
+        )}
+
+        {tab === "projects" && <ProjectsPanel isAdmin={isAdmin} />}
+
+        {tab === "leaves" && <LeavesPanel user={user} isAdmin={isAdmin} />}
+
+        {tab === "admin" && isAdmin && <AdminPanel teams={teams} me={user} />}
+      </Suspense>
+
+      {tab === "team" && !summary && !error && (
+        <div className="cards" aria-hidden="true">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="card skeleton">
+              <div className="sk-line sk-title" />
+              <div className="sk-line sk-value" />
+              <div className="sk-line" />
+              <div className="sk-line short" />
+            </div>
+          ))}
+        </div>
       )}
-
-      {tab === "projects" && <ProjectsPanel isAdmin={isAdmin} />}
-
-      {tab === "leaves" && <LeavesPanel user={user} isAdmin={isAdmin} />}
-
-      {tab === "admin" && isAdmin && <AdminPanel teams={teams} me={user} />}
 
       {tab === "team" && summary && (
         <>
@@ -290,6 +355,30 @@ export default function App() {
             <button className="mini" onClick={exportCsv}>CSV indir</button>
             <button className="mini" onClick={() => window.print()}>Yazdır / PDF</button>
           </div>
+          {(() => {
+            const all = [...summary.metrics, ...signals, ...(codeHealth ? [codeHealth] : [])];
+            const c = { red: 0, yellow: 0, green: 0 };
+            all.forEach((m) => { if (c[m.status] != null) c[m.status] += 1; });
+            const total = c.red + c.yellow + c.green;
+            if (total === 0) return null;
+            return (
+              <div className="status-band" role="status">
+                <strong>
+                  {c.red > 0
+                    ? `${c.red} alan yardım istiyor`
+                    : c.yellow > 0
+                    ? "Takım genel olarak iyi, birkaç alan izlenmeli"
+                    : "Her şey akıyor 🎉"}
+                </strong>
+                <span className="sb-chips">
+                  {c.red > 0 && <span className="sb red">● {c.red} zorlanıyor</span>}
+                  {c.yellow > 0 && <span className="sb yellow">▲ {c.yellow} izlenmeli</span>}
+                  {c.green > 0 && <span className="sb green">✓ {c.green} akıyor</span>}
+                </span>
+              </div>
+            );
+          })()}
+
           <div className="cards">
             {summary.metrics.map((m) => (
               <MetricCard
@@ -303,6 +392,20 @@ export default function App() {
               <CodeHealthCard health={codeHealth} onClick={() => setCodeDrill(true)} />
             )}
           </div>
+
+          {summary.metrics.length > 0 && summary.metrics.every((m) => m.status === "insufficient_data") && (
+            <div className="empty-guide">
+              <h3>Bu takım için henüz yeterli veri yok</h3>
+              <p>
+                {isAdmin
+                  ? "Gerçek veri için: kaynağı bağla (config.yaml) → senkron çalıştır. Yönetici paneli → Başlangıç adımlarını izle."
+                  : "Veri toplandıkça metrikler burada görünecek. Sorun sürerse yöneticine danış."}
+              </p>
+              {isAdmin && (
+                <button className="mini" onClick={() => setTab("admin")}>Yönetici paneli → Başlangıç</button>
+              )}
+            </div>
+          )}
 
           <SignalsBlock signals={signals} />
 
@@ -386,7 +489,9 @@ export default function App() {
             </select>
           </div>
           {(viewDevId ?? user.developer_id) != null ? (
-            <IndividualView devId={viewDevId ?? user.developer_id} />
+            <Suspense fallback={LazyFallback}>
+              <IndividualView devId={viewDevId ?? user.developer_id} />
+            </Suspense>
           ) : (
             <p className="desc">Bu hesap bir geliştiriciye bağlı değil.</p>
           )}
@@ -410,6 +515,8 @@ export default function App() {
           onClose={() => setCodeDrill(false)}
         />
       )}
+
+      <ToastHost />
     </div>
   );
 }

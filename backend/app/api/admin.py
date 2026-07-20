@@ -197,6 +197,100 @@ def code_analysis_overview_breakdown(session: Session = Depends(get_session), _:
     return company_code_health_breakdown(session)
 
 
+class GitEmailUpdate(BaseModel):
+    git_email: str | None = None
+
+
+@router.patch("/developers/{dev_id}/git-email")
+def set_developer_git_email(
+    dev_id: int,
+    body: GitEmailUpdate,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """Kişinin git commit e-postasını bağlar (kişi-bazlı kod analizi için).
+    Elle SQL yerine panelden. Boş verilirse bağ kaldırılır."""
+    from app.models import Developer
+
+    dev = session.get(Developer, dev_id)
+    if dev is None:
+        raise HTTPException(404, "Kişi bulunamadı")
+    ext = dict(dev.external_ids or {})
+    email = (body.git_email or "").strip().lower()
+    if email:
+        ext["git"] = email
+    else:
+        ext.pop("git", None)
+    dev.external_ids = ext
+    session.commit()
+    return {"ok": True, "git_email": ext.get("git")}
+
+
+@router.get("/code-analysis/audit")
+def code_analysis_audit(
+    limit: int = 100,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """LLM'e ne gitti denetim kaydı (gizlilik şeffaflığı). İçerik saklanmaz —
+    yalnızca meta: dosya, kaç karakter, kaç secret maskelendi, sonuç."""
+    from app.models import CodeAnalysisAudit
+
+    rows = session.scalars(
+        select(CodeAnalysisAudit).order_by(CodeAnalysisAudit.sent_at.desc()).limit(min(limit, 500))
+    ).all()
+    return [
+        {
+            "id": a.id, "file_path": a.file_path, "diff_hash": a.diff_hash[:12],
+            "chars_sent": a.chars_sent, "masked_secrets": a.masked_secrets,
+            "provider": a.provider, "model": a.model, "outcome": a.outcome,
+            "sent_at": a.sent_at.isoformat() if a.sent_at else None,
+        }
+        for a in rows
+    ]
+
+
+@router.get("/onboarding")
+def onboarding_status(session: Session = Depends(get_session), _: User = Depends(require_admin)):
+    """Kurulum kontrol listesi: admin ne yapacağını görsün (yeni kurulumda
+    kaybolmasın). Her adım tamam/eksik + kısa ipucu."""
+    from app.models import Commit, Developer, MetricResult
+
+    cfg = get_config()
+    real_source = cfg.sources.git.provider != "fixture"
+    has_commits = session.scalar(select(func.count()).select_from(Commit)) or 0
+    has_metrics = session.scalar(select(func.count()).select_from(MetricResult)) or 0
+    # kimlik eşleme: bir user'a bağlı developer'lardan kaçının git e-postası var
+    linked = unlinked = 0
+    for u in session.scalars(select(User).where(User.developer_id.isnot(None))):
+        dev = session.get(Developer, u.developer_id)
+        if dev and (dev.external_ids or {}).get("git"):
+            linked += 1
+        else:
+            unlinked += 1
+    employees = session.scalar(select(func.count()).select_from(User)) or 0
+
+    steps = [
+        {"key": "source", "done": real_source,
+         "label": "Gerçek veri kaynağı bağla",
+         "hint": "config.yaml sources.git.provider: git_log/gitlab (şu an fixture)." if not real_source else "Bağlı."},
+        {"key": "sync", "done": bool(has_commits or has_metrics),
+         "label": "Senkron çalıştır",
+         "hint": "Yönetici paneli → Entegrasyon → Senkronla (veya CLI sync)." if not (has_commits or has_metrics) else f"{has_commits} commit çekildi."},
+        {"key": "employees", "done": employees > 1,
+         "label": "Çalışan hesapları oluştur",
+         "hint": "Hesaplar sekmesinden çalışan ekle." if employees <= 1 else f"{employees} hesap."},
+        {"key": "identity", "done": unlinked == 0 and linked > 0,
+         "label": "Giriş hesaplarını git kimliğine bağla",
+         "hint": f"{unlinked} hesabın git e-postası yok — kişi-bazlı analiz için AI Kod Analizi sekmesinden bağla." if unlinked else "Hepsi bağlı."},
+        {"key": "ai", "done": cfg.llm.enabled and cfg.code_analysis.enabled and bool(os.environ.get(cfg.llm.claude.api_key_env)),
+         "label": "AI kod analizini aç",
+         "hint": "AI Kod Analizi sekmesi + ANTHROPIC_API_KEY env." if not (cfg.llm.enabled and cfg.code_analysis.enabled) else "Açık."},
+    ]
+    return {"steps": steps, "linked": linked, "unlinked": unlinked,
+            "complete": all(s["done"] for s in steps)}
+
+
 @router.get("/code-analysis/developers")
 def code_analysis_developers(
     session: Session = Depends(get_session),

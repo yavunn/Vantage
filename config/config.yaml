@@ -1,47 +1,24 @@
-# =============================================================================
-# Engineering Health Dashboard — Ana Konfigürasyon
-#
-# İlke B: Hiçbir metrik zorunlu (elle girilen) veriye bağlı değildir.
-# Her metrik açılıp kapanabilir; source/fallback seçilebilir.
-# Eksik veri sistemi ÇÖKERTMEZ: metrik gizlenir, completeness raporlanır.
-# =============================================================================
-
 app:
-  # Varsayılan görünüm TAKIM/PROJE'dir. Bireysel görünüm yetki ister (Faz 4).
   individual_view_enabled: true
-  # IK "isim istemiyoruz" derse: true → tüm bireysel kimlikler maskelenir,
-  # sistem takım-agregat modda çalışır. (İlke E — anonimleştirme config'i)
   anonymize_individuals: false
-  # Metrik hesaplama penceresi (gün) ve zaman serisi kova boyu (gün)
   window_days: 30
   bucket_days: 7
-
 database:
-  # On-prem PostgreSQL. Ortam değişkeni DATABASE_URL bunu ezer.
-  url: "postgresql+psycopg://health:health@localhost:5433/eng_health"
-
+  url: postgresql+psycopg://health:health@localhost:5433/eng_health
 sync:
-  # Periyodik senkronizasyon (APScheduler). 0 → zamanlayıcı kapalı.
   interval_minutes: 60
-
-# --- Kaynak adaptörleri -------------------------------------------------------
-# Her kaynak ortak bir arayüz uygular (GitProvider / TaskProvider /
-# QualityProvider). Yeni kaynak eklemek çekirdeği bozmaz.
-# NOT: Demo kurulumu fixture (sentetik kirli veri) ile gelir. Gerçek
-# ortamda provider'ları git_log/gitlab, jira/trello, sonarqube yapın.
 sources:
   git:
-    provider: fixture          # git_log | gitlab | fixture
-    # git_log: yereldeki repo yollarını doğrudan parse eder (Katman 0)
-    repos: []                  # örn: [{name: billing-service, path: C:/repos/billing, team: Billing}]
+    provider: fixture
+    repos: []
     gitlab:
-      base_url: ""             # örn: https://gitlab.sirket.local
-      token_env: GITLAB_TOKEN  # token asla config'e yazılmaz, env'den okunur
+      base_url: ''
+      token_env: GITLAB_TOKEN
       projects: []
   tasks:
-    provider: fixture          # jira | trello | fixture | none
+    provider: fixture
     jira:
-      base_url: ""             # örn: https://jira.sirket.local
+      base_url: ''
       token_env: JIRA_TOKEN
       projects: []
     trello:
@@ -49,96 +26,113 @@ sources:
       token_env: TRELLO_TOKEN
       boards: []
   quality:
-    provider: fixture          # sonarqube | linter | fixture | none
+    provider: fixture
     sonarqube:
-      base_url: ""
+      base_url: ''
       token_env: SONAR_TOKEN
       project_keys: []
     linter:
-      # SonarQube yoksa basit linter fallback (örn. ruff çıktısı JSON)
-      command: "ruff check --output-format json ."
-
-# --- Metrikler ----------------------------------------------------------------
-# source: metriğin birincil veri katmanı; fallback: o katman eksikse düşülecek
-# katman. Hiçbiri yoksa metrik GİZLENİR (asla sıfır/varsayılan uydurulmaz).
+      command: ruff check --output-format json .
 metrics:
   cycle_time:
     enabled: true
-    source: jira_status        # git | jira_status | jira_dates
-    fallback: pr_merge         # elle veri yoksa buna düş (Katman 0)
+    source: jira_status
+    fallback: pr_merge
   pr_review_time:
-    enabled: true              # PR açılış → merge (Katman 0, elle veri gerekmez)
+    enabled: true
   review_latency:
-    enabled: true              # PR açılış → ilk review (Katman 0)
+    enabled: true
   deployment_frequency:
     enabled: true
-    deploy_signal: merge       # merge | tag  (main'e merge = teslim proxy'si)
+    deploy_signal: merge
   change_failure_rate:
     enabled: true
-    # Deploy sonrası N gün içinde hotfix/bug-fix gelirse başarısız sayılır.
-    # TAKIM seviyesinde DORA metriğidir; asla kişi sinyali değildir.
     hotfix_window_days: 3
   mttr:
     enabled: true
-    # 4. DORA metriği — Toparlanma Süresi. source: incident başlangıç+çözüm
-    # damgası nereden gelsin. jira_incident: 'incident' iş tipi (created→resolved);
-    # git_revert: revert commit ile orijinal commit arası. İkisi de yoksa
-    # metrik 'veri yetersiz' gösterir — asla uydurulmaz.
-    source: jira_incident      # jira_incident | git_revert
+    source: jira_incident
     fallback: git_revert
   wip:
-    enabled: true              # aynı anda açık iş (tıkanma göstergesi)
+    enabled: true
   rework:
     enabled: true
-    window_days: 21            # aynı dosyaya X gün içinde tekrar dokunma
+    window_days: 21
   estimate_accuracy:
-    enabled: false             # takım estimate girmiyorsa kapat (Katman 2)
+    enabled: false
   process_hygiene:
-    enabled: true              # eksik verinin kendisi bir metriktir (İlke A)
-
-# --- Sağlık eşikleri ----------------------------------------------------------
-# Dil destek dilidir: green = "akıyor", yellow = "izlenmeli",
-# red = "zorlanıyor, yardım gerekebilir". Ceza dili YOK.
+    enabled: true
 health_thresholds:
-  cycle_time_days:        { green: 3,  red: 7 }     # <=green yeşil, >=red kırmızı
-  pr_review_time_days:    { green: 2,  red: 5 }
-  review_latency_days:    { green: 1,  red: 4 }
-  deployment_frequency:   { green: 3,  red: 1 }     # haftalık deploy; yüksek iyi
-  change_failure_rate:    { green: 0.15, red: 0.30 }
-  mttr_hours:             { green: 24, red: 72 }    # toparlanma süresi (saat); düşük iyi
-  wip_per_dev:            { green: 3,  red: 5 }
-  rework_rate:            { green: 0.15, red: 0.35 }
-  process_hygiene:        { green: 0.8, red: 0.5 }  # tamlık oranı; yüksek iyi
-  data_completeness_min: 0.5   # bu oranın altında metrik "veri yetersiz" gösterilir
-
-# --- Kural motoru (İlke D) ----------------------------------------------------
-# Eşik aşılınca insan-dostu, destek dilli öneri üretir. Ölçmekten öteye geçer.
+  cycle_time_days:
+    green: 3
+    red: 7
+  pr_review_time_days:
+    green: 2
+    red: 5
+  review_latency_days:
+    green: 1
+    red: 4
+  deployment_frequency:
+    green: 3
+    red: 1
+  change_failure_rate:
+    green: 0.15
+    red: 0.3
+  mttr_hours:
+    green: 24
+    red: 72
+  wip_per_dev:
+    green: 3
+    red: 5
+  rework_rate:
+    green: 0.15
+    red: 0.35
+  process_hygiene:
+    green: 0.8
+    red: 0.5
+  data_completeness_min: 0.5
 rules:
   review_bottleneck:
     enabled: true
-    avg_review_wait_days: 4    # PR'lar ort. bu kadar bekliyorsa öner
+    avg_review_wait_days: 4
   hotspot_files:
     enabled: true
-    min_fix_touches: 3         # aynı dosya bu kadar fix aldıysa refactor adayı
+    min_fix_touches: 3
     window_days: 30
   wip_overload:
     enabled: true
-    wip_per_dev: 5             # kişi başı açık task bu sayıyı aşarsa WIP limiti öner
+    wip_per_dev: 5
   low_process_hygiene:
     enabled: true
-    missing_estimate_pct: 70   # task'ların bu yüzdesinde estimate yoksa
+    missing_estimate_pct: 70
   risky_deploy_window:
-    enabled: true              # cuma akşamı deploy + hafta sonu fix örüntüsü
-
-# --- Opsiyonel LLM öneri katmanı (Faz 5 / stretch) ----------------------------
-# On-prem kısıtı gereği varsayılan KAPALI. Dışarı veri gönderen sağlayıcı
-# (claude) bilinçli olarak açılmadıkça kullanılamaz; yerel model tercih edilir.
+    enabled: true
 llm:
   enabled: false
-  provider: none               # none | local | claude
+  provider: none
   local:
-    base_url: "http://localhost:11434"   # örn. Ollama / self-hosted OpenAI-uyumlu uç
-    model: "llama3.1"
+    base_url: http://localhost:11434
+    model: llama3.1
   claude:
-    model: "claude-sonnet-5"
+    model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
+code_analysis:
+  enabled: false
+  weights:
+    readability: 1.0
+    complexity: 1.0
+    maintainability: 1.0
+    test_adequacy: 1.0
+    security: 1.0
+    code_smells: 1.0
+    conventions: 1.0
+  exclude_globs:
+  - generated/*
+  - vendor/*
+  - node_modules/*
+  - dist/*
+  - build/*
+  - '*.min.js'
+  - '*.lock'
+  - '*.map'
+  max_files_per_run: 40
+  max_diff_lines: 400

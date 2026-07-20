@@ -9,6 +9,7 @@ import {
 import AnnotationsPanel from "./AnnotationsPanel.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
+import OnboardingPanel from "./OnboardingPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
 
 const PAGE_SIZE = 10;
@@ -172,11 +173,14 @@ export default function AdminPanel({ teams, me }) {
   return (
     <div className="admin-panel">
       <div className="subtabs">
+        <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
         <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
         <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
         <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
         <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
       </div>
+
+      {subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
       {subtab === "integration" && <IntegrationPanel />}
 

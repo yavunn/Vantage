@@ -1,3 +1,55 @@
+import { useState } from "react";
+
+// İK-dostu sade açıklamalar: metrik ne ölçer, iyi/kötü ne demek. Teknik
+// olmayan kullanıcı "?" ile görür. (Ölçümü değiştirmez, yalnızca anlatır.)
+const METRIC_INFO = {
+  cycle_time: {
+    means: "Bir işin açılmasından bitmesine kadar geçen ortalama süre.",
+    good: "Kısa = iş akıcı ilerliyor.",
+    watch: "Uzarsa: iş tıkanıyor, bağımlılık ya da belirsizlik olabilir.",
+  },
+  pr_review_time: {
+    means: "Bir kod değişikliğinin (PR) açılıp birleştirilmesine kadar geçen süre.",
+    good: "Kısa = değişiklikler hızlı entegre oluyor.",
+    watch: "Uzarsa: gözden geçirme darboğazı olabilir.",
+  },
+  review_latency: {
+    means: "PR açıldıktan ilk geri bildirime kadar geçen süre.",
+    good: "Kısa = ekip birbirine hızlı dönüyor.",
+    watch: "Uzarsa: kimse bakmıyor olabilir; iş bekliyor.",
+  },
+  deployment_frequency: {
+    means: "Haftada kaç kez teslim/yayın yapıldığı.",
+    good: "Yüksek = küçük, sık, güvenli teslimler.",
+    watch: "Düşükse: büyük riskli teslimler ya da tıkanma.",
+  },
+  change_failure_rate: {
+    means: "Teslimlerden sonra kısa sürede düzeltme gerektirenlerin oranı.",
+    good: "Düşük = teslimler sağlam.",
+    watch: "Yüksekse: kalite/test süreci güçlendirilmeli. (Takım göstergesi, kişi değil.)",
+  },
+  mttr: {
+    means: "Bir arıza sonrası normale dönme süresi.",
+    good: "Kısa = sorunlardan hızlı toparlanılıyor.",
+    watch: "Uzarsa: müdahale/izleme süreci iyileştirilmeli.",
+  },
+  wip: {
+    means: "Kişi başına aynı anda açık iş sayısı.",
+    good: "Az = odak var, işler bitiyor.",
+    watch: "Çok = herkes çok işe bölünmüş, hiçbiri bitmiyor olabilir.",
+  },
+  rework: {
+    means: "Aynı dosyaya kısa sürede tekrar dokunma oranı (takım).",
+    good: "Düşük = işler ilk seferde oturuyor.",
+    watch: "Yüksekse: belirsiz gereksinim ya da kırılgan kod bölgesi.",
+  },
+  process_hygiene: {
+    means: "Sürecin veriyle ne kadar izlenebilir olduğu (tahmin/durum/review dolulukları).",
+    good: "Yüksek = süreç şeffaf, planlama sağlıklı.",
+    watch: "Düşükse: süreç körlüğü var; kararlar veriye dayanmıyor.",
+  },
+};
+
 // Sağlık göstergesi kartı. Renk = durum (destek dili), asla kişi puanı değil.
 // "Veri yetersiz" birinci sınıf bir durumdur: değer uydurulmaz, gri gösterilir.
 const STATUS_COLOR = {
@@ -63,6 +115,8 @@ export default function MetricCard({ metric, previous, onClick }) {
   const color = STATUS_COLOR[metric.status];
   const completenessPct = Math.round(metric.data_completeness * 100);
   const clickable = typeof onClick === "function";
+  const [info, setInfo] = useState(false);
+  const meta = METRIC_INFO[metric.key];
   return (
     <div
       className={`card${insufficient ? " insufficient" : ""}${clickable ? " clickable" : ""}`}
@@ -75,8 +129,23 @@ export default function MetricCard({ metric, previous, onClick }) {
       <div className="metric-head">
         <span className="dot" style={{ background: color }} aria-hidden="true" />
         <h3>{metric.name}</h3>
+        {meta && (
+          <button
+            className="info-btn"
+            aria-label="Bu metrik ne anlama geliyor?"
+            aria-expanded={info}
+            onClick={(e) => { e.stopPropagation(); setInfo((v) => !v); }}
+          >?</button>
+        )}
         {metric.direction && <Delta metric={metric} previous={previous} />}
       </div>
+      {info && meta && (
+        <div className="metric-info" onClick={(e) => e.stopPropagation()}>
+          <p><strong>Ne ölçer:</strong> {meta.means}</p>
+          <p className="mi-good"><strong>İyi:</strong> {meta.good}</p>
+          <p className="mi-watch"><strong>Dikkat:</strong> {meta.watch}</p>
+        </div>
+      )}
       <div className="value">
         {insufficient ? (
           "Veri yetersiz"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, apiPost } from "../api.js";
+import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
 
@@ -22,15 +23,15 @@ export default function MyCodeHealth({ user }) {
 
   async function runNow() {
     setBusy(true); setMsg(null); setError(null);
+    toast("Kodun analiz ediliyor…", "info");
     try {
       const r = await apiPost("/api/me/code-analysis/run", {});
-      setMsg(
-        r.status === "ok"
-          ? `Analiz tamam: ${r.analyzed} yeni, ${r.cached} önbellek.`
-          : r.note || JSON.stringify(r)
-      );
+      const m = r.status === "ok"
+        ? `Analiz tamam: ${r.analyzed} yeni, ${r.cached} önbellek.`
+        : r.note || JSON.stringify(r);
+      setMsg(m); toast(m, r.status === "ok" ? "ok" : "info");
       load();
-    } catch (e) { setError(e); } finally { setBusy(false); }
+    } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
 
   if (!linked) {
