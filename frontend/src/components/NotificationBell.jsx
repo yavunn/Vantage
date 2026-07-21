@@ -3,7 +3,7 @@ import { listNotifications, markAllNotificationsRead, markNotificationRead } fro
 
 // Bildirim zili: okunmamış sayacı + açılır liste. Trend alarmları burada görünür.
 // Etik: içerik takım sağlığı sinyali; kişi kıyası/ceza dili yok (backend garantiler).
-export default function NotificationBell() {
+export default function NotificationBell({ onNavigate }) {
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -30,10 +30,18 @@ export default function NotificationBell() {
     return () => document.removeEventListener("click", onDoc);
   }, []);
 
+  // Bildirime tıkla → okundu işaretle + ilgili takıma git (alarm eyleme dönüşsün).
+  // link formatı backend'den: "/?team=<id>"
   async function readOne(n) {
-    if (n.is_read) return;
-    await markNotificationRead(n.id).catch(() => {});
-    refresh();
+    if (!n.is_read) {
+      await markNotificationRead(n.id).catch(() => {});
+      refresh();
+    }
+    const m = n.link && n.link.match(/team=(\d+)/);
+    if (m && onNavigate) {
+      onNavigate({ teamId: Number(m[1]) });
+      setOpen(false);
+    }
   }
   async function readAll() {
     await markAllNotificationsRead().catch(() => {});

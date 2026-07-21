@@ -36,7 +36,7 @@ function randomPassword() {
   return out + syms[Math.floor(Math.random() * syms.length)];
 }
 
-export default function AdminPanel({ teams, me }) {
+export default function AdminPanel({ teams, me, onViewPerson }) {
   const [subtab, setSubtab] = useState("accounts"); // accounts | integration
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
@@ -285,7 +285,19 @@ export default function AdminPanel({ teams, me }) {
                       <td>
                         <input type="checkbox" disabled={isSelf} checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} aria-label={`${u.display_name} seç`} />
                       </td>
-                      <td>{u.display_name}{u.must_change_password && <span className="pw-flag" title="Parola değiştirme bekliyor">⟳</span>}</td>
+                      <td>
+                        {/* İK akışı: hesaptan doğrudan o kişinin sağlık görünümüne geç. */}
+                        {onViewPerson && u.developer_id != null ? (
+                          <button
+                            className="linklike"
+                            title="Bu kişinin bireysel görünümünü aç"
+                            onClick={() => onViewPerson(u.developer_id)}
+                          >
+                            {u.display_name}
+                          </button>
+                        ) : u.display_name}
+                        {u.must_change_password && <span className="pw-flag" title="Parola değiştirme bekliyor">⟳</span>}
+                      </td>
                       <td>{u.email}</td>
                       <td>
                         <button className="mini ghost" onClick={() => setTeamEditFor(u)}>

@@ -161,6 +161,14 @@ def leave_summary(
         s = max(lv.start_date, m_start)
         e = min(lv.end_date, m_end)
         days = (e - s).days + 1
-        rec = agg.setdefault(lv.user_id, {"person": _person_name(session, lv.user_id, lv.developer_id), "days": 0})
+        rec = agg.setdefault(lv.user_id, {
+            "person": _person_name(session, lv.user_id, lv.developer_id),
+            "days": 0,
+            # Tür kırılımı: İK "kaç gün yıllık, kaç gün rapor" görebilsin.
+            # Mevcut 'days' alanı korunur (geriye uyumlu).
+            "annual": 0, "sick": 0, "other": 0,
+        })
         rec["days"] += days
+        bucket = lv.leave_type if lv.leave_type in ("annual", "sick", "other") else "other"
+        rec[bucket] += days
     return sorted(agg.values(), key=lambda r: -r["days"])

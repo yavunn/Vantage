@@ -37,6 +37,32 @@ const KIND_COLOR = {
   other: "var(--muted)",
 };
 
+// Otomatik trend özeti: grafiği okumadan "ne oldu" cümlesi. Karar hızlandırır.
+// Kıyas SADECE serinin kendi geçmişiyle — başka takım/kişiyle asla.
+function trendSummary(series) {
+  const vals = series.points.map((p) => p.value).filter((v) => v != null);
+  if (vals.length < 3) return null;
+  // İlk yarı vs son yarı ortalaması: tek kovanın gürültüsüne kapılmaz.
+  const half = Math.floor(vals.length / 2);
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const first = avg(vals.slice(0, half));
+  const last = avg(vals.slice(-half));
+  if (first === 0) return null;
+  const pct = ((last - first) / Math.abs(first)) * 100;
+  const rounded = Math.round(Math.abs(pct));
+  const periods = vals.length;
+  if (rounded < 5) return { tone: "flat", text: `Son ${periods} dönemde belirgin değişim yok — seyir sabit.` };
+  const up = pct > 0;
+  const direction = series.direction || "lower";
+  const good = direction === "higher" ? up : !up;
+  return {
+    tone: good ? "good" : "bad",
+    text: good
+      ? `Son ${periods} dönemde %${rounded} iyileşme — gidişat olumlu.`
+      : `Son ${periods} dönemde %${rounded} kötüleşme — yakından izlemekte fayda var.`,
+  };
+}
+
 export default function TrendChart({ series, threshold, annotations }) {
   const data = series.points.map((p) => ({
     label: fmtDate(p.period_start),
@@ -45,10 +71,12 @@ export default function TrendChart({ series, threshold, annotations }) {
   }));
   const marks = annotationsForBuckets(series.points, annotations);
   const hasAny = data.some((d) => d.value != null);
+  const summary = hasAny ? trendSummary(series) : null;
   return (
     <div className="chart-box">
       <h3>{series.name}</h3>
       <p className="desc">{series.description}</p>
+      {summary && <p className={`trend-summary ${summary.tone}`}>{summary.text}</p>}
       {!hasAny ? (
         <p className="desc" style={{ padding: "30px 0", textAlign: "center" }}>
           Bu dönem için yeterli veri yok

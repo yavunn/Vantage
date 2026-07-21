@@ -137,7 +137,12 @@ def _live_series(session: Session, team: Team, days: int, cfg: Config) -> list[d
     out = []
     for key, points in series_points.items():
         name, description = METRIC_META.get(key, (key, ""))
-        out.append({"metric": key, "name": name, "description": description, "points": points})
+        # direction: frontend'in trend özetini doğru yönde okuması için
+        # ('higher' metrikte artış İYİ, 'lower' metrikte azalış iyi).
+        out.append({
+            "metric": key, "name": name, "description": description,
+            "direction": _direction(key), "points": points,
+        })
     return out
 
 

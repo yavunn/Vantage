@@ -8,7 +8,9 @@ import Login from "./components/Login.jsx";
 import CodeHealthCard from "./components/CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
+import CommandPalette from "./components/CommandPalette.jsx";
 import NotificationBell from "./components/NotificationBell.jsx";
+import PersonPicker, { pushRecent } from "./components/PersonPicker.jsx";
 import MetricDrilldown from "./components/MetricDrilldown.jsx";
 import Setup from "./components/Setup.jsx";
 import SignalsBlock from "./components/SignalsBlock.jsx";
@@ -94,6 +96,7 @@ export default function App() {
   const [drill, setDrill] = useState(null); // {key, name} — açık drill-down metriği
   const [directory, setDirectory] = useState([]);
   const [viewDevId, setViewDevId] = useState(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [tab, setTab] = useState(() => readNav().tab);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("nabiz_theme") || "auto");
@@ -108,6 +111,30 @@ export default function App() {
   useEffect(() => {
     writeNav({ tab, team: teamId, range });
   }, [tab, teamId, range]);
+
+  // Klavye kısayolları: Ctrl/Cmd+K hızlı arama, Alt+1..6 sekme geçişi.
+  // Bir metin alanına yazarken tetiklenmez (Ctrl+K hariç — o global).
+  useEffect(() => {
+    function onKey(e) {
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+        return;
+      }
+      const el = document.activeElement;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (typing || !e.altKey) return;
+      const order = ["team", "me", "projects", "leaves", "admin", "settings"];
+      const idx = Number(e.key) - 1;
+      if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
+        e.preventDefault();
+        setTab(order[idx]);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Geçerli olmayan sekmeyi (ör. saklanmış 'admin' ama kullanıcı admin değil) düzelt.
   useEffect(() => {
@@ -258,52 +285,69 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Topbar iki katman: üst = kimlik/hesap, alt = gezinme + bağlam.
+          Takım seçici yalnız takıma bağlı sekmelerde görünür (bağlam kirliliği
+          olmasın). Tüm eylemler korunur; yalnız yerleşim değişti. */}
       <header className="topbar">
-        <div className="topbar-brand">
-          <BrandMark />
-          <div>
-            <h1>Nabız</h1>
-            <span className="topbar-suffix">Mühendislik Sağlığı Panosu</span>
+        <div className="topbar-row topbar-row-main">
+          <div className="topbar-brand">
+            <BrandMark />
+            <div>
+              <h1>Nabız</h1>
+              <span className="topbar-suffix">Mühendislik Sağlığı Panosu</span>
+            </div>
+          </div>
+
+          <div className="topbar-user">
+            <button className="mini ghost cmdk-trigger" onClick={() => setPaletteOpen(true)} title="Hızlı arama (Ctrl+K)">
+              <span aria-hidden="true">⌕</span> Ara <kbd>Ctrl K</kbd>
+            </button>
+            <NotificationBell onNavigate={({ teamId: tid }) => { setTeamId(tid); setTab("team"); }} />
+            <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
+            <span className="user-chip">
+              {user.display_name}
+              {isAdmin && <span className="role-badge">admin</span>}
+            </span>
+            <button className="mini ghost" onClick={doLogout}>Çıkış</button>
           </div>
         </div>
 
-        <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))} aria-label="Takım seç">
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
+        <div className="topbar-row topbar-row-nav">
+          <nav className="topbar-tabs" aria-label="Ana gezinme">
+            <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
+              Takım görünümü
+            </button>
+            {individualAvailable && (
+              <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
+                Bireysel görünüm
+              </button>
+            )}
+            <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
+              Projelerim
+            </button>
+            <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
+              İzinler
+            </button>
+            {isAdmin && (
+              <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
+                Yönetici paneli
+              </button>
+            )}
+            <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
+              Ayarlar
+            </button>
+          </nav>
 
-        <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
-          Takım görünümü
-        </button>
-        {individualAvailable && (
-          <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
-            Bireysel görünüm
-          </button>
-        )}
-        <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
-          Projelerim
-        </button>
-        <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
-          İzinler
-        </button>
-        {isAdmin && (
-          <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
-            Yönetici paneli
-          </button>
-        )}
-        <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
-          Ayarlar
-        </button>
-
-        <div className="topbar-user">
-          <NotificationBell />
-          <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
-          <span className="user-chip">
-            {user.display_name}
-            {isAdmin && <span className="role-badge">admin</span>}
-          </span>
-          <button className="mini ghost" onClick={doLogout}>Çıkış</button>
+          {tab === "team" && (
+            <label className="topbar-context">
+              <span className="ctx-label">Takım</span>
+              <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))} aria-label="Takım seç">
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         <span className="sub">
@@ -329,7 +373,13 @@ export default function App() {
 
         {tab === "leaves" && <LeavesPanel user={user} isAdmin={isAdmin} />}
 
-        {tab === "admin" && isAdmin && <AdminPanel teams={teams} me={user} />}
+        {tab === "admin" && isAdmin && (
+          <AdminPanel
+            teams={teams}
+            me={user}
+            onViewPerson={individualAvailable ? (devId) => { pushRecent(devId); setViewDevId(devId); setTab("me"); } : undefined}
+          />
+        )}
       </Suspense>
 
       {tab === "team" && !summary && !error && (
@@ -393,6 +443,7 @@ export default function App() {
                 key={m.key}
                 metric={m}
                 previous={m.previous_value}
+                series={series.find((s) => s.metric === m.key)}
                 onClick={() => setDrill({ key: m.key, name: m.name })}
               />
             ))}
@@ -484,17 +535,21 @@ export default function App() {
 
       {tab === "me" && (
         <>
-          {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar */}
-          <div style={{ marginBottom: 12 }}>
-            <select
-              value={viewDevId ?? user.developer_id ?? ""}
-              onChange={(e) => setViewDevId(Number(e.target.value))}
-              aria-label="Kişi seç"
-            >
-              {directory.map((d) => (
-                <option key={d.id} value={d.id}>{d.display_name}</option>
-              ))}
-            </select>
+          {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar.
+              Aranabilir seçici: uzun listede isimle filtre + son bakılanlar. */}
+          <div className="indiv-toolbar">
+            <span className="ctx-label">Kişi</span>
+            <PersonPicker
+              people={directory}
+              value={viewDevId ?? user.developer_id ?? null}
+              selfDevId={user.developer_id}
+              onChange={setViewDevId}
+            />
+            {user.developer_id != null && (viewDevId ?? user.developer_id) !== user.developer_id && (
+              <button className="mini ghost" onClick={() => setViewDevId(user.developer_id)}>
+                Bana dön
+              </button>
+            )}
           </div>
           {(viewDevId ?? user.developer_id) != null ? (
             <Suspense fallback={LazyFallback}>
@@ -523,6 +578,24 @@ export default function App() {
           onClose={() => setCodeDrill(false)}
         />
       )}
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        tabs={[
+          { key: "team", label: "Takım görünümü" },
+          ...(individualAvailable ? [{ key: "me", label: "Bireysel görünüm" }] : []),
+          { key: "projects", label: "Projelerim" },
+          { key: "leaves", label: "İzinler" },
+          ...(isAdmin ? [{ key: "admin", label: "Yönetici paneli" }] : []),
+          { key: "settings", label: "Ayarlar" },
+        ]}
+        teams={teams}
+        people={individualAvailable ? directory : []}
+        onGoTab={setTab}
+        onGoTeam={(id) => { setTeamId(id); setTab("team"); }}
+        onGoPerson={(id) => { pushRecent(id); setViewDevId(id); setTab("me"); }}
+      />
 
       <ToastHost />
     </div>

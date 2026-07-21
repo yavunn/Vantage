@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Sparkline from "./Sparkline.jsx";
 
 // İK-dostu sade açıklamalar: metrik ne ölçer, iyi/kötü ne demek. Teknik
 // olmayan kullanıcı "?" ile görür. (Ölçümü değiştirmez, yalnızca anlatır.)
@@ -110,7 +111,7 @@ function Delta({ metric, previous }) {
   );
 }
 
-export default function MetricCard({ metric, previous, onClick }) {
+export default function MetricCard({ metric, previous, onClick, series }) {
   const insufficient = metric.status === "insufficient_data";
   const color = STATUS_COLOR[metric.status];
   const completenessPct = Math.round(metric.data_completeness * 100);
@@ -156,6 +157,11 @@ export default function MetricCard({ metric, previous, onClick }) {
           </>
         )}
       </div>
+      {!insufficient && series && series.points && (
+        <div className="card-spark" title="Son dönemlerin seyri (ayrıntı için alttaki trend grafiği)">
+          <Sparkline points={series.points} color={color} />
+        </div>
+      )}
       {!metric.direction && previous != null && metric.value != null && (
         <div className="prev">
           Kendi geçmişiniz (önceki dönem): {formatValue(metric.key, previous)}
