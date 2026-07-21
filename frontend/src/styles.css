@@ -348,6 +348,21 @@ table.quality .na { color: var(--muted); font-style: italic; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
 
+/* ---- Kimlik bilgisi modalı (kopyala araçları) ---- */
+.cred-modal .cred-row {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0;
+}
+.cred-modal .cred-label { width: 64px; color: var(--muted); font-size: 13px; }
+.cred-modal .cred-value {
+  flex: 1; background: var(--brand-soft); border: 1px solid var(--border);
+  border-radius: 7px; padding: 7px 10px; font-family: ui-monospace, monospace;
+  font-size: 14px; overflow-wrap: anywhere;
+}
+.cred-modal .cred-actions {
+  display: flex; gap: 10px; justify-content: space-between; align-items: center;
+  margin-top: 16px;
+}
+
 /* ---- Alt sekmeler (admin) ---- */
 .subtabs { display: flex; gap: 8px; margin-bottom: 8px; }
 

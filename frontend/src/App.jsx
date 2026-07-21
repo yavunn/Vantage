@@ -164,6 +164,11 @@ export default function App() {
         setUiConfig(cfg);
         setTeams(tms);
         setDirectory(dir);
+        // Admin'in kendi developer_id'si olmayabilir; bireysel görünüm için
+        // dizindeki ilk kişiyi varsayılan seç ki ekran boş kalmasın.
+        if (user.developer_id == null && dir.length) {
+          setViewDevId((cur) => cur ?? dir[0].id);
+        }
         if (tms.length) {
           const saved = readNav().team;
           const valid = tms.some((t) => t.id === saved);

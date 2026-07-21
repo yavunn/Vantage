@@ -9,8 +9,20 @@ import {
 import AnnotationsPanel from "./AnnotationsPanel.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
+import Modal from "./Modal.jsx";
 import OnboardingPanel from "./OnboardingPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
+import { toast } from "../toast.js";
+
+// Panoya kopyala; başarısızsa (izin yok/eski tarayıcı) sessiz düşmesin.
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`${label} kopyalandı`, "ok");
+  } catch {
+    toast("Kopyalanamadı — panoya erişim yok", "error");
+  }
+}
 
 const PAGE_SIZE = 10;
 
@@ -38,6 +50,8 @@ export default function AdminPanel({ teams, me }) {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState(new Set());
   const [teamEditFor, setTeamEditFor] = useState(null);
+  // Yeni hesap / parola sıfırlama sonrası kimlik bilgisi modalı (kopyala araçları).
+  const [cred, setCred] = useState(null); // { title, email, password }
 
   function refresh() {
     listEmployees().then(setEmployees).catch((e) => setError(e.message));
@@ -62,6 +76,7 @@ export default function AdminPanel({ teams, me }) {
       if (form.team_id) payload.team_id = Number(form.team_id);
       const created = await createEmployee(payload);
       setMsg(`Oluşturuldu: ${created.display_name} (${created.email}). Geçici parolayı çalışana ilet — ilk girişte değiştirecek.`);
+      setCred({ title: "Yeni hesap oluşturuldu", email: created.email, password: form.password });
       setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member" });
       refresh();
     } catch (err) {
@@ -76,8 +91,10 @@ export default function AdminPanel({ teams, me }) {
       return;
     }
     try {
+      const target = employees.find((x) => x.id === userId);
       await setEmployeePassword(userId, resetPw);
       setMsg("Parola sıfırlandı. Çalışan ilk girişte değiştirecek.");
+      setCred({ title: "Parola sıfırlandı", email: target ? target.email : "", password: resetPw });
       setResetFor(null); setResetPw("");
       refresh();
     } catch (err) {
@@ -203,6 +220,7 @@ export default function AdminPanel({ teams, me }) {
                 <span className="input-with-btn">
                   <input value={form.password} onChange={(e) => upd("password", e.target.value)} placeholder="en az 6 karakter" minLength={6} required />
                   <button type="button" className="mini" onClick={() => upd("password", randomPassword())} title="Rastgele güçlü parola üret">Üret</button>
+                  <button type="button" className="mini ghost" disabled={!form.password} onClick={() => copyText(form.password, "Parola")} title="Parolayı kopyala">Kopyala</button>
                 </span>
               </label>
               <label>Rol
@@ -309,6 +327,28 @@ export default function AdminPanel({ teams, me }) {
             )}
           </section>
         </>
+      )}
+
+      {cred && (
+        <Modal title={cred.title} onClose={() => setCred(null)}>
+          <div className="cred-modal">
+            <p className="desc">Geçici parolayı çalışana güvenli bir kanaldan ilet. Kullanıcı ilk girişte değiştirecek.</p>
+            <div className="cred-row">
+              <span className="cred-label">E-posta</span>
+              <code className="cred-value">{cred.email}</code>
+              <button className="mini" onClick={() => copyText(cred.email, "E-posta")}>Kopyala</button>
+            </div>
+            <div className="cred-row">
+              <span className="cred-label">Parola</span>
+              <code className="cred-value">{cred.password}</code>
+              <button className="mini" onClick={() => copyText(cred.password, "Parola")}>Kopyala</button>
+            </div>
+            <div className="cred-actions">
+              <button className="mini" onClick={() => copyText(`mail:${cred.email} şifre:${cred.password}`, "E-posta ve parola")}>İkisini birden kopyala</button>
+              <button className="login-btn" onClick={() => setCred(null)}>Tamam</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {teamEditFor && (

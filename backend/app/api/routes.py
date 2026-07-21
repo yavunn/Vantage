@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import current_user
+from app.api.auth import current_user, current_user_optional
 from app.core.config import Config, get_config
 from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
@@ -366,10 +366,11 @@ def developer_summary(
     dev_id: int,
     session: Session = Depends(get_session),
     requester: Developer | None = Depends(current_dev),
+    user=Depends(current_user_optional),
 ):
     """Bireysel sağlık görünümü. Kurallar:
     - anonimleştirme modunda ya da özellik kapalıysa tamamen devre dışı;
-    - yalnızca kişinin kendisi ya da yöneticisi erişebilir;
+    - yalnızca kişinin kendisi, yöneticisi ya da admin erişebilir;
     - kıyas yalnızca kişinin KENDİ geçmişiyle yapılır, asla başkasıyla."""
     cfg = get_config()
     if not cfg.app.individual_view_enabled or cfg.app.anonymize_individuals:
@@ -377,10 +378,17 @@ def developer_summary(
     dev = session.get(Developer, dev_id)
     if dev is None:
         raise HTTPException(404, "Kişi bulunamadı")
-    if requester is None:
-        raise HTTPException(401, "Kimlik gerekli (X-Dev-Id başlığı)")
-    if requester.id != dev.id and not _is_manager_of(session, requester, dev):
-        raise HTTPException(403, "Bireysel görünümü yalnızca kişinin kendisi ve yöneticisi görebilir")
+    # Yetki JWT kullanıcısı üzerinden zorlanır. Admin herkesi görebilir; aksi
+    # halde X-Dev-Id kimliğiyle yalnızca kişinin kendisi ya da yöneticisi.
+    # Yetki hatası 403 döner (401 DEĞİL) — 401 istemcide oturumu düşürür.
+    is_admin = user is not None and user.role == "admin"
+    if not is_admin:
+        # Hiçbir kimlik yok (ne JWT ne X-Dev-Id) → 401: giriş gerekli.
+        if requester is None and user is None:
+            raise HTTPException(401, "Kimlik gerekli")
+        # Kimlik var ama yetkisiz → 403 (401 DEĞİL: istemcide oturumu düşürmesin).
+        if requester is None or (requester.id != dev.id and not _is_manager_of(session, requester, dev)):
+            raise HTTPException(403, "Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir")
 
     now = datetime.now(timezone.utc)
     window = timedelta(days=cfg.app.window_days)

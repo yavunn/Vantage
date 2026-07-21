@@ -100,6 +100,23 @@ def current_user(
     return user
 
 
+def current_user_optional(
+    session: Session = Depends(get_session),
+    authorization: str | None = Header(default=None),
+) -> User | None:
+    """current_user gibi ama token yoksa/geçersizse 401 atmaz, None döner.
+    X-Dev-Id kimliğiyle çalışan uçların JWT'yi opsiyonel okuması için."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    payload = decode_access_token(authorization.split(" ", 1)[1].strip())
+    if not payload:
+        return None
+    user = session.get(User, int(payload["sub"]))
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
 def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Bu işlem için yönetici yetkisi gerekli")
