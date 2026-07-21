@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_config
@@ -15,6 +15,36 @@ from app.core.config import get_config
 
 class Base(DeclarativeBase):
     pass
+
+
+# Migration'sız ortamlarda (portable pg / sqlite demo) mevcut tablolara sonradan
+# eklenen kolonları güvenle ekler. create_all yalnız EKSİK TABLOYU yaratır;
+# var olan tabloya kolon EKLEMEZ. Bu yüzden bu idempotent yama gerekir.
+_COLUMN_PATCHES: dict[str, dict[str, str]] = {
+    "users": {
+        "title": "VARCHAR(120)",
+        "phone": "VARCHAR(40)",
+        "timezone": "VARCHAR(60)",
+        "bio": "TEXT",
+        "last_login_at": "TIMESTAMP WITH TIME ZONE",
+    },
+}
+
+
+def ensure_schema_patches() -> None:
+    engine = get_engine()
+    insp = inspect(engine)
+    sqlite = engine.url.get_backend_name() == "sqlite"
+    with engine.begin() as conn:
+        for table, cols in _COLUMN_PATCHES.items():
+            if not insp.has_table(table):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols.items():
+                if name in existing:
+                    continue
+                col_type = "TEXT" if sqlite and "TIMESTAMP" in ddl else ddl
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {col_type}'))
 
 
 _engine = None

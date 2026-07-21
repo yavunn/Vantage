@@ -9,17 +9,21 @@ from __future__ import annotations
 
 import sys
 
-from app.core.db import Base, get_engine
+from app.core.db import Base, ensure_schema_patches, get_engine
 
 
 def init_db() -> None:
     Base.metadata.create_all(get_engine())
+    ensure_schema_patches()
     print("Şema oluşturuldu.")
 
 
 def sync() -> None:
     from app.services.pipeline import run_pipeline
 
+    # Yeni tablolar (bildirim/audit vb.) migration'sız ortamda da hazır olsun.
+    Base.metadata.create_all(get_engine())
+    ensure_schema_patches()
     stats = run_pipeline()
     print("Senkron tamam:", stats)
 

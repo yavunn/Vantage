@@ -71,6 +71,14 @@ class UpdateEmployeeBody(BaseModel):
     is_active: bool | None = None
 
 
+class UpdateProfileBody(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+    timezone: str | None = Field(default=None, max_length=60)
+    bio: str | None = Field(default=None, max_length=2000)
+
+
 class SetupBody(BaseModel):
     display_name: str = Field(min_length=1)
     email: str
@@ -166,6 +174,12 @@ def _user_out(session: Session, user: User) -> dict:
         "must_change_password": user.must_change_password,
         "developer_id": user.developer_id,
         "display_name": dev.display_name if dev else user.email.split("@")[0],
+        "title": user.title,
+        "phone": user.phone,
+        "timezone": user.timezone,
+        "bio": user.bio,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         "teams": _memberships_out(session, user.developer_id),
     }
 
@@ -177,12 +191,39 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
     user = session.scalar(select(User).where(User.email == body.email.lower()))
     if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="E-posta ya da parola hatalı")
+    user.last_login_at = datetime.now(timezone.utc)
+    session.commit()
     token = create_access_token(user.id, user.role)
     return {"access_token": token, "token_type": "bearer", "user": _user_out(session, user)}
 
 
 @router.get("/me")
 def me(session: Session = Depends(get_session), user: User = Depends(current_user)):
+    return _user_out(session, user)
+
+
+@router.patch("/me/profile")
+def update_my_profile(
+    body: UpdateProfileBody,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Kullanıcı kendi profilini düzenler. display_name Developer'a, diğer
+    alanlar User'a yazılır. Hiçbir alan metrik/performans hesabına karışmaz."""
+    if body.display_name is not None:
+        dev = session.get(Developer, user.developer_id) if user.developer_id else None
+        if dev is not None:
+            dev.display_name = body.display_name.strip()
+    if body.title is not None:
+        user.title = body.title.strip() or None
+    if body.phone is not None:
+        user.phone = body.phone.strip() or None
+    if body.timezone is not None:
+        user.timezone = body.timezone.strip() or None
+    if body.bio is not None:
+        user.bio = body.bio.strip() or None
+    user.updated_at = datetime.now(timezone.utc)
+    session.commit()
     return _user_out(session, user)
 
 
@@ -242,6 +283,10 @@ def create_employee(
         updated_at=now,
     )
     session.add(user)
+    session.flush()
+    from app.services.audit import record_audit
+    record_audit(session, _, "create_employee", target_user_id=user.id,
+                 target_email=user.email, detail={"role": body.role})
     session.commit()
     return _user_out(session, user)
 
@@ -273,13 +318,22 @@ def update_employee(
             status_code=400,
             detail="Sistemde en az bir aktif yönetici kalmalı",
         )
+    changes: dict = {}
     if body.role is not None:
         if body.role not in ("user", "admin"):
             raise HTTPException(status_code=422, detail="role yalnızca 'user' veya 'admin' olabilir")
+        if body.role != user.role:
+            changes["role"] = f"{user.role}->{body.role}"
         user.role = body.role
     if body.is_active is not None:
+        if body.is_active != user.is_active:
+            changes["is_active"] = f"{user.is_active}->{body.is_active}"
         user.is_active = body.is_active
     user.updated_at = datetime.now(timezone.utc)
+    if changes:
+        from app.services.audit import record_audit
+        record_audit(session, admin, "update_employee", target_user_id=user.id,
+                     target_email=user.email, detail=changes)
     session.commit()
     return _user_out(session, user)
 
@@ -312,6 +366,9 @@ def delete_employee(
         if dev is not None:
             session.delete(dev)
             developer_removed = True
+    from app.services.audit import record_audit
+    record_audit(session, admin, "delete_employee", target_user_id=user_id,
+                 target_email=user.email, detail={"developer_removed": developer_removed})
     session.commit()
     return {"ok": True, "developer_removed": developer_removed}
 
@@ -329,6 +386,10 @@ def set_employee_password(
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = True  # sıfırlanan parola geçici; kullanıcı değiştirsin
     user.updated_at = datetime.now(timezone.utc)
+    from app.services.audit import record_audit
+    # Parolanın KENDİSİ asla kaydedilmez — yalnız "sıfırlandı" olgusu.
+    record_audit(session, _, "reset_password", target_user_id=user.id,
+                 target_email=user.email)
     session.commit()
     return {"ok": True}
 

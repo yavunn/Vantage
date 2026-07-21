@@ -7,6 +7,7 @@ import {
   updateEmployee,
 } from "../api.js";
 import AnnotationsPanel from "./AnnotationsPanel.jsx";
+import AuditPanel from "./AuditPanel.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import Modal from "./Modal.jsx";
@@ -195,6 +196,7 @@ export default function AdminPanel({ teams, me }) {
         <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
         <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
         <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
+        <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
       </div>
 
       {subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
@@ -204,6 +206,8 @@ export default function AdminPanel({ teams, me }) {
       {subtab === "annotations" && <AnnotationsPanel teams={teams} />}
 
       {subtab === "code" && <CodeAnalysisPanel />}
+
+      {subtab === "audit" && <AuditPanel />}
 
       {subtab === "accounts" && (
         <>

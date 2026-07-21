@@ -73,6 +73,14 @@ class User(Base):
     must_change_password: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # Profil alanları (kullanıcı kendi düzenler) — hiçbiri metriğe karışmaz.
+    title: Mapped[str | None] = mapped_column(String(120), nullable=True)  # ünvan/pozisyon
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -389,3 +397,42 @@ class CodeAnalysisAudit(Base):
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
     outcome: Mapped[str] = mapped_column(String(20))  # ok | error | skipped
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AuditLog(Base):
+    """Yönetici işlemlerinin denetim kaydı (hesap verebilirlik).
+    KİM neyi KİME yaptı: parola sıfırlama, rol/durum değişimi, ekleme, silme.
+    Hassas içerik (parola vb.) ASLA saklanmaz — yalnızca eylem + hedef + meta."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    actor_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    action: Mapped[str] = mapped_column(String(40))  # create_employee | delete_employee | ...
+    target_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"role":"user->admin"}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Notification(Base):
+    """Kullanıcıya gösterilecek bildirim (trend alarmı, sistem olayı).
+    Etik: bildirim de gözetim aracı değil — takım sağlığı sinyali ("kırmızıya
+    döndü, yardım gerekebilir"), kişi kıyası ya da ceza dili İÇERMEZ."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(40))  # trend_alarm | system | info
+    severity: Mapped[str] = mapped_column(String(10), default="info")  # info | warning | critical
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Aynı olayın tekrar tekrar bildirilmemesi için tekilleştirme anahtarı.
+    dedup_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    link: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

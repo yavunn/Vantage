@@ -14,10 +14,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import current_user, current_user_optional
+from app.api.auth import current_user, current_user_optional, require_admin
 from app.core.config import Config, get_config
 from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
@@ -222,6 +223,91 @@ def _dev_access(dev_id: int, user):
         raise HTTPException(403, "Bu görünümü yalnızca kişinin kendisi ve admin görebilir")
 
 
+# --- Bildirimler (giriş yapan kullanıcı) -------------------------------------
+
+@router.get("/me/notifications")
+def my_notifications(session: Session = Depends(get_session), user=Depends(current_user)):
+    from app.services.notifications import list_for_user, unread_count
+    return {
+        "items": list_for_user(session, user.id),
+        "unread": unread_count(session, user.id),
+    }
+
+
+@router.post("/me/notifications/{notif_id}/read")
+def read_notification(notif_id: int, session: Session = Depends(get_session), user=Depends(current_user)):
+    from app.services.notifications import mark_read
+    n = mark_read(session, user.id, notif_id)
+    session.commit()
+    return {"marked": n}
+
+
+@router.post("/me/notifications/read-all")
+def read_all_notifications(session: Session = Depends(get_session), user=Depends(current_user)):
+    from app.services.notifications import mark_read
+    n = mark_read(session, user.id)
+    session.commit()
+    return {"marked": n}
+
+
+# --- Denetim kaydı (yalnız admin) --------------------------------------------
+
+@router.get("/admin/audit")
+def admin_audit(session: Session = Depends(get_session), _=Depends(require_admin)):
+    from app.services.audit import list_audit
+    return list_audit(session)
+
+
+def _csv_response(header: list[str], rows: list[list], filename: str) -> Response:
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(header)
+    for r in rows:
+        w.writerow(r)
+    # BOM: Excel'in Türkçe karakterleri UTF-8 okuması için.
+    data = "﻿" + buf.getvalue()
+    return Response(
+        content=data,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/admin/audit.csv")
+def admin_audit_csv(session: Session = Depends(get_session), _=Depends(require_admin)):
+    from app.services.audit import list_audit
+    rows = list_audit(session, limit=1000)
+    body = [
+        [r["created_at"], r["actor_email"], r["action"], r["target_email"],
+         "; ".join(f"{k}={v}" for k, v in (r["detail"] or {}).items())]
+        for r in rows
+    ]
+    return _csv_response(
+        ["zaman", "aktor", "eylem", "hedef", "ayrinti"], body, "denetim-kaydi.csv"
+    )
+
+
+@router.get("/teams/{team_id}/report.csv")
+def team_report_csv(team_id: int, session: Session = Depends(get_session)):
+    """Takım metrik özetini CSV indirir. Etik: takım-agregat, kişi satırı yok."""
+    cfg = get_config()
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    summary = team_summary(team_id, session)
+    body = [
+        [m["name"], m["key"], m["value"], m["status_label"],
+         m.get("data_completeness"), m.get("sample_size"), m.get("source_layer")]
+        for m in summary["metrics"]
+    ]
+    return _csv_response(
+        ["metrik", "anahtar", "deger", "durum", "veri_tamligi", "ornek_boyut", "kaynak_katman"],
+        body, f"{team.name}-rapor.csv",
+    )
+
+
 @router.get("/me/code-health")
 def my_code_health(session: Session = Depends(get_session), user=Depends(current_user)):
     from app.services.code_health import developer_code_health
@@ -418,6 +504,59 @@ def developer_summary(
         "metrics": metrics,
         "note": "Bu görünüm yalnızca sizin (ve yöneticinizin) erişimine açıktır; "
                 "kıyas yalnızca kendi geçmişinizle yapılır.",
+    }
+
+
+def _one_on_one_points(summary: dict) -> list[dict]:
+    """Bireysel özetten 1:1 konuşma noktaları üretir. Destek dili: kutlama +
+    birlikte bakılacak yerler. ASLA ceza/kıyas dili — yön hep 'nasıl yardımcı
+    olabilirim'. Kişi başkasıyla kıyaslanmaz, yalnız kendi trendiyle."""
+    wins, focus = [], []
+    for m in summary["metrics"]:
+        name = m["name"]
+        st = m["status"]
+        prev = m.get("previous_value")
+        cur = m.get("value")
+        improved = (
+            prev is not None and cur is not None and m.get("direction") != "higher"
+            and cur < prev
+        )
+        if st == "green":
+            wins.append(f"{name}: sağlıklı seyrediyor — takdir et.")
+        elif st == "red":
+            focus.append(f"{name}: zorlanma işareti. Ne engel oluyor, nasıl "
+                         f"destek olabilirim diye birlikte bak.")
+        elif st == "yellow":
+            focus.append(f"{name}: izlenmeli. Erken konuşmak sorunu büyümeden çözer.")
+        if improved:
+            wins.append(f"{name}: geçen döneme göre iyileşmiş — ilerlemeyi görünür kıl.")
+    if not wins:
+        wins.append("Bu dönemde öne çıkan pozitif ve zorlanma yeterli veriyle "
+                    "ölçülemedi — genel gidişatı ve moralı konuş.")
+    return [
+        {"section": "Kutlanacaklar", "tone": "positive", "items": wins},
+        {"section": "Birlikte bakılacaklar", "tone": "support", "items": focus},
+        {"section": "Hatırlatma", "tone": "neutral", "items": [
+            "Bu notlar performans puanı değil; süreç sağlığı ve destek içindir.",
+            "Kıyas yalnızca kişinin kendi geçmişiyledir, başka kişiyle değil.",
+        ]},
+    ]
+
+
+@router.get("/developers/{dev_id}/one-on-one")
+def developer_one_on_one(
+    dev_id: int,
+    session: Session = Depends(get_session),
+    requester: Developer | None = Depends(current_dev),
+    user=Depends(current_user_optional),
+):
+    """1:1 görüşme hazırlık özeti — bireysel görünümle AYNI yetki kurallarına
+    tabidir (kişinin kendisi, yöneticisi ya da admin)."""
+    summary = developer_summary(dev_id, session, requester, user)
+    return {
+        "developer": summary["developer"],
+        "window_days": summary["window_days"],
+        "talking_points": _one_on_one_points(summary),
     }
 
 

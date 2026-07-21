@@ -37,6 +37,14 @@ def run_pipeline() -> dict:
         )
         metrics_written = compute_all(session, cfg)
         recs_written = run_rules(session, cfg)
-        return {**stats, "metric_results": metrics_written, "recommendations": recs_written}
+        # Metrik kırmızıya döndüyse ilgili yönetici/adminlere trend alarmı üret.
+        from app.services.notifications import scan_and_emit_trend_alarms
+        alarms = scan_and_emit_trend_alarms(session)
+        return {
+            **stats,
+            "metric_results": metrics_written,
+            "recommendations": recs_written,
+            "trend_alarms": alarms,
+        }
     finally:
         session.close()

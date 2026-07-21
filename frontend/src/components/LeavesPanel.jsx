@@ -75,6 +75,13 @@ export default function LeavesPanel({ user, isAdmin }) {
 
   const monthName = cursor.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
 
+  // Listede tekilleştir: aynı izin birden çok güne yayıldığında bir kez göster.
+  const uniqueLeaves = useMemo(() => {
+    const seen = new Map();
+    for (const lv of leaves) if (!seen.has(lv.id)) seen.set(lv.id, lv);
+    return [...seen.values()].sort((a, b) => a.start_date.localeCompare(b.start_date));
+  }, [leaves]);
+
   return (
     <div className="leaves-panel">
       <section className="section">
@@ -119,6 +126,38 @@ export default function LeavesPanel({ user, isAdmin }) {
         </div>
         {error && <div className="login-error">{error}</div>}
         {msg && <div className="admin-ok">{msg}</div>}
+      </section>
+
+      <section className="section">
+        <div className="section-head">
+          <h2>Bu ayki izinler ({uniqueLeaves.length})</h2>
+        </div>
+        {uniqueLeaves.length === 0 ? (
+          <p className="desc">Bu ay izin kaydı yok.</p>
+        ) : (
+          <ul className="leave-list">
+            {uniqueLeaves.map((lv) => (
+              <li key={lv.id} className="leave-list-item">
+                <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
+                <div className="leave-list-main">
+                  <div className="leave-list-top">
+                    <strong>{lv.person}</strong>
+                    <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                  </div>
+                  <div className="leave-list-dates">
+                    {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
+                    {lv.description ? ` · ${lv.description}` : ""}
+                  </div>
+                </div>
+                {lv.can_delete && (
+                  <button className="mini danger leave-del" title="İzni sil" onClick={() => remove(lv)}>
+                    Sil
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="section">

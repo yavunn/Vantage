@@ -153,6 +153,10 @@ export function changePassword(current_password, new_password) {
   return apiPost("/api/auth/change-password", { current_password, new_password });
 }
 
+export function updateProfile(patch) {
+  return apiPatch("/api/auth/me/profile", patch);
+}
+
 export function listEmployees() {
   return api("/api/auth/employees");
 }
@@ -231,6 +235,46 @@ export function deleteLeave(id) {
 }
 export function leaveSummary(month) {
   return api(`/api/leaves/summary?month=${month}`);
+}
+
+// --- bildirimler --------------------------------------------------------------
+
+export function listNotifications() {
+  return api("/api/me/notifications");
+}
+export function markNotificationRead(id) {
+  return apiPost(`/api/me/notifications/${id}/read`, {});
+}
+export function markAllNotificationsRead() {
+  return apiPost("/api/me/notifications/read-all", {});
+}
+
+// --- denetim kaydı (admin) ----------------------------------------------------
+
+export function listAudit() {
+  return api("/api/admin/audit");
+}
+
+// --- 1:1 hazırlık özeti -------------------------------------------------------
+
+export function oneOnOne(devId) {
+  return api(`/api/developers/${devId}/one-on-one`);
+}
+
+// --- CSV indirme (auth başlıklı; blob olarak indirir) -------------------------
+
+export async function downloadCsv(path, filename) {
+  const resp = await fetch(path, { headers: authHeaders() });
+  if (!resp.ok) throw await parseError(resp);
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // --- yönetici: entegrasyon/kaynak ---------------------------------------------

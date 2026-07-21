@@ -8,6 +8,7 @@ import Login from "./components/Login.jsx";
 import CodeHealthCard from "./components/CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
+import NotificationBell from "./components/NotificationBell.jsx";
 import MetricDrilldown from "./components/MetricDrilldown.jsx";
 import Setup from "./components/Setup.jsx";
 import SignalsBlock from "./components/SignalsBlock.jsx";
@@ -296,6 +297,7 @@ export default function App() {
         </button>
 
         <div className="topbar-user">
+          <NotificationBell />
           <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
           <span className="user-chip">
             {user.display_name}
@@ -319,6 +321,7 @@ export default function App() {
             onCycleTheme={cycleTheme}
             themeLabel={themeLabel}
             onLogout={doLogout}
+            onProfileUpdated={(u) => setUser((cur) => ({ ...cur, ...u }))}
           />
         )}
 

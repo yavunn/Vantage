@@ -20,7 +20,7 @@ from app.api.leaves import router as leaves_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
 from app.core.config import PROJECT_ROOT, get_config
-from app.core.db import Base, get_engine
+from app.core.db import Base, ensure_schema_patches, get_engine
 from app.services.pipeline import run_pipeline
 
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
@@ -30,6 +30,7 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     cfg = get_config()
     Base.metadata.create_all(get_engine())  # şema garanti (alembic da mevcut)
+    ensure_schema_patches()  # var olan tablolara sonradan eklenen kolonlar
     scheduler = None
     if cfg.sync.interval_minutes > 0:
         scheduler = BackgroundScheduler()

@@ -348,6 +348,82 @@ table.quality .na { color: var(--muted); font-style: italic; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
 
+/* ---- Bildirim zili ---- */
+.notif-bell { position: relative; display: inline-block; }
+.notif-trigger { position: relative; font-size: 16px; }
+.notif-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 8px; background: #d33; color: #fff;
+  font-size: 10px; line-height: 16px; text-align: center; font-weight: 700;
+}
+.notif-panel {
+  position: absolute; right: 0; top: 130%; z-index: 60; width: 340px;
+  max-height: 440px; overflow-y: auto; background: var(--page);
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+}
+.notif-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.notif-empty { padding: 8px 2px; }
+.notif-list { list-style: none; margin: 0; padding: 0; }
+.notif-item {
+  padding: 9px 10px; border-radius: 9px; margin-bottom: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--brand-soft);
+}
+.notif-item.read { opacity: 0.6; background: transparent; }
+.notif-item.sev-warning { border-left: 3px solid #e0a800; }
+.notif-item.sev-critical { border-left: 3px solid #d33; }
+.notif-title { font-weight: 600; font-size: 13.5px; }
+.notif-body { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.notif-time { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ---- İzin listesi (ergonomik silme) ---- */
+.leave-list { list-style: none; margin: 0; padding: 0; }
+.leave-list-item {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px;
+}
+.leave-list-main { flex: 1; min-width: 0; }
+.leave-list-top { display: flex; align-items: center; gap: 8px; }
+.leave-list-dates { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.leave-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+.leave-dot.annual { background: #3b82f6; }
+.leave-dot.sick { background: #ef4444; }
+.leave-dot.other { background: #a855f7; }
+.leave-badge {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  background: var(--brand-soft); border: 1px solid var(--border);
+}
+.leave-del { flex: 0 0 auto; }
+
+/* ---- Profil / ayarlar geliştirmeleri ---- */
+.profile-title { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+.settings-form textarea {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--page); color: inherit;
+  font: inherit; resize: vertical;
+}
+.pw-strength { display: flex; align-items: center; gap: 10px; margin: -4px 0 4px; }
+.pw-bar { flex: 1; height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.pw-bar span { display: block; height: 100%; transition: width 0.2s, background 0.2s; }
+.pw-strength.s0 .pw-bar span, .pw-strength.s1 .pw-bar span { background: #ef4444; }
+.pw-strength.s2 .pw-bar span { background: #e0a800; }
+.pw-strength.s3 .pw-bar span { background: #3b82f6; }
+.pw-strength.s4 .pw-bar span { background: #22a559; }
+.pw-label { font-size: 12px; color: var(--muted); min-width: 60px; }
+.pw-show { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13px; }
+.pw-show input { width: auto; }
+
+/* ---- 1:1 hazırlık ---- */
+.indiv-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.prep-modal { max-width: 460px; }
+.prep-section { margin-bottom: 14px; }
+.prep-section h3 { margin: 0 0 6px; font-size: 15px; }
+.prep-section ul { margin: 0; padding-left: 18px; }
+.prep-section li { margin: 4px 0; font-size: 13.5px; }
+.prep-section.tone-positive h3 { color: #2e9e5b; }
+.prep-section.tone-support h3 { color: #e0a800; }
+.prep-section.tone-neutral h3 { color: var(--muted); }
+
 /* ---- Kimlik bilgisi modalı (kopyala araçları) ---- */
 .cred-modal .cred-row {
   display: flex; align-items: center; gap: 10px; margin: 10px 0;
