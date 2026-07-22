@@ -169,6 +169,10 @@ export function setEmployeePassword(userId, new_password) {
   return apiPost(`/api/auth/employees/${userId}/password`, { new_password });
 }
 
+export function setEmployment(userId, patch) {
+  return apiPatch(`/api/auth/employees/${userId}/employment`, patch);
+}
+
 export function updateEmployee(userId, patch) {
   return apiPatch(`/api/auth/employees/${userId}`, patch);
 }
@@ -235,6 +239,15 @@ export function deleteLeave(id) {
 }
 export function leaveSummary(month) {
   return api(`/api/leaves/summary?month=${month}`);
+}
+export function leaveBalances(year) {
+  return api(`/api/leaves/balances${year ? `?year=${year}` : ""}`);
+}
+export function pendingLeaves() {
+  return api("/api/leaves/pending");
+}
+export function decideLeave(id, decision) {
+  return apiPost(`/api/leaves/${id}/decision`, { decision });
 }
 
 // --- bildirimler --------------------------------------------------------------

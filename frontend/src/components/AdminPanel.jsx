@@ -4,6 +4,7 @@ import {
   deleteEmployee,
   listEmployees,
   setEmployeePassword,
+  setEmployment,
   updateEmployee,
 } from "../api.js";
 import AnnotationsPanel from "./AnnotationsPanel.jsx";
@@ -26,6 +27,7 @@ async function copyText(text, label) {
 }
 
 const PAGE_SIZE = 10;
+const ROLE_LABEL = { user: "Çalışan", admin: "Yönetici", hr: "İnsan Kaynakları" };
 
 // Kolay okunur, güçlü geçici parola üretir (karışan karakterler hariç).
 function randomPassword() {
@@ -36,12 +38,18 @@ function randomPassword() {
   return out + syms[Math.floor(Math.random() * syms.length)];
 }
 
-export default function AdminPanel({ teams, me, onViewPerson }) {
+// hrMode: İK yalnız hesap rehberini kullanır — çalışan (user) ekler ve user
+// parolası sıfırlar. Rol değiştirme / silme / pasifleştirme / entegrasyon /
+// denetim İK'ya KAPALI (backend de 403 verir; UI de göstermez).
+export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) {
   const [subtab, setSubtab] = useState("accounts"); // accounts | integration
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
     display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member",
+    hire_date: "", annual_allowance: 14,
   });
+  const [employmentFor, setEmploymentFor] = useState(null); // düzenlenen hesap
+  const [empForm, setEmpForm] = useState({ hire_date: "", annual_allowance: 14 });
   const [msg, setMsg] = useState(null);
   const [error, setError] = useState(null);
   const [resetFor, setResetFor] = useState(null);
@@ -71,14 +79,16 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
         display_name: form.display_name.trim(),
         email: form.email.trim(),
         password: form.password,
-        role: form.role,
+        role: hrMode ? "user" : form.role,
         team_role: form.team_role,
+        annual_allowance: Number(form.annual_allowance) || 0,
       };
       if (form.team_id) payload.team_id = Number(form.team_id);
+      if (form.hire_date) payload.hire_date = form.hire_date;
       const created = await createEmployee(payload);
       setMsg(`Oluşturuldu: ${created.display_name} (${created.email}). Geçici parolayı çalışana ilet — ilk girişte değiştirecek.`);
       setCred({ title: "Yeni hesap oluşturuldu", email: created.email, password: form.password });
-      setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member" });
+      setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member", hire_date: "", annual_allowance: 14 });
       refresh();
     } catch (err) {
       setError(err.message);
@@ -111,6 +121,24 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
       setEmployees((list) => list.filter((x) => x.id !== u.id));
       setSelected((s) => { const n = new Set(s); n.delete(u.id); return n; });
       setMsg(res.developer_removed ? "Hesap ve geliştirici kaydı silindi." : "Hesap silindi (geçmiş metrikler korundu).");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function openEmployment(u) {
+    setEmploymentFor(u);
+    setEmpForm({ hire_date: u.hire_date || "", annual_allowance: u.annual_allowance ?? 14 });
+  }
+  async function saveEmployment() {
+    setError(null); setMsg(null);
+    try {
+      const patch = { annual_allowance: Number(empForm.annual_allowance) || 0 };
+      if (empForm.hire_date) patch.hire_date = empForm.hire_date;
+      const updated = await setEmployment(employmentFor.id, patch);
+      setEmployees((list) => list.map((u) => (u.id === updated.id ? updated : u)));
+      setMsg(`${updated.display_name}: işe giriş + izin hakkı güncellendi.`);
+      setEmploymentFor(null);
     } catch (err) {
       setError(err.message);
     }
@@ -159,7 +187,7 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
   }
 
   // --- toplu seçim ---
-  const selectableIds = pageRows.filter((u) => !me || u.id !== me.id).map((u) => u.id);
+  const selectableIds = pageRows.filter((u) => (!me || u.id !== me.id) && !u.is_owner).map((u) => u.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
 
   function toggleAll() {
@@ -190,26 +218,28 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
 
   return (
     <div className="admin-panel">
-      <div className="subtabs">
-        <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
-        <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
-        <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
-        <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
-        <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
-        <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
-      </div>
+      {!hrMode && (
+        <div className="subtabs">
+          <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
+          <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
+          <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
+          <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
+          <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
+          <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
+        </div>
+      )}
 
-      {subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
+      {!hrMode && subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
-      {subtab === "integration" && <IntegrationPanel />}
+      {!hrMode && subtab === "integration" && <IntegrationPanel />}
 
-      {subtab === "annotations" && <AnnotationsPanel teams={teams} />}
+      {!hrMode && subtab === "annotations" && <AnnotationsPanel teams={teams} />}
 
-      {subtab === "code" && <CodeAnalysisPanel />}
+      {!hrMode && subtab === "code" && <CodeAnalysisPanel />}
 
-      {subtab === "audit" && <AuditPanel />}
+      {!hrMode && subtab === "audit" && <AuditPanel />}
 
-      {subtab === "accounts" && (
+      {(hrMode || subtab === "accounts") && (
         <>
           <section className="section">
             <h2>Yeni çalışan ekle</h2>
@@ -228,9 +258,10 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
                 </span>
               </label>
               <label>Rol
-                <select value={form.role} onChange={(e) => upd("role", e.target.value)}>
+                <select value={hrMode ? "user" : form.role} disabled={hrMode} title={hrMode ? "İK yalnızca çalışan (user) hesabı açabilir" : ""} onChange={(e) => upd("role", e.target.value)}>
                   <option value="user">Çalışan</option>
-                  <option value="admin">Yönetici (admin)</option>
+                  {!hrMode && <option value="admin">Yönetici (admin)</option>}
+                  {!hrMode && <option value="hr">İnsan Kaynakları (hr)</option>}
                 </select>
               </label>
               <label>Takım (opsiyonel)
@@ -245,6 +276,12 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
                   <option value="manager">Takım yöneticisi</option>
                 </select>
               </label>
+              <label>İşe giriş tarihi (opsiyonel)
+                <input type="date" value={form.hire_date} onChange={(e) => upd("hire_date", e.target.value)} />
+              </label>
+              <label>Yıllık izin hakkı (gün)
+                <input type="number" min={0} max={365} value={form.annual_allowance} onChange={(e) => upd("annual_allowance", e.target.value)} />
+              </label>
               <button type="submit" className="login-btn">Çalışanı oluştur</button>
             </form>
             {msg && <div className="admin-ok">{msg}</div>}
@@ -257,7 +294,7 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
               <input className="search" value={query} onChange={(e) => { setQuery(e.target.value); setPage(0); }} placeholder="Ada veya e-postaya göre ara…" />
             </div>
 
-            {selected.size > 0 && (
+            {!hrMode && selected.size > 0 && (
               <div className="bulk-bar">
                 <span>{selected.size} seçili</span>
                 <button className="mini" onClick={bulkDeactivate}>Seçilenleri pasifleştir</button>
@@ -268,7 +305,7 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
             <table className="quality">
               <thead>
                 <tr>
-                  <th><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Tümünü seç" /></th>
+                  {!hrMode && <th><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Tümünü seç" /></th>}
                   <th className="sortable" onClick={() => toggleSort("display_name")}>Ad{sortArrow("display_name")}</th>
                   <th className="sortable" onClick={() => toggleSort("email")}>E-posta{sortArrow("email")}</th>
                   <th>Takımlar</th>
@@ -280,11 +317,16 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
               <tbody>
                 {pageRows.map((u) => {
                   const isSelf = me && u.id === me.id;
+                  const isOwner = !!u.is_owner;
+                  // Baş yönetici korunur: kendisi dışında kimse rol/durum/silme/parola yapamaz.
+                  const lockedByOwner = isOwner && !isSelf;
                   return (
-                    <tr key={u.id} className={u.is_active ? "" : "row-inactive"}>
-                      <td>
-                        <input type="checkbox" disabled={isSelf} checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} aria-label={`${u.display_name} seç`} />
-                      </td>
+                    <tr key={u.id} className={`${u.is_active ? "" : "row-inactive"} ${isOwner ? "row-owner" : ""}`}>
+                      {!hrMode && (
+                        <td>
+                          <input type="checkbox" disabled={isSelf || isOwner} checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} aria-label={`${u.display_name} seç`} />
+                        </td>
+                      )}
                       <td>
                         {/* İK akışı: hesaptan doğrudan o kişinin sağlık görünümüne geç. */}
                         {onViewPerson && u.developer_id != null ? (
@@ -297,6 +339,7 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
                           </button>
                         ) : u.display_name}
                         {u.must_change_password && <span className="pw-flag" title="Parola değiştirme bekliyor">⟳</span>}
+                        {isOwner && <span className="owner-badge" title="Baş yönetici — korumalı, en üst yetki">★ Baş Yönetici</span>}
                       </td>
                       <td>{u.email}</td>
                       <td>
@@ -305,17 +348,25 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
                         </button>
                       </td>
                       <td>
-                        <select className="cell-select" value={u.role} disabled={isSelf} title={isSelf ? "Kendi rolünü değiştiremezsin" : ""} onChange={(e) => patch(u.id, { role: e.target.value })}>
-                          <option value="user">Çalışan</option>
-                          <option value="admin">Yönetici</option>
-                        </select>
+                        {isOwner ? (
+                          <span className="owner-role" title="Baş yönetici rolü değiştirilemez">★ Baş Yönetici</span>
+                        ) : hrMode ? (
+                          <span className={`role-tag role-${u.role}`}>{ROLE_LABEL[u.role] || u.role}</span>
+                        ) : (
+                          <select className="cell-select" value={u.role} disabled={isSelf} title={isSelf ? "Kendi rolünü değiştiremezsin" : ""} onChange={(e) => patch(u.id, { role: e.target.value })}>
+                            <option value="user">Çalışan</option>
+                            <option value="admin">Yönetici</option>
+                            <option value="hr">İnsan Kaynakları</option>
+                          </select>
+                        )}
                       </td>
                       <td>
-                        <button className={`mini ${u.is_active ? "" : "ghost"}`} disabled={isSelf} title={isSelf ? "Kendi durumunu değiştiremezsin" : ""} onClick={() => patch(u.id, { is_active: !u.is_active })}>
+                        <button className={`mini ${u.is_active ? "" : "ghost"}`} disabled={hrMode || isSelf || isOwner} title={hrMode ? "İK aktiflik değiştiremez" : isOwner ? "Baş yönetici pasifleştirilemez" : isSelf ? "Kendi durumunu değiştiremezsin" : ""} onClick={() => patch(u.id, { is_active: !u.is_active })}>
                           {u.is_active ? "Aktif" : "Pasif"}
                         </button>
                       </td>
                       <td>
+                        <button className="mini ghost" title="İşe giriş tarihi + yıllık izin hakkı" onClick={() => openEmployment(u)}>İzin hakkı</button>
                         {resetFor === u.id ? (
                           <span className="reset-row">
                             <input type="text" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="yeni parola" minLength={6} />
@@ -324,9 +375,11 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
                             <button className="mini ghost" onClick={() => setResetFor(null)}>Vazgeç</button>
                           </span>
                         ) : (
-                          <button className="mini" onClick={() => { setResetFor(u.id); setResetPw(""); }}>Parola sıfırla</button>
+                          <button className="mini" disabled={lockedByOwner || (hrMode && u.role !== "user")} title={hrMode && u.role !== "user" ? "İK yalnızca çalışan (user) parolasını sıfırlayabilir" : lockedByOwner ? "Baş yöneticinin parolasını yalnızca kendisi değiştirebilir" : ""} onClick={() => { setResetFor(u.id); setResetPw(""); }}>Parola sıfırla</button>
                         )}
-                        <button className="mini danger" disabled={isSelf} title={isSelf ? "Kendi hesabını silemezsin" : "Hesabı sil"} onClick={() => doDelete(u)}>Sil</button>
+                        {!hrMode && (
+                          <button className="mini danger" disabled={isSelf || isOwner} title={isOwner ? "Baş yönetici hesabı silinemez" : isSelf ? "Kendi hesabını silemezsin" : "Hesabı sil"} onClick={() => doDelete(u)}>Sil</button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -362,6 +415,23 @@ export default function AdminPanel({ teams, me, onViewPerson }) {
             <div className="cred-actions">
               <button className="mini" onClick={() => copyText(`mail:${cred.email} şifre:${cred.password}`, "E-posta ve parola")}>İkisini birden kopyala</button>
               <button className="login-btn" onClick={() => setCred(null)}>Tamam</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {employmentFor && (
+        <Modal title={`İstihdam · ${employmentFor.display_name}`} onClose={() => setEmploymentFor(null)}>
+          <div className="admin-form" style={{ display: "grid", gap: "12px" }}>
+            <label>İşe giriş tarihi
+              <input type="date" value={empForm.hire_date} onChange={(e) => setEmpForm((f) => ({ ...f, hire_date: e.target.value }))} />
+            </label>
+            <label>Yıllık izin hakkı (gün)
+              <input type="number" min={0} max={365} value={empForm.annual_allowance} onChange={(e) => setEmpForm((f) => ({ ...f, annual_allowance: e.target.value }))} />
+            </label>
+            <div className="cred-actions">
+              <button className="mini ghost" onClick={() => setEmploymentFor(null)}>Vazgeç</button>
+              <button className="login-btn" onClick={saveEmployment}>Kaydet</button>
             </div>
           </div>
         </Modal>

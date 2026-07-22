@@ -27,6 +27,14 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "timezone": "VARCHAR(60)",
         "bio": "TEXT",
         "last_login_at": "TIMESTAMP WITH TIME ZONE",
+        # Baş yönetici (owner): en üst yetki, kimse silemez/rütbe düşüremez.
+        "is_owner": "BOOLEAN DEFAULT FALSE",
+        # İK alanları: işe giriş + yıllık izin hakkı.
+        "hire_date": "DATE",
+        "annual_allowance": "INTEGER DEFAULT 14",
+        # Login brute-force koruması.
+        "failed_login_count": "INTEGER DEFAULT 0",
+        "locked_until": "TIMESTAMP WITH TIME ZONE",
     },
 }
 

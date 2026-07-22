@@ -7,13 +7,15 @@
 - POST /api/auth/employees             : (admin) yeni çalışan + hesap oluştur
 - POST /api/auth/employees/{id}/password : (admin) bir çalışanın parolasını sıfırla
 
-Yetki modeli sade: role ∈ {user, admin}. Admin uçları token'daki role ile korunur.
+Yetki modeli: role ∈ {user, admin, hr}. admin=tam yetki, hr=İK (rehber+izin+
+kapasite; performans/entegrasyon/rol-değişimi KAPALI), user=çalışan. owner
+(is_owner) = korunan admin. Admin uçları token'daki role ile korunur.
 Dashboard uçları (routes.py) ayrı X-Dev-Id katmanını kullanmaya devam eder;
 frontend giriş sonrası bu başlığı oturum sahibinin developer_id'siyle doldurur.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -40,6 +42,11 @@ from app.models import (
 
 router = APIRouter(prefix="/api/auth")
 
+# Login brute-force koruması: ardışık N başarısız denemeden sonra hesap
+# M dakika geçici kilitlenir. Kilit süresi dolunca sayaç sıfırlanır.
+MAX_FAILED_LOGINS = 5
+LOCKOUT_MINUTES = 15
+
 
 # --- şemalar ------------------------------------------------------------------
 
@@ -57,9 +64,11 @@ class CreateEmployeeBody(BaseModel):
     display_name: str = Field(min_length=1)
     email: str
     password: str = Field(min_length=6)
-    role: str = "user"  # user | admin
+    role: str = "user"  # user | admin | hr
     team_id: int | None = None
     team_role: str = "member"  # member | manager
+    hire_date: date | None = None
+    annual_allowance: int = 14
 
 
 class SetPasswordBody(BaseModel):
@@ -67,8 +76,13 @@ class SetPasswordBody(BaseModel):
 
 
 class UpdateEmployeeBody(BaseModel):
-    role: str | None = None          # user | admin
+    role: str | None = None          # user | admin | hr
     is_active: bool | None = None
+
+
+class EmploymentBody(BaseModel):
+    hire_date: date | None = None
+    annual_allowance: int | None = Field(default=None, ge=0, le=365)
 
 
 class UpdateProfileBody(BaseModel):
@@ -131,6 +145,38 @@ def require_admin(user: User = Depends(current_user)) -> User:
     return user
 
 
+def require_hr(user: User = Depends(current_user)) -> User:
+    """Yalnızca İnsan Kaynakları (hr). Salt-İK uçları için."""
+    if user.role != "hr":
+        raise HTTPException(status_code=403, detail="Bu işlem için İK yetkisi gerekli")
+    return user
+
+
+def require_admin_or_hr(user: User = Depends(current_user)) -> User:
+    """Paylaşımlı İK uçları: çalışan rehberi, izin özeti/onayı, kapasite.
+    admin (ve owner=admin) ile hr geçer; düz user geçemez."""
+    if user.role not in ("admin", "hr"):
+        raise HTTPException(status_code=403, detail="Bu işlem için yönetici veya İK yetkisi gerekli")
+    return user
+
+
+def require_owner(user: User = Depends(current_user)) -> User:
+    """Yalnızca baş yönetici (owner). En üst yetki gerektiren işlemler için."""
+    if not user.is_owner:
+        raise HTTPException(status_code=403, detail="Bu işlem için baş yönetici yetkisi gerekli")
+    return user
+
+
+def _guard_owner_target(target: User, actor: User) -> None:
+    """Baş yönetici hesabı korunur: sahibinden başkası ona dokunamaz (silme,
+    rol/aktiflik değişimi, parola sıfırlama). Böylece en üst yetki ele geçirilemez."""
+    if target.is_owner and target.id != actor.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Baş yönetici hesabı korunuyor; bu işlem yapılamaz",
+        )
+
+
 def _active_admin_count(session: Session) -> int:
     return session.scalar(
         select(func.count()).select_from(User).where(
@@ -170,6 +216,7 @@ def _user_out(session: Session, user: User) -> dict:
         "id": user.id,
         "email": user.email,
         "role": user.role,
+        "is_owner": bool(user.is_owner),
         "is_active": user.is_active,
         "must_change_password": user.must_change_password,
         "developer_id": user.developer_id,
@@ -178,6 +225,8 @@ def _user_out(session: Session, user: User) -> dict:
         "phone": user.phone,
         "timezone": user.timezone,
         "bio": user.bio,
+        "hire_date": user.hire_date.isoformat() if user.hire_date else None,
+        "annual_allowance": user.annual_allowance,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         "teams": _memberships_out(session, user.developer_id),
@@ -188,10 +237,42 @@ def _user_out(session: Session, user: User) -> dict:
 
 @router.post("/login")
 def login(body: LoginBody, session: Session = Depends(get_session)):
+    now = datetime.now(timezone.utc)
     user = session.scalar(select(User).where(User.email == body.email.lower()))
-    if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
+
+    # Hesap geçici kilitli mi? (brute-force koruması). Kilit süresi dolmuşsa
+    # sayaç sıfırlanır ve girişe izin verilir.
+    if user is not None and user.locked_until is not None:
+        locked_until = user.locked_until
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if locked_until > now:
+            remaining = int((locked_until - now).total_seconds() // 60) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Çok fazla başarısız deneme. Hesap geçici kilitli — {remaining} dk sonra tekrar deneyin.",
+            )
+        # Kilit süresi doldu: temizle.
+        user.failed_login_count = 0
+        user.locked_until = None
+
+    ok = user is not None and user.is_active and verify_password(body.password, user.password_hash)
+    if not ok:
+        # Başarısız deneme sayacını artır; eşiği aşarsa kilitle. (Var olan hesap
+        # için; olmayan e-postada sayaç yok — kullanıcı sayımı sızdırılmaz,
+        # mesaj aynıdır.)
+        if user is not None:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            if user.failed_login_count >= MAX_FAILED_LOGINS:
+                user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
+                user.failed_login_count = 0
+            session.commit()
         raise HTTPException(status_code=401, detail="E-posta ya da parola hatalı")
-    user.last_login_at = datetime.now(timezone.utc)
+
+    # Başarılı giriş: sayaç + kilit sıfırlanır.
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.last_login_at = now
     session.commit()
     token = create_access_token(user.id, user.role)
     return {"access_token": token, "token_type": "bearer", "user": _user_out(session, user)}
@@ -245,7 +326,7 @@ def change_password(
 @router.get("/employees")
 def list_employees(
     session: Session = Depends(get_session),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_admin_or_hr),
 ):
     users = session.scalars(select(User).order_by(User.id)).all()
     return [_user_out(session, u) for u in users]
@@ -255,11 +336,15 @@ def list_employees(
 def create_employee(
     body: CreateEmployeeBody,
     session: Session = Depends(get_session),
-    _: User = Depends(require_admin),
+    actor: User = Depends(require_admin_or_hr),
 ):
     email = body.email.lower()
-    if body.role not in ("user", "admin"):
-        raise HTTPException(status_code=422, detail="role yalnızca 'user' veya 'admin' olabilir")
+    if body.role not in ("user", "admin", "hr"):
+        raise HTTPException(status_code=422, detail="role yalnızca 'user', 'admin' veya 'hr' olabilir")
+    # İK işe alım yapar ama rol veremez: HR yalnız role=user hesap açabilir,
+    # admin/hr yükseltmesi yapamaz (yetki tırmanması önleme).
+    if actor.role == "hr" and body.role != "user":
+        raise HTTPException(status_code=403, detail="İK yalnızca çalışan (user) hesabı oluşturabilir")
     if session.scalar(select(User).where(User.email == email)):
         raise HTTPException(status_code=409, detail="Bu e-posta zaten kayıtlı")
 
@@ -279,13 +364,15 @@ def create_employee(
         developer_id=dev.id,
         is_active=True,
         must_change_password=True,  # admin geçici parola verdi; ilk girişte değiştir
+        hire_date=body.hire_date,
+        annual_allowance=body.annual_allowance,
         created_at=now,
         updated_at=now,
     )
     session.add(user)
     session.flush()
     from app.services.audit import record_audit
-    record_audit(session, _, "create_employee", target_user_id=user.id,
+    record_audit(session, actor, "create_employee", target_user_id=user.id,
                  target_email=user.email, detail={"role": body.role})
     session.commit()
     return _user_out(session, user)
@@ -301,6 +388,16 @@ def update_employee(
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    # Baş yönetici korunur: rolü ve aktifliği bu uçtan HİÇ değiştirilemez
+    # (başka admin tarafından da, kaza ile kendi tarafından da). En üst yetki sabit.
+    if user.is_owner and (
+        (body.role is not None and body.role != user.role)
+        or (body.is_active is not None and body.is_active != user.is_active)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Baş yönetici hesabının rolü veya aktifliği değiştirilemez",
+        )
     # Kendini kilitleme koruması: admin kendi rolünü/aktifliğini bu uçtan bozamaz.
     if user.id == admin.id and (
         (body.role is not None and body.role != user.role)
@@ -320,8 +417,8 @@ def update_employee(
         )
     changes: dict = {}
     if body.role is not None:
-        if body.role not in ("user", "admin"):
-            raise HTTPException(status_code=422, detail="role yalnızca 'user' veya 'admin' olabilir")
+        if body.role not in ("user", "admin", "hr"):
+            raise HTTPException(status_code=422, detail="role yalnızca 'user', 'admin' veya 'hr' olabilir")
         if body.role != user.role:
             changes["role"] = f"{user.role}->{body.role}"
         user.role = body.role
@@ -347,6 +444,8 @@ def delete_employee(
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    if user.is_owner:
+        raise HTTPException(status_code=403, detail="Baş yönetici hesabı silinemez")
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Kendi hesabını silemezsin")
     if user.role == "admin" and _active_admin_count(session) <= 1:
@@ -378,20 +477,53 @@ def set_employee_password(
     user_id: int,
     body: SetPasswordBody,
     session: Session = Depends(get_session),
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_hr),
 ):
     user = session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    # İK yalnızca düz çalışan (user) parolası sıfırlayabilir; admin/hr/owner hedefi red.
+    if admin.role == "hr" and user.role != "user":
+        raise HTTPException(status_code=403, detail="İK yalnızca çalışan (user) parolasını sıfırlayabilir")
+    # Baş yöneticinin parolasını yalnızca kendisi değiştirebilir (ele geçirme önleme).
+    _guard_owner_target(user, admin)
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = True  # sıfırlanan parola geçici; kullanıcı değiştirsin
     user.updated_at = datetime.now(timezone.utc)
     from app.services.audit import record_audit
     # Parolanın KENDİSİ asla kaydedilmez — yalnız "sıfırlandı" olgusu.
-    record_audit(session, _, "reset_password", target_user_id=user.id,
+    record_audit(session, admin, "reset_password", target_user_id=user.id,
                  target_email=user.email)
     session.commit()
     return {"ok": True}
+
+
+@router.patch("/employees/{user_id}/employment")
+def set_employment(
+    user_id: int,
+    body: EmploymentBody,
+    session: Session = Depends(get_session),
+    actor: User = Depends(require_admin_or_hr),
+):
+    """İşe giriş tarihi + yıllık izin hakkı (İK kaydı). admin + hr düzenler.
+    Bu alanlar performans metriğine KARIŞMAZ — yalnız İK/kapasite bağlamı."""
+    user = session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+    changes: dict = {}
+    if body.hire_date is not None and body.hire_date != user.hire_date:
+        changes["hire_date"] = body.hire_date.isoformat()
+        user.hire_date = body.hire_date
+    if body.annual_allowance is not None and body.annual_allowance != user.annual_allowance:
+        changes["annual_allowance"] = f"{user.annual_allowance}->{body.annual_allowance}"
+        user.annual_allowance = body.annual_allowance
+    user.updated_at = datetime.now(timezone.utc)
+    if changes:
+        from app.services.audit import record_audit
+        record_audit(session, actor, "update_employment", target_user_id=user.id,
+                     target_email=user.email, detail=changes)
+    session.commit()
+    return _user_out(session, user)
 
 
 # --- takım üyeliği yönetimi (admin) -------------------------------------------

@@ -20,6 +20,7 @@ import TrendChart from "./components/TrendChart.jsx";
 // Varsayılan (takım) görünümde gerekmeyen ağır panelleri tembel yükle —
 // ilk açılış paketi küçülür.
 const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
+const HrDashboard = lazy(() => import("./components/HrDashboard.jsx"));
 const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
 const LeavesPanel = lazy(() => import("./components/LeavesPanel.jsx"));
 const ProjectsPanel = lazy(() => import("./components/ProjectsPanel.jsx"));
@@ -125,7 +126,9 @@ export default function App() {
       const el = document.activeElement;
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
-      const order = ["team", "me", "projects", "leaves", "admin", "settings"];
+      const order = user && user.role === "hr"
+        ? ["hr", "leaves", "accounts", "settings"]
+        : ["team", "me", "projects", "leaves", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
         e.preventDefault();
@@ -134,15 +137,24 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [user]);
 
   // Geçerli olmayan sekmeyi (ör. saklanmış 'admin' ama kullanıcı admin değil) düzelt.
+  // HR ayrı bir gezinme kümesi kullanır (performans sekmeleri kapalı — etik sınır).
   useEffect(() => {
     if (!user || !uiConfig) return;
-    const allowed = new Set(["team", "projects", "leaves", "settings"]);
-    if (uiConfig.individual_view_enabled) allowed.add("me");
-    if (user.role === "admin") allowed.add("admin");
-    if (!allowed.has(tab)) setTab("team");
+    let allowed;
+    let fallback;
+    if (user.role === "hr") {
+      allowed = new Set(["hr", "leaves", "accounts", "settings"]);
+      fallback = "hr";
+    } else {
+      allowed = new Set(["team", "projects", "leaves", "settings"]);
+      if (uiConfig.individual_view_enabled) allowed.add("me");
+      if (user.role === "admin") allowed.add("admin");
+      fallback = "team";
+    }
+    if (!allowed.has(tab)) setTab(fallback);
   }, [user, uiConfig, tab]);
 
   // Açılış: önce kurulum gerekli mi, sonra token doğrula.
@@ -282,6 +294,8 @@ export default function App() {
 
   const individualAvailable = uiConfig.individual_view_enabled;
   const isAdmin = user.role === "admin";
+  const isHr = user.role === "hr";
+  const canManageLeaves = isAdmin || isHr;
 
   return (
     <div className="app">
@@ -307,6 +321,7 @@ export default function App() {
             <span className="user-chip">
               {user.display_name}
               {isAdmin && <span className="role-badge">admin</span>}
+              {isHr && <span className="role-badge hr-badge">İK</span>}
             </span>
             <button className="mini ghost" onClick={doLogout}>Çıkış</button>
           </div>
@@ -314,28 +329,47 @@ export default function App() {
 
         <div className="topbar-row topbar-row-nav">
           <nav className="topbar-tabs" aria-label="Ana gezinme">
-            <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
-              Takım görünümü
-            </button>
-            {individualAvailable && (
-              <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
-                Bireysel görünüm
-              </button>
+            {isHr ? (
+              <>
+                <button className={`tab ${tab === "hr" ? "active" : ""}`} onClick={() => setTab("hr")}>
+                  İK Panosu
+                </button>
+                <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
+                  İzinler
+                </button>
+                <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
+                  Hesaplar
+                </button>
+                <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
+                  Ayarlar
+                </button>
+              </>
+            ) : (
+              <>
+                <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
+                  Takım görünümü
+                </button>
+                {individualAvailable && (
+                  <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
+                    Bireysel görünüm
+                  </button>
+                )}
+                <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
+                  Projelerim
+                </button>
+                <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
+                  İzinler
+                </button>
+                {isAdmin && (
+                  <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
+                    Yönetici paneli
+                  </button>
+                )}
+                <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
+                  Ayarlar
+                </button>
+              </>
             )}
-            <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
-              Projelerim
-            </button>
-            <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
-              İzinler
-            </button>
-            {isAdmin && (
-              <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
-                Yönetici paneli
-              </button>
-            )}
-            <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
-              Ayarlar
-            </button>
           </nav>
 
           {tab === "team" && (
@@ -369,9 +403,17 @@ export default function App() {
           />
         )}
 
-        {tab === "projects" && <ProjectsPanel isAdmin={isAdmin} />}
+        {tab === "projects" && !isHr && <ProjectsPanel isAdmin={isAdmin} />}
 
-        {tab === "leaves" && <LeavesPanel user={user} isAdmin={isAdmin} />}
+        {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} />}
+
+        {tab === "hr" && isHr && <HrDashboard />}
+
+        {/* İK hesap rehberi: yalnız çalışan (user) ekler/sıfırlar. Performans
+            bağlantısı YOK (onViewPerson geçilmez — etik sınır). */}
+        {tab === "accounts" && isHr && (
+          <AdminPanel teams={teams} me={user} hrMode />
+        )}
 
         {tab === "admin" && isAdmin && (
           <AdminPanel
@@ -582,7 +624,12 @@ export default function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        tabs={[
+        tabs={isHr ? [
+          { key: "hr", label: "İK Panosu" },
+          { key: "leaves", label: "İzinler" },
+          { key: "accounts", label: "Hesaplar" },
+          { key: "settings", label: "Ayarlar" },
+        ] : [
           { key: "team", label: "Takım görünümü" },
           ...(individualAvailable ? [{ key: "me", label: "Bireysel görünüm" }] : []),
           { key: "projects", label: "Projelerim" },
@@ -590,8 +637,8 @@ export default function App() {
           ...(isAdmin ? [{ key: "admin", label: "Yönetici paneli" }] : []),
           { key: "settings", label: "Ayarlar" },
         ]}
-        teams={teams}
-        people={individualAvailable ? directory : []}
+        teams={isHr ? [] : teams}
+        people={!isHr && individualAvailable ? directory : []}
         onGoTab={setTab}
         onGoTeam={(id) => { setTeamId(id); setTab("team"); }}
         onGoPerson={(id) => { pushRecent(id); setViewDevId(id); setTab("me"); }}

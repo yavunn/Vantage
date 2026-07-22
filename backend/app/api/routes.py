@@ -24,13 +24,17 @@ from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
 from app.models import (
     CodeQualitySnapshot,
+    Commit,
     Developer,
     MetricResult,
     Recommendation,
     Repo,
     Team,
     TeamMembership,
+    User,
 )
+from app.services.commit_alignment import alignment_summary
+from app.services.scoring import overall_score
 from app.services.health import (
     METRIC_META,
     METRIC_THRESHOLD_MAP,
@@ -432,11 +436,29 @@ def me(
 
 @router.get("/directory")
 def directory(session: Session = Depends(get_session)):
-    """Kişi listesi (demo kimlik seçici). Metrik İÇERMEZ — sadece isim/rol;
-    liste + metrik birleşimi leaderboard doğurur, o uç bilerek yoktur."""
+    """Kişi listesi (bireysel görünüm kimlik seçici). Metrik İÇERMEZ — sadece
+    isim/rol; liste + metrik birleşimi leaderboard doğurur, o uç bilerek yoktur.
+
+    Kaynak = giriş HESABI olan ve bir geliştiriciye bağlı aktif çalışanlar.
+    Böylece bu liste yönetici panelindeki "Hesaplar" ile tutarlıdır: ingest'ten
+    gelen ama hesabı olmayan (orphan) geliştiriciler burada görünmez. Hesabı
+    developer'a bağlı olmayan saf admin'ler zaten bireysel eng görünümü
+    üretemez (developer_id yok), o yüzden dışarıda kalır."""
     cfg = get_config()
     out = []
-    for dev in session.scalars(select(Developer)):
+    seen: set[int] = set()
+    users = session.scalars(
+        select(User)
+        .where(User.is_active.is_(True), User.developer_id.is_not(None))
+        .order_by(User.id)
+    ).all()
+    for u in users:
+        if u.developer_id in seen:
+            continue
+        dev = session.get(Developer, u.developer_id)
+        if dev is None:
+            continue
+        seen.add(u.developer_id)
         out.append(
             {
                 "id": dev.id,
@@ -498,9 +520,26 @@ def developer_summary(
                 "previous_value": prev_val,
             }
         )
+    overall = overall_score(metrics, cfg)
+    commit_rows = (
+        session.query(Commit)
+        .filter(Commit.author_id == dev.id, Commit.committed_at >= now - window, Commit.committed_at <= now)
+        .all()
+    )
+    alignment = alignment_summary(
+        [
+            {
+                "sha": c.sha, "message": c.message, "changed_files": c.changed_files,
+                "additions": c.additions, "deletions": c.deletions,
+            }
+            for c in commit_rows
+        ]
+    )
     return {
         "developer": {"id": dev.id, "display_name": dev.display_name},
         "window_days": cfg.app.window_days,
+        "overall": overall,
+        "commit_alignment": alignment,
         "metrics": metrics,
         "note": "Bu görünüm yalnızca sizin (ve yöneticinizin) erişimine açıktır; "
                 "kıyas yalnızca kendi geçmişinizle yapılır.",

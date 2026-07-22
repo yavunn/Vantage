@@ -65,6 +65,12 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user")  # user | admin
+    # Baş yönetici (owner): role="admin" olan ama KORUNAN tek hesap. Tüm admin
+    # yetkilerine sahiptir; ek olarak kimse onu silemez, rütbesini düşüremez,
+    # pasifleştiremez ya da parolasını sıfırlayamaz. Sistemde en fazla bir tane.
+    is_owner: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     developer_id: Mapped[int | None] = mapped_column(
         ForeignKey("developers.id"), nullable=True
     )
@@ -78,6 +84,19 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(60), nullable=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # İK alanları (HR düzenler; performans metriğine karışmaz):
+    hire_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # işe giriş
+    annual_allowance: Mapped[int] = mapped_column(
+        Integer, default=14, server_default="14", nullable=False
+    )  # yıllık izin hakkı (gün)
+    # Login brute-force koruması (güvenlik): ardışık başarısız deneme sayacı +
+    # geçici kilit. Başarılı girişte ikisi de sıfırlanır.
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

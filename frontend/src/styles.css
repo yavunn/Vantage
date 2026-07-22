@@ -582,6 +582,19 @@ th.sortable:hover { color: var(--brand); }
 .pager { display: flex; align-items: center; gap: 12px; justify-content: center; margin-top: 14px; font-size: 13.5px; }
 .pw-flag { color: var(--status-warning); margin-left: 6px; cursor: help; }
 
+/* ---- Baş yönetici (owner) ---- */
+.owner-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  color: #7a5b00; background: #fff3cd; border: 1px solid #f0d98a;
+  border-radius: 999px; vertical-align: middle; cursor: help;
+}
+.owner-role {
+  font-weight: 600; color: var(--accent, #7a5b00); white-space: nowrap;
+}
+.row-owner { background: color-mix(in srgb, var(--accent, #f0d98a) 6%, transparent); }
+[data-theme="dark"] .owner-badge { color: #ffe08a; background: #3a2f05; border-color: #6b5710; }
+
 /* ---- Takım editörü ---- */
 .team-list { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
 .team-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
@@ -722,3 +735,99 @@ table.quality td:last-child { display: flex; gap: 6px; align-items: center; flex
   padding: 8px 12px; font-size: 14px; font-family: inherit; min-width: 240px;
 }
 .search:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+/* ---- Bireysel genel skor + commit eşleşmesi ---- */
+.overall-score {
+  background: var(--surface-1); border: 1px solid var(--border); border-left: 4px solid var(--muted);
+  border-radius: 12px; padding: 16px 18px; margin-bottom: 16px;
+}
+.overall-score.status-green { border-left-color: var(--status-good); }
+.overall-score.status-yellow { border-left-color: var(--status-warning); }
+.overall-score.status-red { border-left-color: var(--status-critical); }
+.overall-main { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.overall-value { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.overall-max { font-size: 16px; color: var(--text-secondary); font-weight: 500; margin-left: 2px; }
+.overall-meta { flex: 1; min-width: 160px; }
+.overall-label { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.overall-score .note { margin-top: 12px; }
+table.score-breakdown { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+table.score-breakdown th, table.score-breakdown td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+table.score-breakdown th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+table.score-breakdown tr.muted td { color: var(--muted); }
+
+.alignment-card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 18px; margin-bottom: 16px;
+}
+.alignment-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.alignment-head h3 { margin: 0; font-size: 14px; }
+.alignment-head .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); }
+.badge.status-green { color: var(--status-good); }
+.badge.status-yellow { color: var(--status-warning); }
+.badge.status-red { color: var(--status-critical); }
+.badge.status-insufficient_data { color: var(--muted); }
+.alignment-samples { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }
+.alignment-samples code { font-size: 12px; }
+
+/* ---- İnsan Kaynakları (hr) rolü ---- */
+.role-badge.hr-badge { background: #e6f4ea; color: #1f7a45; }
+[data-theme="dark"] .role-badge.hr-badge { background: #10331f; color: #7fd6a0; }
+
+/* Rol etiketi (İK hesap rehberinde salt-okunur rol) */
+.role-tag.role-admin { color: var(--brand); font-weight: 700; }
+.role-tag.role-hr { color: #1f7a45; font-weight: 700; }
+[data-theme="dark"] .role-tag.role-hr { color: #7fd6a0; }
+
+/* İzin durumu rozeti */
+.leave-status {
+  font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.03em; border: 1px solid transparent;
+}
+.leave-status.pending { color: #8a6100; background: #fff3cd; border-color: #f0d98a; }
+.leave-status.rejected { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+[data-theme="dark"] .leave-status.pending { color: #ffe08a; background: #3a2f05; border-color: #6b5710; }
+.leave-decide { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* İK Panosu */
+.hr-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.hr-toolbar h2 { margin: 0; }
+.hr-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.hr-kpi {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+}
+.hr-kpi-val { font-size: 28px; font-weight: 700; line-height: 1.1; }
+.hr-kpi-label { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.hr-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px; margin-bottom: 4px;
+}
+.hr-list { list-style: none; margin: 0; padding: 0; }
+.hr-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13.5px; }
+.hr-muted { color: var(--muted); font-size: 12.5px; }
+.hr-typebar { display: flex; flex-direction: column; gap: 8px; }
+.hr-type-row { display: flex; align-items: center; gap: 10px; }
+.hr-type-name { flex: 1; font-size: 13.5px; }
+.hr-type-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.hr-heat { display: flex; flex-wrap: wrap; gap: 4px; }
+.hr-heat-cell {
+  width: 40px; height: 40px; border-radius: 7px; background: var(--brand);
+  color: #fff; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-size: 10px; position: relative;
+}
+.hr-heat-day { opacity: 0.85; }
+.hr-heat-count { font-size: 12px; font-weight: 700; }
+
+.hr-warn {
+  margin: 8px 0 12px; padding: 8px 12px; border-radius: 9px; font-size: 13px;
+  color: #8a4b00; background: #fff3e0; border: 1px solid #f0c98a;
+}
+[data-theme="dark"] .hr-warn { color: #ffcf8a; background: #3a2705; border-color: #6b4b10; }
+.row-warn { background: color-mix(in srgb, var(--status-critical) 8%, transparent); }
+
+@media print {
+  .topbar, .hr-toolbar button { display: none !important; }
+}

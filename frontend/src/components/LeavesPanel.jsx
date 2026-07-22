@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { createLeave, deleteLeave, leaveSummary, listEmployees, listLeaves } from "../api.js";
+import {
+  createLeave, decideLeave, deleteLeave, leaveSummary,
+  listEmployees, listLeaves, pendingLeaves,
+} from "../api.js";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
+const STATUS_LABEL = { pending: "Onay bekliyor", approved: "Onaylı", rejected: "Reddedildi" };
 const WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
 // Yerel tarih formatı (UTC'ye çevirmeden — TZ kayması olmasın).
@@ -21,10 +25,11 @@ function buildGrid(year, month) {
   return cells;
 }
 
-export default function LeavesPanel({ user, isAdmin }) {
+export default function LeavesPanel({ user, canManage }) {
   const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [leaves, setLeaves] = useState([]);
   const [summary, setSummary] = useState([]);
+  const [pending, setPending] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -39,10 +44,24 @@ export default function LeavesPanel({ user, isAdmin }) {
 
   function load() {
     listLeaves(month).then(setLeaves).catch((e) => setError(e.message));
-    if (isAdmin) leaveSummary(month).then(setSummary).catch(() => setSummary([]));
+    if (canManage) {
+      leaveSummary(month).then(setSummary).catch(() => setSummary([]));
+      pendingLeaves().then(setPending).catch(() => setPending([]));
+    }
   }
   useEffect(load, [month]);
-  useEffect(() => { if (isAdmin) listEmployees().then(setEmployees).catch(() => {}); }, []);
+  useEffect(() => { if (canManage) listEmployees().then(setEmployees).catch(() => {}); }, []);
+
+  async function decide(lv, decision) {
+    setError(null); setMsg(null);
+    try {
+      await decideLeave(lv.id, decision);
+      setMsg(`${lv.person} izni ${decision === "approved" ? "onaylandı" : "reddedildi"}.`);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   const grid = useMemo(() => buildGrid(year, mon), [year, mon]);
 
@@ -61,9 +80,11 @@ export default function LeavesPanel({ user, isAdmin }) {
         start_date: form.start_date, end_date: form.end_date,
         leave_type: form.leave_type, description: form.description || null,
       };
-      if (isAdmin && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
-      await createLeave(payload);
-      setMsg("İzin eklendi.");
+      if (canManage && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
+      const res = await createLeave(payload);
+      setMsg(res.status === "pending"
+        ? "İzin isteği alındı — İK onayı bekliyor."
+        : "İzin eklendi (onaylı).");
       setForm({ start_date: "", end_date: "", leave_type: "annual", description: "", target_user_id: "" });
       load();
     } catch (err) {
@@ -145,8 +166,41 @@ export default function LeavesPanel({ user, isAdmin }) {
         {msg && <div className="admin-ok">{msg}</div>}
       </section>
 
+      {/* Onay kuyruğu: çalışanların bekleyen izin istekleri. */}
+      {canManage && (
+        <section className="section">
+          <h2>Bekleyen izin onayları ({pending.length})</h2>
+          {pending.length === 0 ? (
+            <p className="desc">Onay bekleyen izin isteği yok.</p>
+          ) : (
+            <ul className="leave-list">
+              {pending.map((lv) => (
+                <li key={lv.id} className="leave-list-item">
+                  <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
+                  <div className="leave-list-main">
+                    <div className="leave-list-top">
+                      <strong>{lv.person}</strong>
+                      <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                      <span className="leave-status pending">{STATUS_LABEL.pending}</span>
+                    </div>
+                    <div className="leave-list-dates">
+                      {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
+                      {lv.description ? ` · ${lv.description}` : ""}
+                    </div>
+                  </div>
+                  <span className="leave-decide">
+                    <button className="mini" onClick={() => decide(lv, "approved")}>Onayla</button>
+                    <button className="mini danger" onClick={() => decide(lv, "rejected")}>Reddet</button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {/* İK için en değerli tablo: takvimin hemen ardında, dipte değil. */}
-      {isAdmin && (
+      {canManage && (
         <section className="section">
           <h2>Ay özeti (İK)</h2>
           {summary.length === 0 ? (
@@ -225,6 +279,9 @@ export default function LeavesPanel({ user, isAdmin }) {
                   <div className="leave-list-top">
                     <strong>{lv.person}</strong>
                     <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                    {lv.status && lv.status !== "approved" && (
+                      <span className={`leave-status ${lv.status}`}>{STATUS_LABEL[lv.status] || lv.status}</span>
+                    )}
                   </div>
                   <div className="leave-list-dates">
                     {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -245,7 +302,7 @@ export default function LeavesPanel({ user, isAdmin }) {
       <section className="section">
         <h2>İzin ekle</h2>
         <form className="admin-form" onSubmit={add}>
-          {isAdmin && (
+          {canManage && (
             <label>Kişi
               <select value={form.target_user_id} onChange={(e) => upd("target_user_id", e.target.value)}>
                 <option value="">Kendim ({user.display_name})</option>

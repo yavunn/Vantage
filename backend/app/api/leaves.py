@@ -14,13 +14,19 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.auth import current_user, require_admin
+from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
 from app.models import Developer, Leave, TeamMembership, User
 
 router = APIRouter(prefix="/api/leaves")
 
 _TYPES = {"annual", "sick", "other"}
+_STATUSES = {"pending", "approved", "rejected"}
+
+
+def _can_manage(user: User) -> bool:
+    """İzinleri yönetebilen (herkesi gör, onayla/reddet, başkasına ekle): admin + hr."""
+    return user.role in ("admin", "hr")
 
 
 class CreateLeaveBody(BaseModel):
@@ -81,7 +87,7 @@ def list_leaves(
     m_start, m_end = _month_range(month)
     # Ay ile kesişen izinler.
     stmt = select(Leave).where(Leave.start_date <= m_end, Leave.end_date >= m_start)
-    if user.role != "admin":
+    if not _can_manage(user):
         stmt = stmt.where(Leave.user_id.in_(_team_user_ids(session, user)))
     rows = session.scalars(stmt.order_by(Leave.start_date)).all()
     return [{
@@ -92,8 +98,10 @@ def list_leaves(
         "start_date": lv.start_date.isoformat(),
         "end_date": lv.end_date.isoformat(),
         "description": lv.description,
+        "status": lv.status or "approved",
         "own": lv.user_id == user.id,
-        "can_delete": lv.user_id == user.id or user.role == "admin",
+        "can_delete": lv.user_id == user.id or _can_manage(user),
+        "can_decide": _can_manage(user) and (lv.status or "approved") == "pending",
     } for lv in rows]
 
 
@@ -110,23 +118,43 @@ def create_leave(
 
     target = user
     if body.target_user_id and body.target_user_id != user.id:
-        if user.role != "admin":
+        if not _can_manage(user):
             raise HTTPException(status_code=403, detail="Başkasına izin ekleme yetkisi yok")
         target = session.get(User, body.target_user_id)
         if target is None:
             raise HTTPException(status_code=404, detail="Hedef kullanıcı yok")
 
+    # Yönetici/İK eklediyse doğrudan onaylı; çalışan kendine istek açtıysa
+    # onay bekler (pending) — İK onaylayana kadar. Geriye uyumlu: eski satırlar approved.
+    manager = _can_manage(user)
+    now = datetime.now(timezone.utc)
     lv = Leave(
         user_id=target.id, developer_id=target.developer_id,
         start_date=body.start_date, end_date=body.end_date, leave_type=body.leave_type,
-        description=body.description, status="approved",
-        approved_by=user.id if user.role == "admin" else None,
-        approved_at=datetime.now(timezone.utc) if user.role == "admin" else None,
-        created_at=datetime.now(timezone.utc),
+        description=body.description,
+        status="approved" if manager else "pending",
+        approved_by=user.id if manager else None,
+        approved_at=now if manager else None,
+        created_at=now,
     )
     session.add(lv)
+    session.flush()  # lv.id
+    # Onay bekleyen istekte admin + hr'a bildirim (İK panosunu açmadan haber alsın).
+    if lv.status == "pending":
+        from app.services.notifications import notify
+        person = _person_name(session, target.id, target.developer_id)
+        approvers = session.scalars(
+            select(User).where(User.role.in_(("admin", "hr")), User.is_active.is_(True))
+        ).all()
+        for a in approvers:
+            notify(
+                session, a.id, kind="leave_pending", severity="info",
+                title="Yeni izin isteği onay bekliyor",
+                body=f"{person} · {lv.start_date.isoformat()} → {lv.end_date.isoformat()} ({lv.leave_type})",
+                dedup_key=f"leave_pending:{lv.id}", link="leaves",
+            )
     session.commit()
-    return {"id": lv.id, "ok": True}
+    return {"id": lv.id, "ok": True, "status": lv.status}
 
 
 @router.delete("/{leave_id}")
@@ -138,7 +166,7 @@ def delete_leave(
     lv = session.get(Leave, leave_id)
     if lv is None:
         raise HTTPException(status_code=404, detail="İzin bulunamadı")
-    if lv.user_id != user.id and user.role != "admin":
+    if lv.user_id != user.id and not _can_manage(user):
         raise HTTPException(status_code=403, detail="Bu izni silme yetkiniz yok")
     session.delete(lv)
     session.commit()
@@ -149,9 +177,9 @@ def delete_leave(
 def leave_summary(
     month: str = Query(...),
     session: Session = Depends(get_session),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_admin_or_hr),
 ):
-    """Admin: ay içinde kişi başına toplam izin günü (İK takibi)."""
+    """Admin/İK: ay içinde kişi başına toplam izin günü (İK takibi)."""
     m_start, m_end = _month_range(month)
     rows = session.scalars(
         select(Leave).where(Leave.start_date <= m_end, Leave.end_date >= m_start)
@@ -168,7 +196,108 @@ def leave_summary(
             # Mevcut 'days' alanı korunur (geriye uyumlu).
             "annual": 0, "sick": 0, "other": 0,
         })
+        if (lv.status or "approved") == "rejected":
+            continue  # reddedilen izin kapasiteye sayılmaz
         rec["days"] += days
         bucket = lv.leave_type if lv.leave_type in ("annual", "sick", "other") else "other"
         rec[bucket] += days
     return sorted(agg.values(), key=lambda r: -r["days"])
+
+
+class LeaveDecisionBody(BaseModel):
+    decision: str  # approved | rejected
+
+
+@router.get("/pending")
+def pending_leaves(
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin_or_hr),
+):
+    """Admin/İK: onay bekleyen tüm izin istekleri (onay kuyruğu)."""
+    rows = session.scalars(
+        select(Leave).where(Leave.status == "pending").order_by(Leave.start_date)
+    ).all()
+    return [{
+        "id": lv.id,
+        "user_id": lv.user_id,
+        "person": _person_name(session, lv.user_id, lv.developer_id),
+        "leave_type": lv.leave_type,
+        "start_date": lv.start_date.isoformat(),
+        "end_date": lv.end_date.isoformat(),
+        "description": lv.description,
+        "created_at": lv.created_at.isoformat() if lv.created_at else None,
+    } for lv in rows]
+
+
+@router.post("/{leave_id}/decision")
+def decide_leave(
+    leave_id: int,
+    body: LeaveDecisionBody,
+    session: Session = Depends(get_session),
+    actor: User = Depends(require_admin_or_hr),
+):
+    """Admin/İK bir izin isteğini onaylar ya da reddeder."""
+    if body.decision not in ("approved", "rejected"):
+        raise HTTPException(status_code=422, detail="decision: approved | rejected")
+    lv = session.get(Leave, leave_id)
+    if lv is None:
+        raise HTTPException(status_code=404, detail="İzin bulunamadı")
+    lv.status = body.decision
+    lv.approved_by = actor.id
+    lv.approved_at = datetime.now(timezone.utc)
+    from app.services.audit import record_audit
+    target = session.get(User, lv.user_id)
+    record_audit(session, actor, f"leave_{body.decision}", target_user_id=lv.user_id,
+                 target_email=target.email if target else None,
+                 detail={"leave_id": lv.id, "type": lv.leave_type})
+    session.commit()
+    return {"ok": True, "status": lv.status}
+
+
+@router.get("/balances")
+def leave_balances(
+    year: int | None = Query(default=None),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin_or_hr),
+):
+    """Admin/İK: kişi başına yıllık izin bakiyesi (hak / kullanılan / kalan).
+    Yalnızca 'annual' türü hakka sayılır; onaylı izinler kullanılan, pending
+    istekler tentatif (beklemede) olarak ayrı gösterilir."""
+    y = year or date.today().year
+    y_start, y_end = date(y, 1, 1), date(y, 12, 31)
+    users = session.scalars(
+        select(User).where(User.is_active.is_(True)).order_by(User.id)
+    ).all()
+    # Yıl ile kesişen annual izinleri kişiye grupla.
+    rows = session.scalars(
+        select(Leave).where(
+            Leave.leave_type == "annual",
+            Leave.start_date <= y_end, Leave.end_date >= y_start,
+        )
+    ).all()
+    used: dict[int, int] = {}
+    pending: dict[int, int] = {}
+    for lv in rows:
+        s = max(lv.start_date, y_start)
+        e = min(lv.end_date, y_end)
+        days = (e - s).days + 1
+        status = lv.status or "approved"
+        if status == "approved":
+            used[lv.user_id] = used.get(lv.user_id, 0) + days
+        elif status == "pending":
+            pending[lv.user_id] = pending.get(lv.user_id, 0) + days
+    out = []
+    for u in users:
+        allowance = u.annual_allowance or 0
+        u_used = used.get(u.id, 0)
+        u_pending = pending.get(u.id, 0)
+        out.append({
+            "user_id": u.id,
+            "person": _person_name(session, u.id, u.developer_id),
+            "allowance": allowance,
+            "used": u_used,
+            "pending": u_pending,
+            "remaining": allowance - u_used,
+        })
+    out.sort(key=lambda r: r["remaining"])
+    return {"year": y, "balances": out}
