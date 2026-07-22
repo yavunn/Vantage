@@ -17,3 +17,6 @@ backend/fixtures/
 # Yerel DB / log
 *.db
 *.log
+
+# Sırlar (arayüzden girilen token/anahtar — asla commit edilmez)
+backend/.secrets.env

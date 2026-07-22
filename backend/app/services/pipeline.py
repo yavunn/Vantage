@@ -17,6 +17,8 @@ from app.services.ingest import run_ingest
 
 
 def run_pipeline() -> dict:
+    from app.core.secrets import load_secrets
+    load_secrets()  # arayüzden girilen token'lar CLI senkronunda da geçerli olsun
     cfg = get_config()
     session = get_sessionmaker()()
     try:

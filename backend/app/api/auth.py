@@ -364,7 +364,8 @@ def create_employee(
         developer_id=dev.id,
         is_active=True,
         must_change_password=True,  # admin geçici parola verdi; ilk girişte değiştir
-        hire_date=body.hire_date,
+        # İşe giriş verilmediyse bugüne varsay (hesap açılış günü = işe giriş).
+        hire_date=body.hire_date or date.today(),
         annual_allowance=body.annual_allowance,
         created_at=now,
         updated_at=now,

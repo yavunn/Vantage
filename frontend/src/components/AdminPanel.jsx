@@ -28,6 +28,12 @@ async function copyText(text, label) {
 
 const PAGE_SIZE = 10;
 const ROLE_LABEL = { user: "Çalışan", admin: "Yönetici", hr: "İnsan Kaynakları" };
+// Yerel bugünün tarihi (YYYY-MM-DD) — TZ kaymadan.
+function todayIso() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 // Kolay okunur, güçlü geçici parola üretir (karışan karakterler hariç).
 function randomPassword() {
@@ -46,7 +52,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
     display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member",
-    hire_date: "", annual_allowance: 14,
+    hire_date: todayIso(), annual_allowance: 14,
   });
   const [employmentFor, setEmploymentFor] = useState(null); // düzenlenen hesap
   const [empForm, setEmpForm] = useState({ hire_date: "", annual_allowance: 14 });
@@ -88,7 +94,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
       const created = await createEmployee(payload);
       setMsg(`Oluşturuldu: ${created.display_name} (${created.email}). Geçici parolayı çalışana ilet — ilk girişte değiştirecek.`);
       setCred({ title: "Yeni hesap oluşturuldu", email: created.email, password: form.password });
-      setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member", hire_date: "", annual_allowance: 14 });
+      setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member", hire_date: todayIso(), annual_allowance: 14 });
       refresh();
     } catch (err) {
       setError(err.message);
@@ -128,7 +134,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
 
   function openEmployment(u) {
     setEmploymentFor(u);
-    setEmpForm({ hire_date: u.hire_date || "", annual_allowance: u.annual_allowance ?? 14 });
+    setEmpForm({ hire_date: u.hire_date || todayIso(), annual_allowance: u.annual_allowance ?? 14 });
   }
   async function saveEmployment() {
     setError(null); setMsg(null);
@@ -276,7 +282,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
                   <option value="manager">Takım yöneticisi</option>
                 </select>
               </label>
-              <label>İşe giriş tarihi (opsiyonel)
+              <label>İşe giriş tarihi (varsayılan bugün)
                 <input type="date" value={form.hire_date} onChange={(e) => upd("hire_date", e.target.value)} />
               </label>
               <label>Yıllık izin hakkı (gün)

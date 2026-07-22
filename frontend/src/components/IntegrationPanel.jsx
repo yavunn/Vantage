@@ -36,6 +36,9 @@ export default function IntegrationPanel() {
           jira_base_url: d.tasks.jira_base_url || "",
           sonarqube_base_url: d.quality.sonarqube_base_url || "",
           sync_interval_minutes: d.sync_interval_minutes,
+          trello_boards: (d.tasks.trello?.boards || []).join("\n"),
+          trello_key: "",    // sır asla önden doldurulmaz
+          trello_token: "",
         });
       })
       .catch((e) => setError(e.message));
@@ -53,11 +56,22 @@ export default function IntegrationPanel() {
     setMsg(null);
     setSaving(true);
     try {
-      await updateSources({
-        ...form,
+      const payload = {
+        git_provider: form.git_provider,
+        tasks_provider: form.tasks_provider,
+        quality_provider: form.quality_provider,
+        gitlab_base_url: form.gitlab_base_url,
+        jira_base_url: form.jira_base_url,
+        sonarqube_base_url: form.sonarqube_base_url,
         sync_interval_minutes: Number(form.sync_interval_minutes),
-      });
-      setMsg("Ayarlar kaydedildi. Yeni ayarlar sonraki senkronda geçerli olur.");
+        trello_boards: form.trello_boards
+          .split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+      };
+      // Sır alanları YALNIZCA doluysa gönder (boş göndermek mevcut sırrı silerdi).
+      if (form.trello_key.trim()) payload.trello_key = form.trello_key.trim();
+      if (form.trello_token.trim()) payload.trello_token = form.trello_token.trim();
+      await updateSources(payload);
+      setMsg("Ayarlar kaydedildi. Trello için 'Şimdi senkronize et' ile board'ları çek.");
       load();
     } catch (err) {
       setError(err.message);
@@ -111,7 +125,15 @@ export default function IntegrationPanel() {
           <div className="source-card">
             <h3>Görevler</h3>
             <div className="src-provider">{data.tasks.provider}</div>
-            <TokenBadge token={data.tasks.token} />
+            {data.tasks.provider === "trello" ? (
+              <>
+                <div className="src-meta">Board sayısı: {data.tasks.trello?.boards?.length ?? 0}</div>
+                <TokenBadge token={data.tasks.trello?.key} />
+                <TokenBadge token={data.tasks.trello?.token} />
+              </>
+            ) : (
+              <TokenBadge token={data.tasks.token} />
+            )}
           </div>
           <div className="source-card">
             <h3>Kod Kalitesi</h3>
@@ -148,6 +170,27 @@ export default function IntegrationPanel() {
             Jira base URL
             <input value={form.jira_base_url} onChange={(e) => upd("jira_base_url", e.target.value)} placeholder="https://jira.sirket.local" />
           </label>
+          {form.tasks_provider === "trello" && (
+            <>
+              <label className="span-2">
+                Trello board id'leri (her satıra bir tane)
+                <textarea rows={3} value={form.trello_boards} onChange={(e) => upd("trello_boards", e.target.value)} placeholder="5f2a...&#10;60b1..." />
+                <span className="field-hint">Board URL'inden: trello.com/b/<b>BOARD_ID</b>/isim</span>
+              </label>
+              <label>
+                Trello API Key
+                <input type="password" autoComplete="off" value={form.trello_key} onChange={(e) => upd("trello_key", e.target.value)} placeholder={data.tasks.trello?.key?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "trello.com/power-ups/admin"} />
+              </label>
+              <label>
+                Trello Token
+                <input type="password" autoComplete="off" value={form.trello_token} onChange={(e) => upd("trello_token", e.target.value)} placeholder={data.tasks.trello?.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "API Key sayfasındaki Token linki"} />
+              </label>
+              <p className="desc span-2">
+                Key/Token config'e YAZILMAZ — gitignore'lu <code>.secrets.env</code>'e
+                ve süreç ortamına yazılır. Boş bırakırsan mevcut sır korunur.
+              </p>
+            </>
+          )}
           <label>
             Kalite sağlayıcı
             <select value={form.quality_provider} onChange={(e) => upd("quality_provider", e.target.value)}>

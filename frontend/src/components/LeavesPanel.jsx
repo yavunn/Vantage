@@ -33,7 +33,7 @@ export default function LeavesPanel({ user, canManage }) {
   const [employees, setEmployees] = useState([]);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
-  const [form, setForm] = useState({ start_date: "", end_date: "", leave_type: "annual", description: "", target_user_id: "" });
+  const [form, setForm] = useState({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
   const [personFilter, setPersonFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [onlyMine, setOnlyMine] = useState(false);
@@ -85,7 +85,7 @@ export default function LeavesPanel({ user, canManage }) {
       setMsg(res.status === "pending"
         ? "İzin isteği alındı — İK onayı bekliyor."
         : "İzin eklendi (onaylı).");
-      setForm({ start_date: "", end_date: "", leave_type: "annual", description: "", target_user_id: "" });
+      setForm({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
       load();
     } catch (err) {
       setError(err.message);

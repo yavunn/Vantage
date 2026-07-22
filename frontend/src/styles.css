@@ -821,6 +821,15 @@ table.score-breakdown tr.muted td { color: var(--muted); }
 .hr-heat-day { opacity: 0.85; }
 .hr-heat-count { font-size: 12px; font-weight: 700; }
 
+/* Entegrasyon formu — geniş alan + ipucu */
+.admin-form .span-2 { grid-column: 1 / -1; }
+.admin-form textarea {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--page); color: inherit;
+  font: inherit; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px;
+}
+.field-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+
 .hr-warn {
   margin: 8px 0 12px; padding: 8px 12px; border-radius: 9px; font-size: 13px;
   color: #8a4b00; background: #fff3e0; border: 1px solid #f0c98a;

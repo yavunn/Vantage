@@ -10,10 +10,17 @@ const KINDS = [
   { v: "other", t: "Diğer" },
 ];
 
+// Yerel bugün (YYYY-MM-DD) — TZ kaymadan.
+function todayIso() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export default function AnnotationsPanel({ teams }) {
   const [list, setList] = useState([]);
   const [teamId, setTeamId] = useState(teams?.[0]?.id ?? null);
-  const [form, setForm] = useState({ date: "", label: "", kind: "holiday", scope: "team" });
+  const [form, setForm] = useState({ date: todayIso(), label: "", kind: "holiday", scope: "team" });
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
 
@@ -35,7 +42,7 @@ export default function AnnotationsPanel({ teams }) {
         kind: form.kind,
         team_id: form.scope === "global" ? null : teamId,
       });
-      setForm({ date: "", label: "", kind: "holiday", scope: form.scope });
+      setForm({ date: todayIso(), label: "", kind: "holiday", scope: form.scope });
       setMsg("Anotasyon eklendi.");
       load();
     } catch (err) { setError(err); }

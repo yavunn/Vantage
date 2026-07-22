@@ -28,6 +28,8 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.secrets import load_secrets
+    load_secrets()  # kalıcı sırları ortama yükle (config'ten önce)
     cfg = get_config()
     Base.metadata.create_all(get_engine())  # şema garanti (alembic da mevcut)
     ensure_schema_patches()  # var olan tablolara sonradan eklenen kolonlar

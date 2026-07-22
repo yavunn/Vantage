@@ -9,14 +9,14 @@ sync:
   interval_minutes: 60
 sources:
   git:
-    provider: fixture
+    provider: none
     repos: []
     gitlab:
       base_url: ''
       token_env: GITLAB_TOKEN
       projects: []
   tasks:
-    provider: fixture
+    provider: trello
     jira:
       base_url: ''
       token_env: JIRA_TOKEN
@@ -24,9 +24,11 @@ sources:
     trello:
       key_env: TRELLO_KEY
       token_env: TRELLO_TOKEN
-      boards: []
+      boards:
+      - UOIzVeO2
+      - rAUYPvr0
   quality:
-    provider: fixture
+    provider: none
     sonarqube:
       base_url: ''
       token_env: SONAR_TOKEN

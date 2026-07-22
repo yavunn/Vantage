@@ -30,6 +30,11 @@ class SourcesUpdate(BaseModel):
     jira_base_url: str | None = None
     sonarqube_base_url: str | None = None
     sync_interval_minutes: int | None = None
+    # Trello: board id'leri config'e yazılır (sır değil); key/token ise sır
+    # olarak .secrets.env'e + ortama yazılır, config'e ASLA girmez.
+    trello_boards: list[str] | None = None
+    trello_key: str | None = None
+    trello_token: str | None = None
 
 
 def _env_status(var: str) -> dict:
@@ -56,6 +61,11 @@ def get_sources(
             "provider": cfg.sources.tasks.provider,
             "jira_base_url": cfg.sources.tasks.jira.base_url,
             "token": _env_status(cfg.sources.tasks.jira.token_env),
+            "trello": {
+                "boards": cfg.sources.tasks.trello.boards,
+                "key": _env_status(cfg.sources.tasks.trello.key_env),
+                "token": _env_status(cfg.sources.tasks.trello.token_env),
+            },
         },
         "quality": {
             "provider": cfg.sources.quality.provider,
@@ -80,6 +90,7 @@ def update_sources(
     raw.setdefault("sources", {})
     raw["sources"].setdefault("git", {}).setdefault("gitlab", {})
     raw["sources"].setdefault("tasks", {}).setdefault("jira", {})
+    raw["sources"]["tasks"].setdefault("trello", {})
     raw["sources"].setdefault("quality", {}).setdefault("sonarqube", {})
     raw.setdefault("sync", {})
 
@@ -97,6 +108,20 @@ def update_sources(
         raw["sources"]["quality"]["sonarqube"]["base_url"] = body.sonarqube_base_url
     if body.sync_interval_minutes is not None:
         raw["sync"]["interval_minutes"] = max(0, body.sync_interval_minutes)
+    if body.trello_boards is not None:
+        # Board id'leri temizle (boşları at). Sır DEĞİL → config'e yazılır.
+        raw["sources"]["tasks"]["trello"]["boards"] = [
+            b.strip() for b in body.trello_boards if b and b.strip()
+        ]
+
+    # Sırlar (Trello key/token): config'e YAZILMAZ — .secrets.env + ortama.
+    cfg = get_config()
+    if body.trello_key is not None:
+        from app.core.secrets import set_secret
+        set_secret(cfg.sources.tasks.trello.key_env, body.trello_key.strip())
+    if body.trello_token is not None:
+        from app.core.secrets import set_secret
+        set_secret(cfg.sources.tasks.trello.token_env, body.trello_token.strip())
 
     DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
