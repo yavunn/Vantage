@@ -241,7 +241,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
 
       {!hrMode && subtab === "annotations" && <AnnotationsPanel teams={teams} />}
 
-      {!hrMode && subtab === "code" && <CodeAnalysisPanel />}
+      {!hrMode && subtab === "code" && <CodeAnalysisPanel me={me} />}
 
       {!hrMode && subtab === "audit" && <AuditPanel />}
 

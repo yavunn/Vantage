@@ -9,13 +9,13 @@ from __future__ import annotations
 import os
 
 import yaml
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_admin
-from app.core.config import DEFAULT_CONFIG_PATH, get_config, reset_config_cache
+from app.api.auth import require_admin, require_owner
+from app.core.config import active_config_path, get_config, reset_config_cache
 from app.core.db import get_session
 from app.models import MetricResult, User
 
@@ -39,6 +39,18 @@ class SourcesUpdate(BaseModel):
 
 def _env_status(var: str) -> dict:
     return {"env_var": var, "configured": bool(os.environ.get(var))}
+
+
+def _ai_ready(cfg) -> bool:
+    """AI kod analizi kullanıma hazır mı? Sağlayıcıya göre değişir: claude API
+    anahtarı ister; local (Ollama vb.) anahtarsız da çalışır (base_url yeter)."""
+    if not (cfg.llm.enabled and cfg.code_analysis.enabled):
+        return False
+    if cfg.llm.provider == "claude":
+        return bool(os.environ.get(cfg.llm.claude.api_key_env))
+    if cfg.llm.provider == "local":
+        return bool(cfg.llm.local.base_url)
+    return False
 
 
 @router.get("/sources")
@@ -83,8 +95,8 @@ def update_sources(
     # Mevcut config.yaml'ı ham oku, yalnızca verilen alanları güncelle, geri yaz.
     # (Yorumlar kaybolur — on-prem tek dosya, kabul edilebilir.) Sır YAZILMAZ.
     raw = {}
-    if DEFAULT_CONFIG_PATH.exists():
-        with open(DEFAULT_CONFIG_PATH, encoding="utf-8") as f:
+    if active_config_path().exists():
+        with open(active_config_path(), encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
 
     raw.setdefault("sources", {})
@@ -123,8 +135,8 @@ def update_sources(
         from app.core.secrets import set_secret
         set_secret(cfg.sources.tasks.trello.token_env, body.trello_token.strip())
 
-    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
+    active_config_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(active_config_path(), "w", encoding="utf-8") as f:
         yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
     reset_config_cache()
     return {"ok": True}
@@ -133,7 +145,8 @@ def update_sources(
 class CodeAnalysisUpdate(BaseModel):
     enabled: bool | None = None
     llm_enabled: bool | None = None
-    llm_provider: str | None = None          # none | local | claude
+    # NOT: sağlayıcı seçimi + kimlik bilgileri buradan DEĞİL, yalnız baş yönetici
+    # (owner) /api/admin/llm-provider ucundan yönetir (bkz. llm_provider uçları).
     weights: dict[str, float] | None = None
     exclude_globs: list[str] | None = None
     max_files_per_run: int | None = None
@@ -146,12 +159,19 @@ def get_code_analysis(_: User = Depends(require_admin)):
     API anahtarı config'e yazılmaz; yalnızca env durumu gösterilir."""
     cfg = get_config()
     ca = cfg.code_analysis
+    # Aktif sağlayıcıya göre gösterilecek model + anahtar durumu.
+    if cfg.llm.provider == "local":
+        active_model = cfg.llm.local.model
+        active_key = _env_status(cfg.llm.local.api_key_env)
+    else:
+        active_model = cfg.llm.claude.model
+        active_key = _env_status(cfg.llm.claude.api_key_env)
     return {
         "enabled": ca.enabled,
         "llm_enabled": cfg.llm.enabled,
         "llm_provider": cfg.llm.provider,
-        "model": cfg.llm.claude.model,
-        "api_key": _env_status(cfg.llm.claude.api_key_env),
+        "model": active_model,
+        "api_key": active_key,
         "weights": ca.weights,
         "exclude_globs": ca.exclude_globs,
         "max_files_per_run": ca.max_files_per_run,
@@ -162,8 +182,8 @@ def get_code_analysis(_: User = Depends(require_admin)):
 @router.put("/code-analysis")
 def update_code_analysis(body: CodeAnalysisUpdate, _: User = Depends(require_admin)):
     raw = {}
-    if DEFAULT_CONFIG_PATH.exists():
-        with open(DEFAULT_CONFIG_PATH, encoding="utf-8") as f:
+    if active_config_path().exists():
+        with open(active_config_path(), encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
     raw.setdefault("code_analysis", {})
     raw.setdefault("llm", {})
@@ -172,8 +192,6 @@ def update_code_analysis(body: CodeAnalysisUpdate, _: User = Depends(require_adm
         raw["code_analysis"]["enabled"] = body.enabled
     if body.llm_enabled is not None:
         raw["llm"]["enabled"] = body.llm_enabled
-    if body.llm_provider is not None:
-        raw["llm"]["provider"] = body.llm_provider
     if body.weights is not None:
         # yalnızca bilinen boyutları kabul et, negatifleri kırp
         from app.services.code_analysis import DIMENSIONS
@@ -187,8 +205,93 @@ def update_code_analysis(body: CodeAnalysisUpdate, _: User = Depends(require_adm
     if body.max_diff_lines is not None:
         raw["code_analysis"]["max_diff_lines"] = max(20, body.max_diff_lines)
 
-    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as f:
+    active_config_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(active_config_path(), "w", encoding="utf-8") as f:
+        yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+    reset_config_cache()
+    return {"ok": True}
+
+
+# --- AI sağlayıcı yönetimi (YALNIZ baş yönetici / owner) ----------------------
+# Etik/güvenlik: hangi AI kullanılacağı ve API anahtarları en üst yetkiye aittir.
+# Anahtar config.yaml'a ASLA yazılmaz — .secrets.env + ortama yazılır (set_secret).
+# provider=local, OpenAI-uyumlu HERHANGİ bir uca (Ollama, LM Studio, vLLM, OpenAI,
+# OpenRouter…) base_url ile yönlendirilir; böylece Claude zorunlu değildir.
+
+LLM_PROVIDERS = ["none", "claude", "local"]
+
+
+class LlmProviderUpdate(BaseModel):
+    provider: str | None = None              # none | claude | local
+    claude_model: str | None = None
+    claude_api_key: str | None = None        # sır → .secrets.env (config'e YAZILMAZ)
+    local_base_url: str | None = None
+    local_model: str | None = None
+    local_api_key: str | None = None         # opsiyonel sır (anahtarsız uçlarda boş)
+
+
+@router.get("/llm-provider")
+def get_llm_provider(_: User = Depends(require_owner)):
+    """Aktif AI sağlayıcı yapılandırması (yalnız baş yönetici). Anahtarların
+    KENDİSİ dönülmez — yalnız 'tanımlı mı' durumu (env_status)."""
+    cfg = get_config()
+    return {
+        "enabled": cfg.llm.enabled,
+        "provider": cfg.llm.provider,
+        "providers": LLM_PROVIDERS,
+        "claude": {
+            "model": cfg.llm.claude.model,
+            "api_key": _env_status(cfg.llm.claude.api_key_env),
+        },
+        "local": {
+            "base_url": cfg.llm.local.base_url,
+            "model": cfg.llm.local.model,
+            "api_key": _env_status(cfg.llm.local.api_key_env),
+        },
+    }
+
+
+@router.put("/llm-provider")
+def update_llm_provider(body: LlmProviderUpdate, _: User = Depends(require_owner)):
+    """Baş yönetici AI sağlayıcıyı ve kendi kimlik bilgilerini ayarlar.
+    Model/base_url config.yaml'a; API anahtarları .secrets.env'e (+ canlı ortama)
+    yazılır. Boş anahtar gönderilirse o anahtar TEMİZLENİR."""
+    from app.core.secrets import set_secret
+
+    if body.provider is not None and body.provider not in LLM_PROVIDERS:
+        raise HTTPException(422, detail=f"provider yalnızca {', '.join(LLM_PROVIDERS)} olabilir")
+
+    raw = {}
+    if active_config_path().exists():
+        with open(active_config_path(), encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    raw.setdefault("llm", {})
+    raw["llm"].setdefault("claude", {})
+    raw["llm"].setdefault("local", {})
+
+    if body.provider is not None:
+        raw["llm"]["provider"] = body.provider
+        # Provider = tek açma/kapama düğmesi: 'none' modülü kapatır, gerçek bir
+        # sağlayıcı seçmek llm + kod analizini açar. Ayrı 'enabled' kutucuğu yok.
+        on = body.provider != "none"
+        raw["llm"]["enabled"] = on
+        raw.setdefault("code_analysis", {})["enabled"] = on
+    if body.claude_model is not None and body.claude_model.strip():
+        raw["llm"]["claude"]["model"] = body.claude_model.strip()
+    if body.local_base_url is not None and body.local_base_url.strip():
+        raw["llm"]["local"]["base_url"] = body.local_base_url.strip()
+    if body.local_model is not None and body.local_model.strip():
+        raw["llm"]["local"]["model"] = body.local_model.strip()
+
+    cfg = get_config()
+    # Sırlar config'e YAZILMAZ. None = dokunma; "" = temizle; değer = ayarla.
+    if body.claude_api_key is not None:
+        set_secret(cfg.llm.claude.api_key_env, body.claude_api_key.strip())
+    if body.local_api_key is not None:
+        set_secret(cfg.llm.local.api_key_env, body.local_api_key.strip())
+
+    active_config_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(active_config_path(), "w", encoding="utf-8") as f:
         yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
     reset_config_cache()
     return {"ok": True}
@@ -308,9 +411,9 @@ def onboarding_status(session: Session = Depends(get_session), _: User = Depends
         {"key": "identity", "done": unlinked == 0 and linked > 0,
          "label": "Giriş hesaplarını git kimliğine bağla",
          "hint": f"{unlinked} hesabın git e-postası yok — kişi-bazlı analiz için AI Kod Analizi sekmesinden bağla." if unlinked else "Hepsi bağlı."},
-        {"key": "ai", "done": cfg.llm.enabled and cfg.code_analysis.enabled and bool(os.environ.get(cfg.llm.claude.api_key_env)),
+        {"key": "ai", "done": _ai_ready(cfg),
          "label": "AI kod analizini aç",
-         "hint": "AI Kod Analizi sekmesi + ANTHROPIC_API_KEY env." if not (cfg.llm.enabled and cfg.code_analysis.enabled) else "Açık."},
+         "hint": "AI Kod Analizi sekmesi → Baş Yönetici sağlayıcıyı ve API anahtarını girer." if not _ai_ready(cfg) else "Açık."},
     ]
     return {"steps": steps, "linked": linked, "unlinked": unlinked,
             "complete": all(s["done"] for s in steps)}

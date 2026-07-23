@@ -142,8 +142,13 @@ class RuleConfig(BaseModel):
 
 
 class LLMLocal(BaseModel):
+    # Self-hosted / OpenAI-uyumlu uç (Ollama, LM Studio, vLLM, OpenAI, OpenRouter…).
+    # base_url'i değiştirerek istenen sağlayıcıya yönlendirilir. api_key_env
+    # opsiyonel: anahtar isteyen uçlar için Authorization başlığı gönderilir
+    # (Ollama gibi anahtarsız uçlar için boş bırakılır).
     base_url: str = "http://localhost:11434"
     model: str = "llama3.1"
+    api_key_env: str = "LOCAL_LLM_API_KEY"
 
 
 class LLMClaude(BaseModel):
@@ -210,8 +215,14 @@ class Config(BaseModel):
         return os.environ.get("DATABASE_URL", self.database.url)
 
 
+def active_config_path() -> Path:
+    """Yürürlükteki config dosyası yolu. Yazma uçları da BURAYA yazmalı ki
+    okuma/yazma aynı dosyada olsun (EHD_CONFIG override'ı ile de tutarlı)."""
+    return Path(os.environ.get("EHD_CONFIG", DEFAULT_CONFIG_PATH))
+
+
 def load_config(path: str | Path | None = None) -> Config:
-    cfg_path = Path(path) if path else Path(os.environ.get("EHD_CONFIG", DEFAULT_CONFIG_PATH))
+    cfg_path = Path(path) if path else active_config_path()
     if not cfg_path.exists():
         # Config yoksa bile sistem ayağa kalkar; her şey varsayılanla çalışır
         return Config()

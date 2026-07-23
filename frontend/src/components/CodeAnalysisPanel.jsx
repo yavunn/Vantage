@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, apiPatch, apiPost, apiPut } from "../api.js";
+import { api, apiPatch, apiPost, apiPut, getLlmProvider, updateLlmProvider } from "../api.js";
 import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
@@ -16,7 +16,15 @@ const DIM_LABELS = {
   conventions: "Konvansiyon",
 };
 
-export default function CodeAnalysisPanel() {
+// Baş yöneticinin seçebileceği AI sağlayıcılar (kart etiketleri).
+const PROVIDER_META = {
+  none: { label: "Kapalı", hint: "AI analizi yapılmaz" },
+  claude: { label: "Claude", hint: "Anthropic API · kendi anahtarın" },
+  local: { label: "Yerel / OpenAI-uyumlu", hint: "Ollama · LM Studio · vLLM · OpenAI · OpenRouter" },
+};
+
+export default function CodeAnalysisPanel({ me }) {
+  const isOwner = !!(me && me.is_owner);
   const [cfg, setCfg] = useState(null);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -30,9 +38,17 @@ export default function CodeAnalysisPanel() {
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [selectedDrill, setSelectedDrill] = useState(false);
   const [audit, setAudit] = useState([]);
+  // AI sağlayıcı (yalnız baş yönetici düzenler). prov: sunucu durumu;
+  // keys: yeni girilen (write-only) API anahtarları — boşsa dokunulmaz.
+  const [prov, setProv] = useState(null);
+  const [keys, setKeys] = useState({ claude: "", local: "" });
+  const [provBusy, setProvBusy] = useState(false);
 
   function load() {
     api("/api/admin/code-analysis").then(setCfg).catch(setError);
+  }
+  function loadProvider() {
+    getLlmProvider().then(setProv).catch(() => setProv(null));
   }
   function loadDevs() {
     api("/api/admin/code-analysis/developers").then(setDevs).catch(() => setDevs([]));
@@ -43,7 +59,10 @@ export default function CodeAnalysisPanel() {
   function loadAudit() {
     api("/api/admin/code-analysis/audit?limit=50").then(setAudit).catch(() => setAudit([]));
   }
-  useEffect(() => { load(); loadDevs(); loadOverview(); loadAudit(); }, []);
+  useEffect(() => {
+    load(); loadDevs(); loadOverview(); loadAudit();
+    if (isOwner) loadProvider();
+  }, [isOwner]);
 
   // Kişi seçilince o kişinin sonuçlarını getir
   useEffect(() => {
@@ -85,13 +104,44 @@ export default function CodeAnalysisPanel() {
     setCfg((c) => ({ ...c, weights: { ...c.weights, [d]: v } }));
   }
 
+  // --- AI sağlayıcı (owner) ---
+  function updProv(k, v) { setProv((p) => ({ ...p, [k]: v })); }
+  function updProvNested(section, k, v) {
+    setProv((p) => ({ ...p, [section]: { ...p[section], [k]: v } }));
+  }
+
+  async function saveProvider() {
+    setError(null); setMsg(null); setProvBusy(true);
+    try {
+      const payload = {
+        provider: prov.provider,
+        claude_model: prov.claude?.model,
+        local_base_url: prov.local?.base_url,
+        local_model: prov.local?.model,
+      };
+      // Anahtarlar write-only: yalnız yeni girildiyse gönder (boş = dokunma).
+      if (keys.claude) payload.claude_api_key = keys.claude;
+      if (keys.local) payload.local_api_key = keys.local;
+      await updateLlmProvider(payload);
+      setKeys({ claude: "", local: "" });
+      setMsg("AI sağlayıcı kaydedildi."); toast("AI sağlayıcı kaydedildi", "ok");
+      loadProvider();
+      load(); // genel bölüm aktif model/anahtar durumunu tazelesin
+      return true;
+    } catch (e) { setError(e); toast(e.message, "error"); return false; }
+    finally { setProvBusy(false); }
+  }
+
+  // Owner akışı: seç → kaydet → analiz et (tek tıkla). Kayıt başarısızsa analiz etme.
+  async function saveProviderAndRun() {
+    if (await saveProvider()) await runNow();
+  }
+
   async function save() {
     setError(null); setMsg(null); setBusy(true);
     try {
+      // Yalnız rubrik/limit ayarları. Aç/kapa provider seçimiyle yönetilir.
       await apiPut("/api/admin/code-analysis", {
-        enabled: cfg.enabled,
-        llm_enabled: cfg.llm_enabled,
-        llm_provider: cfg.llm_provider,
         weights: cfg.weights,
         exclude_globs: cfg.exclude_globs,
         max_files_per_run: Number(cfg.max_files_per_run),
@@ -121,9 +171,8 @@ export default function CodeAnalysisPanel() {
       <section className="section">
         <h2>AI Kod Analizi</h2>
         <p className="desc">
-          Kodun içeriğini analiz eden AI modülü. Skorlar repo/modül düzeyi —
-          kişi değil. Anahtar (<code>{cfg.api_key?.env_var}</code>) config'e
-          yazılmaz, ortamdan okunur: {cfg.api_key?.configured ? "tanımlı ✓" : "tanımsız ✗"}.
+          Kodun içeriğini analiz eden AI modülü. Skorlar repo/modül düzeyi — kişi değil.
+          Açma/kapama tek yerden: <b>AI Sağlayıcı</b> seçimi (Kapalı = modül kapalı).
         </p>
         {error && <p className="error-inline">{error.message}</p>}
         {msg && <p className="ok-inline">{msg}</p>}
@@ -131,19 +180,108 @@ export default function CodeAnalysisPanel() {
           <div className="progress-indeterminate" aria-label="İşlem sürüyor"><div /></div>
         )}
 
+        <div className="ca-status">
+          <span>Aktif sağlayıcı:{" "}
+            <b>{PROVIDER_META[cfg.llm_provider]?.label || cfg.llm_provider}</b>
+          </span>
+          {cfg.llm_provider !== "none" && <span className="muted">· Model: {cfg.model || "–"}</span>}
+          <span className={`key-pill ${cfg.llm_provider !== "none" ? "on" : "off"}`}>
+            {cfg.llm_provider !== "none" ? "açık" : "kapalı"}
+          </span>
+          {!isOwner && <span className="muted">· yalnız Baş Yönetici değiştirir</span>}
+        </div>
         <div className="ca-row">
-          <label><input type="checkbox" checked={cfg.enabled} onChange={(e) => upd("enabled", e.target.checked)} /> Kod analizi açık</label>
-          <label><input type="checkbox" checked={cfg.llm_enabled} onChange={(e) => upd("llm_enabled", e.target.checked)} /> LLM açık (dışarı veri gönderir)</label>
-          <label>Sağlayıcı:{" "}
-            <select value={cfg.llm_provider} onChange={(e) => upd("llm_provider", e.target.value)}>
-              <option value="none">none</option>
-              <option value="local">local (self-hosted)</option>
-              <option value="claude">claude</option>
-            </select>
-          </label>
-          <span className="desc">Model: {cfg.model}</span>
+          <button className="login-btn" onClick={runNow} disabled={busy || cfg.llm_provider === "none"}
+            title={cfg.llm_provider === "none" ? "Önce bir AI sağlayıcı seç" : "Tüm repoları analiz et"}>
+            Şimdi analiz et (tüm repolar)
+          </button>
         </div>
       </section>
+
+      {isOwner && (
+        <section className="section">
+          <h3>AI Sağlayıcı <span className="owner-badge" title="Yalnız baş yönetici">★ Baş Yönetici</span></h3>
+          <p className="desc">
+            Hangi AI kullanılacağını sen seçersin — Claude zorunlu değil. Anahtarlar
+            config dosyasına <b>yazılmaz</b>, yalnız <code>.secrets.env</code>'e işlenir.
+          </p>
+          {!prov ? (
+            <p className="desc">Yükleniyor…</p>
+          ) : (
+            <div className="prov-box">
+              <div className="prov-cards">
+                {(prov.providers || ["none", "claude", "local"]).map((p) => (
+                  <button key={p} type="button"
+                    className={`prov-card ${prov.provider === p ? "active" : ""}`}
+                    onClick={() => updProv("provider", p)}>
+                    <span className="prov-card-title">{PROVIDER_META[p]?.label || p}</span>
+                    <span className="prov-card-hint">{PROVIDER_META[p]?.hint || ""}</span>
+                  </button>
+                ))}
+              </div>
+
+              {prov.provider === "claude" && (
+                <div className="prov-fields">
+                  <label className="ca-block">
+                    Model
+                    <input value={prov.claude?.model || ""}
+                      onChange={(e) => updProvNested("claude", "model", e.target.value)}
+                      placeholder="claude-sonnet-5" />
+                  </label>
+                  <label className="ca-block">
+                    <span>API anahtarı
+                      <span className={`key-pill ${prov.claude?.api_key?.configured ? "on" : "off"}`}>
+                        {prov.claude?.api_key?.configured ? "tanımlı" : "tanımsız"}
+                      </span>
+                    </span>
+                    <input type="password" autoComplete="off" value={keys.claude}
+                      onChange={(e) => setKeys((k) => ({ ...k, claude: e.target.value }))}
+                      placeholder="değiştirmek için gir · boş = dokunma" />
+                  </label>
+                </div>
+              )}
+
+              {prov.provider === "local" && (
+                <div className="prov-fields">
+                  <label className="ca-block">
+                    Sunucu adresi
+                    <input value={prov.local?.base_url || ""}
+                      onChange={(e) => updProvNested("local", "base_url", e.target.value)}
+                      placeholder="http://localhost:11434" />
+                  </label>
+                  <label className="ca-block">
+                    Model
+                    <input value={prov.local?.model || ""}
+                      onChange={(e) => updProvNested("local", "model", e.target.value)}
+                      placeholder="llama3.1" />
+                  </label>
+                  <label className="ca-block">
+                    <span>API anahtarı <span className="muted">(opsiyonel)</span>
+                      <span className={`key-pill ${prov.local?.api_key?.configured ? "on" : "off"}`}>
+                        {prov.local?.api_key?.configured ? "tanımlı" : "tanımsız"}
+                      </span>
+                    </span>
+                    <input type="password" autoComplete="off" value={keys.local}
+                      onChange={(e) => setKeys((k) => ({ ...k, local: e.target.value }))}
+                      placeholder="anahtarsız uçlar (Ollama) için boş bırak" />
+                  </label>
+                </div>
+              )}
+
+              <div className="prov-actions">
+                <button className="login-btn" onClick={saveProvider} disabled={provBusy}>
+                  {provBusy ? "Kaydediliyor…" : "Kaydet"}
+                </button>
+                <button className="mini" onClick={saveProviderAndRun}
+                  disabled={provBusy || busy || prov.provider === "none"}
+                  title={prov.provider === "none" ? "Önce bir AI sağlayıcı seç" : "Kaydet ve tüm repoları analiz et"}>
+                  Kaydet ve analiz et
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="section">
         <h3>Rubrik ağırlıkları</h3>
@@ -176,12 +314,10 @@ export default function CodeAnalysisPanel() {
               onChange={(e) => upd("max_diff_lines", e.target.value)} />
           </label>
         </div>
+        <div className="ca-row">
+          <button className="login-btn" onClick={save} disabled={busy}>Ayarları kaydet</button>
+        </div>
       </section>
-
-      <div className="ca-row">
-        <button className="login-btn" onClick={save} disabled={busy}>Kaydet</button>
-        <button className="mini" onClick={runNow} disabled={busy}>Şimdi analiz et (tüm yazarlar)</button>
-      </div>
 
       <section className="section">
         <h3>Şirket geneli</h3>

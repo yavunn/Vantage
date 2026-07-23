@@ -147,6 +147,22 @@ button.tab.active { border-color: var(--series-1); color: var(--series-1); font-
 .ca-weights input { padding: 5px 7px; }
 .ca-block { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .ca-block textarea { font-family: monospace; font-size: 12.5px; padding: 8px; }
+/* AI sağlayıcı seçimi (baş yönetici) */
+.prov-box { max-width: 680px; }
+.prov-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
+.prov-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.prov-card:hover { border-color: var(--brand); }
+.prov-card.active { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; background: var(--brand-soft); }
+.prov-card-title { font-weight: 600; font-size: 13.5px; color: var(--text-primary); }
+.prov-card-hint { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.prov-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); }
+.prov-fields input { padding: 7px 9px; font-size: 13px; }
+.prov-fields .ca-block > span { display: flex; align-items: center; gap: 6px; }
+.prov-actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ca-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin: 8px 0 12px; }
+.key-pill { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .3px; }
+.key-pill.on { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 15%, transparent); }
+.key-pill.off { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
 .git-email-input { width: 200px; padding: 4px 7px; font-size: 12.5px; margin-right: 6px; }
 
 /* Kurulum kontrol listesi */

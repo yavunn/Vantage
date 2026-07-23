@@ -130,6 +130,8 @@ class ClaudeAnalyzer:
     """Claude API (resmi SDK). Structured outputs + effort=low ile deterministik
     JSON. temperature GÖNDERİLMEZ (güncel modellerde 400)."""
 
+    provider = "claude"
+
     def __init__(self, model: str, api_key_env: str):
         import anthropic
 
@@ -160,24 +162,32 @@ class ClaudeAnalyzer:
 
 
 class LocalAnalyzer:
-    """Self-hosted OpenAI-uyumlu uç (Ollama/vLLM). Şema garantisi yok → JSON'u
-    hoşgörülü ayrıştırır; başarısızsa hata verir (çağıran 'analiz bekliyor' der)."""
+    """Self-hosted / OpenAI-uyumlu uç (Ollama, LM Studio, vLLM, OpenAI, OpenRouter…).
+    Şema garantisi yok → JSON'u hoşgörülü ayrıştırır; başarısızsa hata verir
+    (çağıran 'analiz bekliyor' der). api_key verilirse Authorization: Bearer
+    başlığı gönderilir (anahtar isteyen uçlar için); Ollama gibi anahtarsız
+    uçlarda boş bırakılır."""
 
-    def __init__(self, base_url: str, model: str):
+    provider = "local"
+
+    def __init__(self, base_url: str, model: str, api_key: str | None = None):
         import httpx
 
         self._httpx = httpx
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self._api_key = api_key or None
 
     def analyze(self, file_path: str, diff_text: str) -> AnalyzerResult:
         prompt = (
             _SYSTEM + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS)
             + ", summary, suggestions.\n\n" + _PROMPT.format(path=file_path, diff=diff_text)
         )
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         resp = self._httpx.post(
             f"{self.base_url}/v1/chat/completions",
             json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+            headers=headers,
             timeout=180,
         )
         resp.raise_for_status()
@@ -201,7 +211,11 @@ def build_analyzer(cfg: Config):
     if cfg.llm.provider == "claude":
         return ClaudeAnalyzer(cfg.llm.claude.model, cfg.llm.claude.api_key_env)
     if cfg.llm.provider == "local":
-        return LocalAnalyzer(cfg.llm.local.base_url, cfg.llm.local.model)
+        return LocalAnalyzer(
+            cfg.llm.local.base_url,
+            cfg.llm.local.model,
+            os.environ.get(cfg.llm.local.api_key_env),
+        )
     return None
 
 

@@ -1,0 +1,138 @@
+"""AI sağlayıcı yönetimi — yalnız baş yönetici (owner) yetkisi + davranış.
+
+- GET/PUT /api/admin/llm-provider yalnız owner: admin/hr/user = 403.
+- Owner sağlayıcıyı ve modeli config'e yazar; API anahtarı .secrets.env'e (config'e
+  ASLA). Anahtarın kendisi GET'te dönmez — yalnız 'tanımlı mı' durumu.
+- provider=local anahtarsız da hazır sayılır (Ollama vb.).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture()
+def client(app_env):
+    from app.main import app
+
+    return TestClient(app)
+
+
+def _mk_user(session, email, role, *, is_owner=False, password="parola1"):
+    from app.core.security import hash_password
+    from app.models import Developer, User
+
+    dev = Developer(display_name=email.split("@")[0], external_ids={}, anonymizable=True)
+    session.add(dev)
+    session.flush()
+    now = datetime.now(timezone.utc)
+    u = User(
+        email=email.lower(), password_hash=hash_password(password), role=role,
+        is_owner=is_owner, developer_id=dev.id, is_active=True,
+        must_change_password=False, created_at=now, updated_at=now,
+    )
+    session.add(u)
+    session.commit()
+    return u
+
+
+def _token(client, email, password="parola1"):
+    r = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    return r.json()["access_token"]
+
+
+def _auth(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def actors(client, session):
+    _mk_user(session, "owner@x.com", "admin", is_owner=True)
+    _mk_user(session, "admin@x.com", "admin")
+    _mk_user(session, "emp@x.com", "user")
+    return {
+        "owner_t": _token(client, "owner@x.com"),
+        "admin_t": _token(client, "admin@x.com"),
+        "emp_t": _token(client, "emp@x.com"),
+    }
+
+
+def test_llm_provider_get_yalniz_owner(client, actors):
+    assert client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).status_code == 200
+    assert client.get("/api/admin/llm-provider", headers=_auth(actors["admin_t"])).status_code == 403
+    assert client.get("/api/admin/llm-provider", headers=_auth(actors["emp_t"])).status_code == 403
+
+
+def test_llm_provider_put_yalniz_owner(client, actors):
+    body = {"provider": "local"}
+    assert client.put("/api/admin/llm-provider", json=body, headers=_auth(actors["admin_t"])).status_code == 403
+    assert client.put("/api/admin/llm-provider", json=body, headers=_auth(actors["emp_t"])).status_code == 403
+
+
+def test_owner_saglayici_secip_model_yazar(client, actors):
+    r = client.put(
+        "/api/admin/llm-provider",
+        json={"provider": "local", "local_base_url": "http://localhost:1234",
+              "local_model": "qwen2.5-coder"},
+        headers=_auth(actors["owner_t"]),
+    )
+    assert r.status_code == 200, r.text
+    got = client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).json()
+    assert got["provider"] == "local"
+    assert got["local"]["base_url"] == "http://localhost:1234"
+    assert got["local"]["model"] == "qwen2.5-coder"
+    # Gerçek sağlayıcı seçmek modülü açar (ayrı 'enabled' kutucuğu yok).
+    assert got["enabled"] is True
+    ca = client.get("/api/admin/code-analysis", headers=_auth(actors["admin_t"])).json()
+    assert ca["llm_enabled"] is True and ca["enabled"] is True
+
+
+def test_none_saglayici_modulu_kapatir(client, actors):
+    # Önce aç, sonra none ile kapat.
+    client.put("/api/admin/llm-provider", json={"provider": "claude"},
+               headers=_auth(actors["owner_t"]))
+    r = client.put("/api/admin/llm-provider", json={"provider": "none"},
+                   headers=_auth(actors["owner_t"]))
+    assert r.status_code == 200
+    got = client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).json()
+    assert got["provider"] == "none" and got["enabled"] is False
+
+
+def test_gecersiz_saglayici_422(client, actors):
+    r = client.put("/api/admin/llm-provider", json={"provider": "gpt"},
+                   headers=_auth(actors["owner_t"]))
+    assert r.status_code == 422
+
+
+def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatch, tmp_path):
+    from app.core import secrets as secrets_mod
+
+    # .secrets.env'i geçici dizine yönlendir (gerçek dosyayı kirletme).
+    monkeypatch.setattr(secrets_mod, "SECRETS_PATH", tmp_path / ".secrets.env")
+
+    r = client.put(
+        "/api/admin/llm-provider",
+        json={"provider": "claude", "claude_model": "claude-sonnet-5",
+              "claude_api_key": "sk-test-12345"},
+        headers=_auth(actors["owner_t"]),
+    )
+    assert r.status_code == 200, r.text
+
+    # Anahtar env'e işlenir + kalıcı dosyaya yazılır.
+    import os
+    assert os.environ.get("ANTHROPIC_API_KEY") == "sk-test-12345"
+    assert "sk-test-12345" in (tmp_path / ".secrets.env").read_text(encoding="utf-8")
+
+    # config.yaml'a anahtar SIZMAZ.
+    from app.core.config import DEFAULT_CONFIG_PATH
+    import app.core.config as cfgmod
+    cfg_path = os.environ.get("EHD_CONFIG") or str(DEFAULT_CONFIG_PATH)
+    assert "sk-test-12345" not in open(cfg_path, encoding="utf-8").read()
+
+    # GET anahtarın kendisini dönmez, yalnız 'tanımlı' durumunu.
+    got = client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).json()
+    assert got["claude"]["api_key"]["configured"] is True
+    assert "sk-test-12345" not in str(got)

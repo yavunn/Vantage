@@ -303,3 +303,13 @@ export function updateSources(patch) {
 export function triggerSync() {
   return apiPost("/api/admin/sync", {});
 }
+
+// --- baş yönetici (owner): AI sağlayıcı ---------------------------------------
+
+export function getLlmProvider() {
+  return api("/api/admin/llm-provider");
+}
+
+export function updateLlmProvider(patch) {
+  return apiPut("/api/admin/llm-provider", patch);
+}
