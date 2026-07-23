@@ -138,3 +138,7 @@ code_analysis:
   - '*.map'
   max_files_per_run: 40
   max_diff_lines: 400
+survey:
+  enabled: true
+  interval_days: 14
+  min_responses: 4

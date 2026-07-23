@@ -2,9 +2,10 @@
 // Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { lazy, Suspense, useEffect, useState } from "react";
-import { api, fetchMe, getStoredUser, getToken, logout, setCurrentDevId, setupStatus } from "./api.js";
+import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setCurrentDevId, setupStatus } from "./api.js";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
+import SurveyBanner from "./components/SurveyBanner.jsx";
 import CodeHealthCard from "./components/CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
@@ -25,6 +26,7 @@ const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
 const LeavesPanel = lazy(() => import("./components/LeavesPanel.jsx"));
 const ProjectsPanel = lazy(() => import("./components/ProjectsPanel.jsx"));
 const Settings = lazy(() => import("./components/Settings.jsx"));
+const SurveyForm = lazy(() => import("./components/SurveyForm.jsx"));
 
 const LazyFallback = <div className="app">Yükleniyor…</div>;
 
@@ -99,6 +101,8 @@ export default function App() {
   const [viewDevId, setViewDevId] = useState(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tab, setTab] = useState(() => readNav().tab);
+  const [survey, setSurvey] = useState(null);
+  const [surveyDismissed, setSurveyDismissed] = useState(false);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("nabiz_theme") || "auto");
 
@@ -127,8 +131,8 @@ export default function App() {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
       const order = user && user.role === "hr"
-        ? ["hr", "leaves", "accounts", "settings"]
-        : ["team", "me", "projects", "leaves", "admin", "settings"];
+        ? ["hr", "leaves", "accounts", "survey", "settings"]
+        : ["team", "me", "projects", "leaves", "survey", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
         e.preventDefault();
@@ -146,10 +150,10 @@ export default function App() {
     let allowed;
     let fallback;
     if (user.role === "hr") {
-      allowed = new Set(["hr", "leaves", "accounts", "settings"]);
+      allowed = new Set(["hr", "leaves", "accounts", "survey", "settings"]);
       fallback = "hr";
     } else {
-      allowed = new Set(["team", "projects", "leaves", "settings"]);
+      allowed = new Set(["team", "projects", "leaves", "survey", "settings"]);
       if (uiConfig.individual_view_enabled) allowed.add("me");
       if (user.role === "admin") allowed.add("admin");
       fallback = "team";
@@ -216,6 +220,18 @@ export default function App() {
         }
       })
       .catch(setError);
+  }, [user]);
+
+  // Anonim memnuniyet anketi — TEK KAYNAK: bir kez çek, banner+rozet+sayfa paylaşır.
+  useEffect(() => {
+    if (!user || user.must_change_password) return;
+    getCurrentSurvey().then(setSurvey).catch(() => setSurvey({ enabled: false }));
+  }, [user]);
+
+  // Bildirimden ya da paylaşılan bağlantıdan "?survey=1" ile gelindiyse ankete git.
+  useEffect(() => {
+    if (!user) return;
+    if (new URLSearchParams(location.search).get("survey") === "1") setTab("survey");
   }, [user]);
 
   // Rapor: seçilen aralığa (7/30/90) göre ANLIK hesap — metrik+trend+sinyal+delta.
@@ -296,6 +312,8 @@ export default function App() {
   const isAdmin = user.role === "admin";
   const isHr = user.role === "hr";
   const canManageLeaves = isAdmin || isHr;
+  // Açık + doldurulmamış anket varsa banner + nav rozeti gösterilir.
+  const surveyPending = !!(survey && survey.enabled && survey.ready && survey.is_open && !survey.already_submitted);
 
   return (
     <div className="app">
@@ -316,7 +334,10 @@ export default function App() {
             <button className="mini ghost cmdk-trigger" onClick={() => setPaletteOpen(true)} title="Hızlı arama (Ctrl+K)">
               <span aria-hidden="true">⌕</span> Ara <kbd>Ctrl K</kbd>
             </button>
-            <NotificationBell onNavigate={({ teamId: tid }) => { setTeamId(tid); setTab("team"); }} />
+            <NotificationBell onNavigate={({ teamId: tid, survey: goSurvey }) => {
+              if (goSurvey) { setTab("survey"); return; }
+              if (tid != null) { setTeamId(tid); setTab("team"); }
+            }} />
             <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
             <span className="user-chip">
               {user.display_name}
@@ -340,6 +361,9 @@ export default function App() {
                 <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
                   Hesaplar
                 </button>
+                <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
+                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
+                </button>
                 <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
                   Ayarlar
                 </button>
@@ -359,6 +383,9 @@ export default function App() {
                 </button>
                 <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
                   İzinler
+                </button>
+                <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
+                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
                 </button>
                 {isAdmin && (
                   <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
@@ -391,7 +418,21 @@ export default function App() {
         </span>
       </header>
 
+      {surveyPending && tab !== "survey" && !surveyDismissed && (
+        <SurveyBanner
+          onOpen={() => setTab("survey")}
+          onDismiss={() => setSurveyDismissed(true)}
+        />
+      )}
+
       <Suspense fallback={LazyFallback}>
+        {tab === "survey" && (
+          <SurveyForm
+            survey={survey}
+            onSubmitted={() => setSurvey((s) => ({ ...s, already_submitted: true }))}
+          />
+        )}
+
         {tab === "settings" && (
           <Settings
             user={user}
@@ -628,12 +669,14 @@ export default function App() {
           { key: "hr", label: "İK Panosu" },
           { key: "leaves", label: "İzinler" },
           { key: "accounts", label: "Hesaplar" },
+          { key: "survey", label: "Anket" },
           { key: "settings", label: "Ayarlar" },
         ] : [
           { key: "team", label: "Takım görünümü" },
           ...(individualAvailable ? [{ key: "me", label: "Bireysel görünüm" }] : []),
           { key: "projects", label: "Projelerim" },
           { key: "leaves", label: "İzinler" },
+          { key: "survey", label: "Anket" },
           ...(isAdmin ? [{ key: "admin", label: "Yönetici paneli" }] : []),
           { key: "settings", label: "Ayarlar" },
         ]}

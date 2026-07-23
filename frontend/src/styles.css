@@ -163,6 +163,83 @@ button.tab.active { border-color: var(--series-1); color: var(--series-1); font-
 .key-pill { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .3px; }
 .key-pill.on { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 15%, transparent); }
 .key-pill.off { color: var(--muted); background: color-mix(in srgb, var(--muted) 15%, transparent); }
+
+/* Anonim memnuniyet anketi (çalışan formu) */
+.survey-card { border: 1px solid var(--border); border-radius: 12px; }
+.survey-questions { display: grid; gap: 16px; margin: 8px 0 14px; }
+.survey-q-label { font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.survey-scale { display: flex; gap: 8px; flex-wrap: wrap; }
+.survey-opt { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 62px; padding: 8px 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); cursor: pointer; transition: border-color .15s, background .15s; }
+.survey-opt:hover { border-color: var(--brand); }
+.survey-opt.active { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; background: var(--brand-soft); }
+.survey-emoji { font-size: 20px; line-height: 1; }
+.survey-opt-label { font-size: 10.5px; color: var(--muted); }
+.survey-comment { display: flex; flex-direction: column; gap: 6px; font-size: 13px; max-width: 560px; }
+.survey-comment textarea { padding: 8px; font-size: 13px; }
+
+/* Admin agrega görünüm */
+.survey-kpis { display: flex; gap: 14px; margin-bottom: 16px; }
+.survey-kpi { border: 1px solid var(--border); border-radius: 10px; padding: 10px 18px; text-align: center; background: var(--surface-1); }
+.survey-kpi-num { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+.survey-kpi-label { font-size: 11px; color: var(--muted); }
+.survey-masked { padding: 16px; border: 1px dashed var(--border); border-radius: 10px; color: var(--text-secondary); font-size: 13.5px; background: var(--surface-1); }
+.survey-scores { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.survey-score-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface-1); }
+.survey-score-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 8px; }
+.survey-score-label { font-size: 12.5px; font-weight: 600; }
+.survey-score-avg { font-size: 20px; font-weight: 700; color: var(--brand); }
+.survey-score-avg small { font-size: 11px; color: var(--muted); font-weight: 500; }
+.survey-dist { display: grid; gap: 3px; }
+.survey-dist-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+.survey-dist-label { width: 12px; color: var(--muted); text-align: right; }
+.survey-dist-track { flex: 1; height: 10px; background: var(--grid); border-radius: 6px; overflow: hidden; }
+.survey-dist-fill { display: block; height: 100%; background: var(--brand); border-radius: 6px; }
+.survey-dist-num { width: 20px; text-align: right; color: var(--text-secondary); }
+.survey-comments { margin-top: 18px; }
+.survey-comment-list { display: grid; gap: 8px; padding-left: 0; list-style: none; }
+.survey-comment-list li { border-left: 3px solid var(--border); padding: 6px 12px; font-size: 13px; color: var(--text-secondary); background: var(--surface-1); border-radius: 0 8px 8px 0; }
+
+/* Çalışan anket sayfası (özel sekme) */
+.survey-page { max-width: 720px; margin: 20px auto; padding: 0 16px; }
+.survey-hero { text-align: center; margin-bottom: 22px; }
+.survey-hero h2 { margin-bottom: 4px; }
+.survey-period { display: inline-block; font-size: 12px; color: var(--muted); background: var(--surface-1); border: 1px solid var(--border); padding: 2px 10px; border-radius: 999px; margin-bottom: 8px; }
+.survey-hero .desc { max-width: 460px; margin: 0 auto; }
+.survey-trust { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 8px 14px; border-radius: 10px; background: color-mix(in srgb, var(--status-good) 12%, transparent); color: var(--text-secondary); font-size: 12.5px; border: 1px solid color-mix(in srgb, var(--status-good) 30%, transparent); }
+.survey-progress { display: flex; align-items: center; gap: 10px; margin: 6px 0 18px; }
+.survey-progress-track { flex: 1; height: 8px; background: var(--grid); border-radius: 6px; overflow: hidden; }
+.survey-progress-track span { display: block; height: 100%; background: var(--brand); border-radius: 6px; transition: width .25s ease; }
+.survey-progress-num { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.survey-q { padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-1); transition: border-color .15s; }
+.survey-q.done { border-color: color-mix(in srgb, var(--brand) 45%, var(--border)); }
+.survey-q-no { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 8px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); font-size: 11px; font-weight: 700; }
+.survey-scale { justify-content: space-between; margin-top: 10px; }
+.survey-scale:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 10px; }
+.survey-opt { flex: 1; min-width: 56px; min-height: 60px; }
+.survey-comment { margin-top: 4px; }
+.survey-hint { font-size: 11px; color: var(--muted); }
+.survey-submit-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.survey-submit-note { font-size: 11.5px; color: var(--muted); }
+.survey-thanks { padding: 28px 16px; }
+.survey-check { width: 60px; height: 60px; margin: 0 auto 12px; border-radius: 50%; background: var(--status-good); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 32px; animation: survey-pop .35s ease; }
+.survey-next { font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+@keyframes survey-pop { 0% { transform: scale(.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .survey-check { animation: none; } .survey-progress-track span { transition: none; } }
+
+/* Hatırlatma banner + nav rozeti */
+.survey-banner { display: flex; align-items: center; gap: 14px; margin: 14px auto; max-width: 1100px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--border)); background: var(--brand-soft); border-radius: 12px; }
+.survey-banner-icon { font-size: 22px; }
+.survey-banner-text { display: flex; flex-direction: column; flex: 1; }
+.survey-banner-text strong { font-size: 13.5px; }
+.survey-banner-text span { font-size: 12px; color: var(--text-secondary); }
+.survey-banner-cta { flex-shrink: 0; }
+.survey-banner-x { background: none; border: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.survey-banner-x:hover { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.tab-dot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--brand); vertical-align: middle; }
+@media (max-width: 560px) {
+  .survey-banner { flex-wrap: wrap; }
+  .survey-opt-label { font-size: 9.5px; }
+}
 .git-email-input { width: 200px; padding: 4px 7px; font-size: 12.5px; margin-right: 6px; }
 
 /* Kurulum kontrol listesi */

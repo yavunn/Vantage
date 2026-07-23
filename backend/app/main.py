@@ -19,6 +19,7 @@ from app.api.auth import router as auth_router
 from app.api.leaves import router as leaves_router
 from app.api.projects import router as projects_router
 from app.api.routes import router
+from app.api.survey import router as survey_router
 from app.core.config import PROJECT_ROOT, get_config
 from app.core.db import Base, ensure_schema_patches, get_engine
 from app.services.pipeline import run_pipeline
@@ -57,6 +58,7 @@ app.include_router(admin_router)
 app.include_router(projects_router)
 app.include_router(leaves_router)
 app.include_router(annotations_router)
+app.include_router(survey_router)
 app.include_router(router)
 
 if FRONTEND_DIST.exists():

@@ -11,4 +11,5 @@ python-dateutil>=2.9
 bcrypt>=4.1
 python-jose>=3.3
 anthropic>=0.40
+cryptography>=43.0
 pytest>=8.3

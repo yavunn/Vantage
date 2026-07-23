@@ -437,6 +437,47 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class SurveyCycle(Base):
+    """Anket döngüsü (2 haftalık pencere). Cevaplar ve katılım buna bağlanır —
+    ama birbirine DEĞİL. Kimlik yalnız katılımda, cevap kimliksizdir."""
+
+    __tablename__ = "survey_cycles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), unique=True)  # ör. "20260706-20260719"
+    opens_at: Mapped[date] = mapped_column(Date)
+    closes_at: Mapped[date] = mapped_column(Date)
+    is_open: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class SurveyResponse(Base):
+    """Anonim anket cevabı. ANONİMLİK ÇEKİRDEĞİ: hiçbir kullanıcı/kişi kimliği
+    YOK (user_id/developer_id yok), hassas zaman damgası YOK. Yalnız cycle_id +
+    şifreli payload. Kim doldurdu bilgisi ayrı SurveyParticipation'da; iki tablo
+    JOIN edilse bile cevap-kişi eşleşmesi çıkmaz (ortak/sıralı anahtar yok)."""
+
+    __tablename__ = "survey_responses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cycle_id: Mapped[int] = mapped_column(ForeignKey("survey_cycles.id"))
+    # Save'den önce şifrelenmiş {answers, comment, schema_version} (Fernet).
+    ciphertext: Mapped[str] = mapped_column(Text)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class SurveyParticipation(Base):
+    """"Bu döngüde doldurdu mu" defteri — CEVABI TUTMAZ. Döngü başına tek kayıt
+    (tekrar doldurmayı engeller, hatırlatma/katılım oranı için). Zaman damgası
+    KASITLI YOK: cevap satırının insert sırasıyla korelasyon kurulmasın."""
+
+    __tablename__ = "survey_participations"
+    __table_args__ = (UniqueConstraint("cycle_id", "user_id", name="uq_survey_participation"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cycle_id: Mapped[int] = mapped_column(ForeignKey("survey_cycles.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+
+
 class Notification(Base):
     """Kullanıcıya gösterilecek bildirim (trend alarmı, sistem olayı).
     Etik: bildirim de gözetim aracı değil — takım sağlığı sinyali ("kırmızıya

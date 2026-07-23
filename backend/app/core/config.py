@@ -7,6 +7,7 @@ sistem çökmez — pydantic varsayılanları devreye girer (graceful degradatio
 from __future__ import annotations
 
 import os
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -190,6 +191,31 @@ class CodeAnalysisSettings(BaseModel):
     max_diff_lines: int = 400
 
 
+class SurveyQuestion(BaseModel):
+    key: str
+    label: str
+    type: str = "likert"  # likert (1-5) | text
+
+
+class SurveySettings(BaseModel):
+    """Anonim çalışan memnuniyet anketi. Cevaplar KİMLİĞE bağlanmaz, save'den
+    önce şifrelenir (SURVEY_ENC_KEY). Admin yalnız k-eşiği aşınca AGREGE görür.
+    interval_days: döngü uzunluğu (2 hafta). min_responses: gizlilik eşiği."""
+
+    enabled: bool = False
+    interval_days: int = 14
+    min_responses: int = 4
+    # Sabit döngü hizası — bu Pazartesi'den itibaren interval_days pencereleri.
+    epoch: date = date(2026, 1, 5)
+    questions: list[SurveyQuestion] = Field(default_factory=lambda: [
+        SurveyQuestion(key="workload", label="Son iki haftada iş yükün sürdürülebilir miydi?"),
+        SurveyQuestion(key="team", label="Takımınla çalışmaktan memnun musun?"),
+        SurveyQuestion(key="management", label="Yöneticinden yeterli destek görüyor musun?"),
+        SurveyQuestion(key="growth", label="Kendini geliştirme/öğrenme fırsatı buluyor musun?"),
+        SurveyQuestion(key="overall", label="Genel memnuniyetin?"),
+    ])
+
+
 class Config(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -200,6 +226,7 @@ class Config(BaseModel):
     rules: dict[str, RuleConfig] = Field(default_factory=dict)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     code_analysis: CodeAnalysisSettings = Field(default_factory=CodeAnalysisSettings)
+    survey: SurveySettings = Field(default_factory=SurveySettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —

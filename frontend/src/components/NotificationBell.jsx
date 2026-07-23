@@ -37,8 +37,15 @@ export default function NotificationBell({ onNavigate }) {
       await markNotificationRead(n.id).catch(() => {});
       refresh();
     }
+    if (!onNavigate) return;
+    // Anket bildirimi: doğrudan ankete git. Trend alarmı: ilgili takıma git.
+    if (n.link && /survey/.test(n.link)) {
+      onNavigate({ survey: true });
+      setOpen(false);
+      return;
+    }
     const m = n.link && n.link.match(/team=(\d+)/);
-    if (m && onNavigate) {
+    if (m) {
       onNavigate({ teamId: Number(m[1]) });
       setOpen(false);
     }

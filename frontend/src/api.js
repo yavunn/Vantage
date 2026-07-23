@@ -313,3 +313,24 @@ export function getLlmProvider() {
 export function updateLlmProvider(patch) {
   return apiPut("/api/admin/llm-provider", patch);
 }
+
+// --- anonim memnuniyet anketi -------------------------------------------------
+
+export function getCurrentSurvey() {
+  return api("/api/survey/current");
+}
+export function submitSurvey(answers, comment) {
+  return apiPost("/api/survey/current", { answers, comment });
+}
+export function getSurveyResults(cycleKey) {
+  return api(`/api/survey/results${cycleKey ? `?cycle=${encodeURIComponent(cycleKey)}` : ""}`);
+}
+export function getSurveyCycles() {
+  return api("/api/survey/cycles");
+}
+export function getSurveyStatus() {
+  return api("/api/survey/status");
+}
+export function genSurveyKey() {
+  return apiPost("/api/survey/genkey", {});
+}

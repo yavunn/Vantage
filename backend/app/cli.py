@@ -42,6 +42,19 @@ def analyze_code() -> None:
         session.close()
 
 
+def survey_genkey() -> None:
+    """python -m app.cli survey-genkey — anket şifreleme anahtarı üretip
+    .secrets.env'e yazar (varsa değiştirmez)."""
+    from app.core.secrets import set_secret
+    from app.core.survey_crypto import SURVEY_KEY_ENV, generate_key, key_configured
+
+    if key_configured():
+        print(f"{SURVEY_KEY_ENV} zaten tanımlı — korunuyor.")
+        return
+    set_secret(SURVEY_KEY_ENV, generate_key())
+    print(f"{SURVEY_KEY_ENV} üretildi ve .secrets.env'e yazıldı.")
+
+
 def serve() -> None:
     import uvicorn
 
@@ -83,6 +96,7 @@ COMMANDS = {
     "analyze-code": analyze_code,
     "serve": serve,
     "set-password": set_password,
+    "survey-genkey": survey_genkey,
 }
 
 if __name__ == "__main__":

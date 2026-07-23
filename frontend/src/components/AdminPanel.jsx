@@ -13,6 +13,7 @@ import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import Modal from "./Modal.jsx";
 import OnboardingPanel from "./OnboardingPanel.jsx";
+import SurveyAdminPanel from "./SurveyAdminPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
 import { toast } from "../toast.js";
 
@@ -231,6 +232,7 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
           <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
           <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
           <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
+          <button className={`tab ${subtab === "survey" ? "active" : ""}`} onClick={() => setSubtab("survey")}>Memnuniyet</button>
           <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
         </div>
       )}
@@ -242,6 +244,8 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
       {!hrMode && subtab === "annotations" && <AnnotationsPanel teams={teams} />}
 
       {!hrMode && subtab === "code" && <CodeAnalysisPanel me={me} />}
+
+      {!hrMode && subtab === "survey" && <SurveyAdminPanel me={me} />}
 
       {!hrMode && subtab === "audit" && <AuditPanel />}
 
