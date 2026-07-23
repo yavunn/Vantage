@@ -85,23 +85,61 @@ def list_leaves(
     user: User = Depends(current_user),
 ):
     m_start, m_end = _month_range(month)
+    manage = _can_manage(user)
     # Ay ile kesişen izinler.
     stmt = select(Leave).where(Leave.start_date <= m_end, Leave.end_date >= m_start)
-    if not _can_manage(user):
+    if not manage:
         stmt = stmt.where(Leave.user_id.in_(_team_user_ids(session, user)))
     rows = session.scalars(stmt.order_by(Leave.start_date)).all()
+    out = []
+    for lv in rows:
+        status = lv.status or "approved"
+        own = lv.user_id == user.id
+        # Takvime YALNIZ onaylı işlenir. Reddedilen takvimde görünmez (sahibi
+        # kendi istek listesinde /mine ile gerekçesiyle görür). Başkasının
+        # BEKLEYEN isteği takvimi kirletmez — yalnız sahibi/yönetici görür.
+        if status == "rejected":
+            continue
+        if status == "pending" and not (own or manage):
+            continue
+        out.append({
+            "id": lv.id,
+            "user_id": lv.user_id,
+            "person": _person_name(session, lv.user_id, lv.developer_id),
+            "leave_type": lv.leave_type,
+            "start_date": lv.start_date.isoformat(),
+            "end_date": lv.end_date.isoformat(),
+            "description": lv.description,
+            "status": status,
+            # Gizlilik: karar notu yalnız sahibi/yöneticiye açılır.
+            "decision_note": lv.decision_note if (own or manage) else None,
+            "own": own,
+            "can_delete": own or manage,
+            "can_decide": manage and status == "pending",
+        })
+    return out
+
+
+@router.get("/mine")
+def my_leaves(
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Çalışanın kendi izin istekleri (tüm durumlar, en yeni önce). Reddedilenler
+    dahil — red gerekçesi (decision_note) burada gösterilir."""
+    rows = session.scalars(
+        select(Leave).where(Leave.user_id == user.id).order_by(Leave.created_at.desc())
+    ).all()
     return [{
         "id": lv.id,
-        "user_id": lv.user_id,
-        "person": _person_name(session, lv.user_id, lv.developer_id),
         "leave_type": lv.leave_type,
         "start_date": lv.start_date.isoformat(),
         "end_date": lv.end_date.isoformat(),
         "description": lv.description,
         "status": lv.status or "approved",
-        "own": lv.user_id == user.id,
-        "can_delete": lv.user_id == user.id or _can_manage(user),
-        "can_decide": _can_manage(user) and (lv.status or "approved") == "pending",
+        "decision_note": lv.decision_note,
+        "created_at": lv.created_at.isoformat() if lv.created_at else None,
+        "can_cancel": (lv.status or "approved") == "pending",
     } for lv in rows]
 
 
@@ -206,6 +244,7 @@ def leave_summary(
 
 class LeaveDecisionBody(BaseModel):
     decision: str  # approved | rejected
+    note: str | None = None  # redde ZORUNLU (gerekçe), onayda opsiyonel
 
 
 @router.get("/pending")
@@ -236,20 +275,43 @@ def decide_leave(
     session: Session = Depends(get_session),
     actor: User = Depends(require_admin_or_hr),
 ):
-    """Admin/İK bir izin isteğini onaylar ya da reddeder."""
+    """Admin/İK bir izin isteğini onaylar ya da reddeder. Redde gerekçe (note)
+    ZORUNLU — çalışan neden reddedildiğini görsün. Karar sonrası izin sahibine
+    bildirim düşer (destek dili)."""
     if body.decision not in ("approved", "rejected"):
         raise HTTPException(status_code=422, detail="decision: approved | rejected")
+    note = (body.note or "").strip()
+    if body.decision == "rejected" and not note:
+        raise HTTPException(status_code=422, detail="Red için gerekçe gerekli")
     lv = session.get(Leave, leave_id)
     if lv is None:
         raise HTTPException(status_code=404, detail="İzin bulunamadı")
     lv.status = body.decision
+    lv.decision_note = note or None
     lv.approved_by = actor.id
     lv.approved_at = datetime.now(timezone.utc)
+
+    # İzin sahibine karar bildirimi (kendi hesabına düşer).
+    from app.services.notifications import notify
+    span = lv.start_date.isoformat() if lv.start_date == lv.end_date \
+        else f"{lv.start_date.isoformat()} → {lv.end_date.isoformat()}"
+    if body.decision == "approved":
+        notify(session, lv.user_id, kind="leave_decision", severity="info",
+               title="İzin isteğin onaylandı",
+               body=f"{span} ({lv.leave_type}) izni onaylandı ve takvime işlendi.",
+               dedup_key=f"leave_decision:{lv.id}:approved", link="leaves")
+    else:
+        notify(session, lv.user_id, kind="leave_decision", severity="info",
+               title="İzin isteğin reddedildi",
+               body=f"{span} ({lv.leave_type}) izni reddedildi. Gerekçe: {note}",
+               dedup_key=f"leave_decision:{lv.id}:rejected", link="leaves")
+
     from app.services.audit import record_audit
     target = session.get(User, lv.user_id)
     record_audit(session, actor, f"leave_{body.decision}", target_user_id=lv.user_id,
                  target_email=target.email if target else None,
-                 detail={"leave_id": lv.id, "type": lv.leave_type})
+                 detail={"leave_id": lv.id, "type": lv.leave_type,
+                         **({"note": note[:120]} if note else {})})
     session.commit()
     return {"ok": True, "status": lv.status}
 

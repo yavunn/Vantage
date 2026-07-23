@@ -335,6 +335,9 @@ class Leave(Base):
     status: Mapped[str] = mapped_column(String(20), default="approved")
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Yönetici kararının notu. Redde ZORUNLU (çalışana gerekçe); onayda opsiyonel.
+    # Gizlilik: yalnız iznin sahibi ve yöneticiler görebilir.
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

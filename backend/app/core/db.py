@@ -36,6 +36,10 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         "failed_login_count": "INTEGER DEFAULT 0",
         "locked_until": "TIMESTAMP WITH TIME ZONE",
     },
+    "leaves": {
+        # Yönetici karar notu (red gerekçesi). Migration'sız ortamda da eklenir.
+        "decision_note": "TEXT",
+    },
 }
 
 

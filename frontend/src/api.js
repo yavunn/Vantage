@@ -246,8 +246,11 @@ export function leaveBalances(year) {
 export function pendingLeaves() {
   return api("/api/leaves/pending");
 }
-export function decideLeave(id, decision) {
-  return apiPost(`/api/leaves/${id}/decision`, { decision });
+export function myLeaveRequests() {
+  return api("/api/leaves/mine");
+}
+export function decideLeave(id, decision, note) {
+  return apiPost(`/api/leaves/${id}/decision`, { decision, note });
 }
 
 // --- bildirimler --------------------------------------------------------------

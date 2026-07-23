@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createLeave, decideLeave, deleteLeave, leaveSummary,
-  listEmployees, listLeaves, pendingLeaves,
+  listEmployees, listLeaves, myLeaveRequests, pendingLeaves,
 } from "../api.js";
+import Modal from "./Modal.jsx";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 const STATUS_LABEL = { pending: "Onay bekliyor", approved: "Onaylı", rejected: "Reddedildi" };
@@ -30,9 +31,13 @@ export default function LeavesPanel({ user, canManage }) {
   const [leaves, setLeaves] = useState([]);
   const [summary, setSummary] = useState([]);
   const [pending, setPending] = useState([]);
+  const [mine, setMine] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
+  // Red akışı: gerekçe zorunlu. rejectFor = reddedilen izin, rejectNote = metin.
+  const [rejectFor, setRejectFor] = useState(null);
+  const [rejectNote, setRejectNote] = useState("");
   const [form, setForm] = useState({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
   const [personFilter, setPersonFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -44,6 +49,7 @@ export default function LeavesPanel({ user, canManage }) {
 
   function load() {
     listLeaves(month).then(setLeaves).catch((e) => setError(e.message));
+    myLeaveRequests().then(setMine).catch(() => setMine([]));
     if (canManage) {
       leaveSummary(month).then(setSummary).catch(() => setSummary([]));
       pendingLeaves().then(setPending).catch(() => setPending([]));
@@ -52,15 +58,24 @@ export default function LeavesPanel({ user, canManage }) {
   useEffect(load, [month]);
   useEffect(() => { if (canManage) listEmployees().then(setEmployees).catch(() => {}); }, []);
 
-  async function decide(lv, decision) {
+  async function approve(lv) {
     setError(null); setMsg(null);
     try {
-      await decideLeave(lv.id, decision);
-      setMsg(`${lv.person} izni ${decision === "approved" ? "onaylandı" : "reddedildi"}.`);
+      await decideLeave(lv.id, "approved");
+      setMsg(`${lv.person} izni onaylandı ve takvime işlendi.`);
       load();
-    } catch (err) {
-      setError(err.message);
-    }
+    } catch (err) { setError(err.message); }
+  }
+
+  async function confirmReject() {
+    if (!rejectNote.trim()) { setError("Red için gerekçe gerekli"); return; }
+    setError(null); setMsg(null);
+    try {
+      await decideLeave(rejectFor.id, "rejected", rejectNote.trim());
+      setMsg(`${rejectFor.person} izni reddedildi. Gerekçe çalışana iletildi.`);
+      setRejectFor(null); setRejectNote("");
+      load();
+    } catch (err) { setError(err.message); }
   }
 
   const grid = useMemo(() => buildGrid(year, mon), [year, mon]);
@@ -83,7 +98,7 @@ export default function LeavesPanel({ user, canManage }) {
       if (canManage && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
       const res = await createLeave(payload);
       setMsg(res.status === "pending"
-        ? "İzin isteği alındı — İK onayı bekliyor."
+        ? "İzin isteğin gönderildi — yönetici onayı bekliyor. Onaylanınca takvime işlenecek."
         : "İzin eklendi (onaylı).");
       setForm({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
       load();
@@ -149,11 +164,11 @@ export default function LeavesPanel({ user, canManage }) {
                     {leavesOnDay(d).map((lv) => (
                       <button
                         key={lv.id + "-" + ymd(d)}
-                        className={`leave-chip ${lv.leave_type}`}
-                        title={`${lv.person} · ${TYPE_LABEL[lv.leave_type] || lv.leave_type}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? " (silmek için tıkla)" : ""}`}
+                        className={`leave-chip ${lv.leave_type} ${lv.status === "pending" ? "is-pending" : ""}`}
+                        title={`${lv.person} · ${TYPE_LABEL[lv.leave_type] || lv.leave_type}${lv.status === "pending" ? " · beklemede" : ""}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? " (silmek için tıkla)" : ""}`}
                         onClick={() => lv.can_delete && remove(lv)}
                       >
-                        {lv.person}
+                        {lv.status === "pending" ? "⏳ " : ""}{lv.person}
                       </button>
                     ))}
                   </div>
@@ -164,6 +179,43 @@ export default function LeavesPanel({ user, canManage }) {
         </div>
         {error && <div className="login-error">{error}</div>}
         {msg && <div className="admin-ok">{msg}</div>}
+      </section>
+
+      {/* İzin isteklerim: her çalışan kendi isteklerinin durumunu + red gerekçesini görür. */}
+      <section className="section">
+        <h2>İzin isteklerim ({mine.length})</h2>
+        {mine.length === 0 ? (
+          <p className="desc">Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.</p>
+        ) : (
+          <ul className="leave-list">
+            {mine.map((lv) => (
+              <li key={lv.id} className="leave-list-item">
+                <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
+                <div className="leave-list-main">
+                  <div className="leave-list-top">
+                    <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                    <span className={`leave-status ${lv.status}`}>{STATUS_LABEL[lv.status] || lv.status}</span>
+                  </div>
+                  <div className="leave-list-dates">
+                    {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
+                    {lv.description ? ` · ${lv.description}` : ""}
+                  </div>
+                  {lv.status === "rejected" && lv.decision_note && (
+                    <div className="leave-reject-note">
+                      <strong>Red gerekçesi:</strong> {lv.decision_note}
+                    </div>
+                  )}
+                </div>
+                {lv.can_cancel && (
+                  <button className="mini ghost leave-del" title="İsteği geri çek"
+                    onClick={() => remove({ id: lv.id, person: "İsteğin", start_date: lv.start_date })}>
+                    İptal
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* Onay kuyruğu: çalışanların bekleyen izin istekleri. */}
@@ -189,8 +241,8 @@ export default function LeavesPanel({ user, canManage }) {
                     </div>
                   </div>
                   <span className="leave-decide">
-                    <button className="mini" onClick={() => decide(lv, "approved")}>Onayla</button>
-                    <button className="mini danger" onClick={() => decide(lv, "rejected")}>Reddet</button>
+                    <button className="mini" onClick={() => approve(lv)}>Onayla</button>
+                    <button className="mini danger" onClick={() => { setRejectFor(lv); setRejectNote(""); setError(null); }}>Reddet</button>
                   </span>
                 </li>
               ))}
@@ -300,7 +352,13 @@ export default function LeavesPanel({ user, canManage }) {
       </section>
 
       <section className="section">
-        <h2>İzin ekle</h2>
+        <h2>{canManage ? "İzin ekle" : "İzin iste"}</h2>
+        {!canManage && (
+          <p className="desc">
+            İzni doğrudan alamazsın — gün(leri) seç, istek gönder. Yönetici
+            onaylayınca takvime işlenir. İstersen açıklama ekle.
+          </p>
+        )}
         <form className="admin-form" onSubmit={add}>
           {canManage && (
             <label>Kişi
@@ -328,9 +386,34 @@ export default function LeavesPanel({ user, canManage }) {
           <label>Açıklama (opsiyonel)
             <input value={form.description} onChange={(e) => upd("description", e.target.value)} />
           </label>
-          <button type="submit" className="login-btn">İzin ekle</button>
+          <button type="submit" className="login-btn">{canManage ? "İzin ekle" : "İstek gönder"}</button>
         </form>
       </section>
+
+      {/* Red gerekçesi modalı: yönetici reddederken zorunlu gerekçe girer. */}
+      {rejectFor && (
+        <Modal title="İzin isteğini reddet" onClose={() => { setRejectFor(null); setError(null); }}>
+          <div className="reject-modal">
+            <p className="desc">
+              <strong>{rejectFor.person}</strong> · {rejectFor.start_date === rejectFor.end_date
+                ? rejectFor.start_date : `${rejectFor.start_date} → ${rejectFor.end_date}`}
+            </p>
+            <label className="ca-block">
+              Red gerekçesi (zorunlu — çalışana iletilir)
+              <textarea rows={3} value={rejectNote}
+                onChange={(e) => setRejectNote(e.target.value)}
+                placeholder="Örn. bu tarihlerde ekip kapasitesi düşük; farklı bir hafta önerilir." />
+            </label>
+            {error && <div className="login-error">{error}</div>}
+            <div className="cred-actions">
+              <button className="mini ghost" onClick={() => { setRejectFor(null); setError(null); }}>Vazgeç</button>
+              <button className="mini danger" disabled={!rejectNote.trim()} onClick={confirmReject}>
+                Reddet ve gerekçeyi gönder
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
     </div>
   );

@@ -878,8 +878,17 @@ table.score-breakdown tr.muted td { color: var(--muted); }
 }
 .leave-status.pending { color: #8a6100; background: #fff3cd; border-color: #f0d98a; }
 .leave-status.rejected { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); }
+.leave-status.approved { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 14%, transparent); }
 [data-theme="dark"] .leave-status.pending { color: #ffe08a; background: #3a2f05; border-color: #6b5710; }
 .leave-decide { display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* Bekleyen (onaysız) izin takvimde tentatif: kesikli + soluk. */
+.leave-chip.is-pending { background: transparent; border: 1px dashed var(--muted); color: var(--text-secondary); opacity: 0.85; }
+[data-theme="dark"] .leave-chip.is-pending { color: var(--text-secondary); }
+/* Çalışana gösterilen red gerekçesi. */
+.leave-reject-note { margin-top: 4px; font-size: 12px; color: var(--text-secondary); background: color-mix(in srgb, var(--status-critical) 8%, transparent); border-left: 3px solid var(--status-critical); padding: 5px 9px; border-radius: 0 6px 6px 0; }
+.reject-modal { display: grid; gap: 12px; min-width: min(420px, 80vw); }
+.reject-modal textarea { padding: 8px; font-size: 13px; font-family: inherit; }
 
 /* İK Panosu */
 .hr-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
