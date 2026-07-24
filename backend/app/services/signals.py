@@ -13,7 +13,7 @@ Veri yoksa sinyal 'insufficient_data' döner — asla uydurulmaz.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

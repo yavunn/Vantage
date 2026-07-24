@@ -28,3 +28,28 @@ def test_build_analyzer_system_agirlik_icerir():
     az = build_analyzer(cfg)
     assert az is not None
     assert "Okunabilirlik: ağırlık 3.0" in az.system
+
+
+def test_classify_error_kredi():
+    from app.services.code_analysis import classify_error
+
+    msg = classify_error(Exception("Error 400: Your credit balance is too low")).lower()
+    assert "bakiye" in msg or "kredi" in msg
+
+
+def test_analyze_diff_hata_sebebini_toplar(session):
+    """LLM patlayınca sessiz None değil — sebep 'errors' listesine düşer."""
+    from app.services.code_analysis import analyze_diff
+
+    class Boom:
+        provider = "claude"
+        model = "x"
+
+        def analyze(self, *a):
+            raise RuntimeError("Your credit balance is too low")
+
+    cfg = Config()
+    errs: list[str] = []
+    row = analyze_diff(session, cfg, Boom(), None, "foo.py", "sha", "@@ diff @@", errors=errs)
+    assert row is None
+    assert errs and ("kredi" in errs[0].lower() or "bakiye" in errs[0].lower())

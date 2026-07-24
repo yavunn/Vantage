@@ -97,6 +97,11 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Oturum geçersiz kılma: parola değişince artırılır; eski JWT'lerin 'tv'
+    # claim'i eşleşmez → 401. Böylece parola değişimi eski token'ları düşürür.
+    token_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -213,16 +218,9 @@ class TaskStatusTransition(Base):
     task: Mapped[Task] = relationship(back_populates="transitions")
 
 
-class CodeQualitySnapshot(Base):
-    __tablename__ = "code_quality_snapshots"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id"))
-    taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
-    complexity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    duplication: Mapped[float | None] = mapped_column(Float, nullable=True)
-    code_smells: Mapped[int | None] = mapped_column(Integer, nullable=True)
+# NOT: CodeQualitySnapshot (SonarQube/linter kalite anlık görüntüsü) KALDIRILDI —
+# dış kod-kalitesi taraması artık yok, kod taraması AI modülüyle yapılır. Mevcut
+# DB'lerdeki 'code_quality_snapshots' tablosu (varsa) orphan kalır, kullanılmaz.
 
 
 class MetricResult(Base):

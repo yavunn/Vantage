@@ -29,7 +29,8 @@ export default function MyCodeHealth({ user }) {
       const m = r.status === "ok"
         ? `Analiz tamam: ${r.analyzed} yeni, ${r.cached} önbellek.`
         : r.note || JSON.stringify(r);
-      setMsg(m); toast(m, r.status === "ok" ? "ok" : "info");
+      const sev = r.status === "ok" ? "ok" : (r.status === "error" ? "error" : "info");
+      setMsg(m); toast(m, sev);
       load();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }

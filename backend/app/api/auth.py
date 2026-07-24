@@ -10,8 +10,8 @@
 Yetki modeli: role ∈ {user, admin, hr}. admin=tam yetki, hr=İK (rehber+izin+
 kapasite; performans/entegrasyon/rol-değişimi KAPALI), user=çalışan. owner
 (is_owner) = korunan admin. Admin uçları token'daki role ile korunur.
-Dashboard uçları (routes.py) ayrı X-Dev-Id katmanını kullanmaya devam eder;
-frontend giriş sonrası bu başlığı oturum sahibinin developer_id'siyle doldurur.
+Dashboard uçları (routes.py) da geçerli JWT ister (router-level current_user);
+kimlik yalnız JWT'den gelir — eski X-Dev-Id katmanı kaldırıldı.
 """
 from __future__ import annotations
 
@@ -119,23 +119,8 @@ def current_user(
     user = session.get(User, int(payload["sub"]))
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="Hesap bulunamadı veya pasif")
-    return user
-
-
-def current_user_optional(
-    session: Session = Depends(get_session),
-    authorization: str | None = Header(default=None),
-) -> User | None:
-    """current_user gibi ama token yoksa/geçersizse 401 atmaz, None döner.
-    X-Dev-Id kimliğiyle çalışan uçların JWT'yi opsiyonel okuması için."""
-    if not authorization or not authorization.lower().startswith("bearer "):
-        return None
-    payload = decode_access_token(authorization.split(" ", 1)[1].strip())
-    if not payload:
-        return None
-    user = session.get(User, int(payload["sub"]))
-    if user is None or not user.is_active:
-        return None
+    if int(payload.get("tv", 0)) != (user.token_version or 0):
+        raise HTTPException(status_code=401, detail="Oturum geçersiz — parola değişti, tekrar giriş yapın")
     return user
 
 
@@ -274,7 +259,7 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
     user.locked_until = None
     user.last_login_at = now
     session.commit()
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user.token_version or 0)
     return {"access_token": token, "token_type": "bearer", "user": _user_out(session, user)}
 
 
@@ -318,9 +303,11 @@ def change_password(
         raise HTTPException(status_code=400, detail="Mevcut parola hatalı")
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = False
+    user.token_version = (user.token_version or 0) + 1  # eski/diğer oturumları düşür
     user.updated_at = datetime.now(timezone.utc)
     session.commit()
-    return {"ok": True}
+    # Bu oturum devam etsin diye YENİ token ver (aksi halde kendi kendini düşürür).
+    return {"ok": True, "access_token": create_access_token(user.id, user.role, user.token_version)}
 
 
 @router.get("/employees")
@@ -490,6 +477,7 @@ def set_employee_password(
     _guard_owner_target(user, admin)
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = True  # sıfırlanan parola geçici; kullanıcı değiştirsin
+    user.token_version = (user.token_version or 0) + 1  # hedefin eski oturumlarını düşür
     user.updated_at = datetime.now(timezone.utc)
     from app.services.audit import record_audit
     # Parolanın KENDİSİ asla kaydedilmez — yalnız "sıfırlandı" olgusu.
@@ -615,5 +603,5 @@ def setup(body: SetupBody, session: Session = Depends(get_session)):
     )
     session.add(user)
     session.commit()
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user.token_version or 0)
     return {"access_token": token, "token_type": "bearer", "user": _user_out(session, user)}

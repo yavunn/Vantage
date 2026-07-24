@@ -244,27 +244,6 @@ def gen_tasks() -> list[dict]:
     return tasks
 
 
-def gen_quality() -> list[dict]:
-    snaps = []
-    profiles = {
-        "billing-service": {"coverage": 74.0, "complexity": 210.0, "duplication": 3.1, "code_smells": 55},
-        "netops-tools": {"coverage": None, "complexity": None, "duplication": None, "code_smells": 310},
-        "crm-portal": {"coverage": 41.0, "complexity": 780.0, "duplication": 11.5, "code_smells": 640},
-    }
-    for repo, base in profiles.items():
-        for w in range(0, 8):
-            snaps.append({
-                "repo_name": repo,
-                "taken_at": iso(NOW - timedelta(weeks=w)),
-                "coverage": base["coverage"] + rng.uniform(-2, 2) if base["coverage"] else None,
-                "complexity": base["complexity"],
-                "duplication": base["duplication"],
-                "code_smells": base["code_smells"] + rng.randint(-20, 20)
-                if base["code_smells"] else None,
-            })
-    return snaps
-
-
 def seed_org(session) -> None:
     """Takımlar, geliştiriciler, üyelikler (yönetici dahil) ve repo eşlemesi."""
     from app.models import Repo
@@ -293,7 +272,6 @@ def main() -> None:
         "commits.json": gen_commits(),
         "pull_requests.json": gen_prs(),
         "tasks.json": gen_tasks(),
-        "quality.json": gen_quality(),
     }
     for fname, data in datasets.items():
         with open(FIXTURE_DIR / fname, "w", encoding="utf-8") as f:

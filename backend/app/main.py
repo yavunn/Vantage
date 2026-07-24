@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
@@ -31,6 +30,8 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     from app.core.secrets import load_secrets
     load_secrets()  # kalıcı sırları ortama yükle (config'ten önce)
+    from app.core.security import ensure_jwt_secret
+    ensure_jwt_secret()  # EHD_SECRET yoksa güçlü üret + kalıcı yaz (tahmin edilebilir sabit yok)
     cfg = get_config()
     Base.metadata.create_all(get_engine())  # şema garanti (alembic da mevcut)
     ensure_schema_patches()  # var olan tablolara sonradan eklenen kolonlar

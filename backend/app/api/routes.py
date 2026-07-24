@@ -1,35 +1,33 @@
 """REST API.
 
 Etik çerçevenin (spec Bölüm 1 + İlke E) uygulandığı yer:
-- Varsayılan görünüm TAKIM/PROJE'dir; takım uçları herkese açıktır.
+- Varsayılan görünüm TAKIM/PROJE'dir; takım uçları her GİRİŞLİ kullanıcıya açıktır.
 - Bireysel görünüm yalnızca kişinin KENDİSİ ya da YÖNETİCİSİ içindir.
 - Kıyaslamalı leaderboard ucu YOKTUR ve eklenmez: hiçbir uç, birden çok
   kişinin metriklerini yan yana döndürmez.
 - Anonimleştirme modunda bireysel uçlar kapanır, isimler maskelenir.
-- Kimlik, demo amaçlı X-Dev-Id başlığından okunur; şirket ortamında bu
-  katman SSO/reverse-proxy başlığıyla değiştirilir (tek nokta).
+- Kimlik YALNIZ JWT'den gelir (router-level current_user). Tüm bu uçlar geçerli
+  token ister; tokensiz istek 401. Eski, taklit edilebilen X-Dev-Id kaldırıldı.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import current_user, current_user_optional, require_admin
+from app.api.auth import current_user, require_admin
 from app.core.config import Config, get_config
 from app.core.db import get_session
-from app.metrics.engine import METRIC_FUNCS, load_team_data
+from app.metrics.engine import load_team_data
 from app.models import (
     Commit,
     Developer,
     MetricResult,
     Recommendation,
-    Repo,
     Team,
-    TeamMembership,
     User,
 )
 from app.services.commit_alignment import alignment_summary
@@ -41,19 +39,14 @@ from app.services.health import (
     health_status,
 )
 
-router = APIRouter(prefix="/api")
+# Bu router'daki TÜM uçlar geçerli JWT ister (dashboard okuma dahil). Kimlik
+# artık YALNIZ JWT'den gelir — eski, taklit edilebilen X-Dev-Id başlığı kaldırıldı.
+# Login/kurulum ayrı auth_router'da (public); anket/anotasyon kendi router'larında.
+# Frontend config/ui + teams + directory'yi zaten giriş sonrası (token'la) çeker.
+router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
 
 # --- kimlik ve yetki yardımcıları ---------------------------------------------
-
-def current_dev(
-    session: Session = Depends(get_session),
-    x_dev_id: int | None = Header(default=None),
-) -> Developer | None:
-    if x_dev_id is None:
-        return None
-    return session.get(Developer, x_dev_id)
-
 
 def _is_manager_of(session: Session, manager: Developer, dev: Developer) -> bool:
     dev_team_ids = {m.team_id for m in dev.memberships}
@@ -295,7 +288,6 @@ def admin_audit_csv(session: Session = Depends(get_session), _=Depends(require_a
 @router.get("/teams/{team_id}/report.csv")
 def team_report_csv(team_id: int, session: Session = Depends(get_session)):
     """Takım metrik özetini CSV indirir. Etik: takım-agregat, kişi satırı yok."""
-    cfg = get_config()
     team = session.get(Team, team_id)
     if team is None:
         raise HTTPException(404, "Takım bulunamadı")
@@ -387,12 +379,14 @@ def team_code_health_series_endpoint(team_id: int, session: Session = Depends(ge
 @router.get("/me")
 def me(
     session: Session = Depends(get_session),
-    dev: Developer | None = Depends(current_dev),
+    user: User = Depends(current_user),
 ):
-    """Demo kullanıcı değiştirici için: kimim, hangi takımdayım, yönetici miyim."""
+    """Kimim, hangi takımdayım (JWT kimliğiyle). developer'a bağlı değilse boş."""
     cfg = get_config()
+    dev = session.get(Developer, user.developer_id) if user.developer_id else None
     if dev is None:
-        return {"authenticated": False}
+        return {"authenticated": True, "id": None,
+                "display_name": user.email.split("@")[0], "teams": []}
     return {
         "authenticated": True,
         "id": dev.id,
@@ -442,8 +436,7 @@ def directory(session: Session = Depends(get_session)):
 def developer_summary(
     dev_id: int,
     session: Session = Depends(get_session),
-    requester: Developer | None = Depends(current_dev),
-    user=Depends(current_user_optional),
+    user: User = Depends(current_user),
 ):
     """Bireysel sağlık görünümü. Kurallar:
     - anonimleştirme modunda ya da özellik kapalıysa tamamen devre dışı;
@@ -455,15 +448,11 @@ def developer_summary(
     dev = session.get(Developer, dev_id)
     if dev is None:
         raise HTTPException(404, "Kişi bulunamadı")
-    # Yetki JWT kullanıcısı üzerinden zorlanır. Admin herkesi görebilir; aksi
-    # halde X-Dev-Id kimliğiyle yalnızca kişinin kendisi ya da yöneticisi.
-    # Yetki hatası 403 döner (401 DEĞİL) — 401 istemcide oturumu düşürür.
-    is_admin = user is not None and user.role == "admin"
-    if not is_admin:
-        # Hiçbir kimlik yok (ne JWT ne X-Dev-Id) → 401: giriş gerekli.
-        if requester is None and user is None:
-            raise HTTPException(401, "Kimlik gerekli")
-        # Kimlik var ama yetkisiz → 403 (401 DEĞİL: istemcide oturumu düşürmesin).
+    # Yetki YALNIZ JWT kimliğiyle: admin herkesi görebilir; aksi halde kişinin
+    # KENDİSİ (user.developer_id) ya da yöneticisi. Yetki hatası 403 (401 DEĞİL:
+    # istemcide oturumu düşürmesin). Kimliksiz istek router seviyesinde 401 olur.
+    if user.role != "admin":
+        requester = session.get(Developer, user.developer_id) if user.developer_id else None
         if requester is None or (requester.id != dev.id and not _is_manager_of(session, requester, dev)):
             raise HTTPException(403, "Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir")
 
@@ -555,12 +544,11 @@ def _one_on_one_points(summary: dict) -> list[dict]:
 def developer_one_on_one(
     dev_id: int,
     session: Session = Depends(get_session),
-    requester: Developer | None = Depends(current_dev),
-    user=Depends(current_user_optional),
+    user: User = Depends(current_user),
 ):
     """1:1 görüşme hazırlık özeti — bireysel görünümle AYNI yetki kurallarına
     tabidir (kişinin kendisi, yöneticisi ya da admin)."""
-    summary = developer_summary(dev_id, session, requester, user)
+    summary = developer_summary(dev_id, session, user)
     return {
         "developer": summary["developer"],
         "window_days": summary["window_days"],

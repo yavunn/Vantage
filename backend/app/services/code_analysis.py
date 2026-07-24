@@ -268,6 +268,24 @@ def _composite(scores: dict[str, int], weights: dict[str, float]) -> float:
     return sum(scores[d] * weights.get(d, 1.0) for d in DIMENSIONS) / total_w
 
 
+def classify_error(e: Exception) -> str:
+    """LLM çağrısı hatasını kullanıcıya gösterilecek NET Türkçe sebebe çevirir.
+    'analiz 0 yeni' gibi sessiz başarısızlık yerine gerçek neden görünsün."""
+    msg = str(e).lower()
+    if "credit balance" in msg or "billing" in msg or "insufficient" in msg:
+        return ("AI sağlayıcı bakiyesi yetersiz — Anthropic Plans & Billing'den "
+                "kredi ekle ya da yerel LLM'e (Ollama) geç.")
+    if "authentication" in msg or "x-api-key" in msg or "unauthorized" in msg or " 401" in msg:
+        return "AI API anahtarı geçersiz/eksik (owner AI Sağlayıcı bölümünden kontrol et)."
+    if "rate limit" in msg or "429" in msg or "overloaded" in msg or "529" in msg:
+        return "AI hız limiti/aşırı yük — biraz sonra tekrar dene."
+    if "connect" in msg or "connection" in msg or "timeout" in msg or "refused" in msg:
+        return "AI sunucusuna bağlanılamadı (yerel LLM kapalı olabilir — base_url'i kontrol et)."
+    if "not_found" in msg or "404" in msg or "model" in msg:
+        return "AI modeli bulunamadı — model adını kontrol et."
+    return f"AI çağrısı başarısız: {type(e).__name__}."
+
+
 def analyze_diff(
     session: Session,
     cfg: Config,
@@ -278,10 +296,12 @@ def analyze_diff(
     diff_text: str,
     developer_id: int | None = None,
     now: datetime | None = None,
+    errors: list[str] | None = None,
 ) -> CodeAnalysis | None:
     """Tek bir dosya diff'ini analiz eder (cache + maskeleme + audit).
     analyzer None ise 'analiz bekliyor' (audit=skipped). Hata olursa None
-    döner ve audit=error yazılır — pano çökmez."""
+    döner ve audit=error yazılır — pano çökmez. errors verilirse hata SEBEBİ
+    o listeye eklenir (çağıran kullanıcıya net mesaj gösterebilsin)."""
     ca_cfg = cfg.code_analysis
     now = now or datetime.now(timezone.utc)
 
@@ -314,13 +334,15 @@ def analyze_diff(
 
     try:
         result = analyzer.analyze(file_path, truncated)
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — pano çökmesin; sebep 'errors'a taşınır
         session.add(CodeAnalysisAudit(
             repo_id=repo_id, file_path=file_path, diff_hash=h,
             chars_sent=len(truncated), masked_secrets=n_secrets,
             provider=getattr(analyzer, "provider", None), model=getattr(analyzer, "model", None),
             outcome="error", sent_at=now,
         ))
+        if errors is not None:
+            errors.append(classify_error(e))
         return None
 
     row = CodeAnalysis(
@@ -354,7 +376,7 @@ def _run_git(args: list[str]) -> str:
             ["git", *args], capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=120,
         ).stdout
-    except (OSError, Exception):  # noqa: BLE001 — repo erişilemezse tüm koşuyu düşürme
+    except Exception:  # noqa: BLE001 — repo/git erişilemezse tüm koşuyu düşürme
         return ""
 
 
@@ -433,6 +455,7 @@ def run_code_analysis(session: Session, cfg: Config,
     budget = ca.max_files_per_run
     dev_cache: dict = {}
     analyzed = cached = skipped = other_author = 0
+    errors: list[str] = []
 
     for repo_cfg in cfg.sources.git.repos:
         if budget <= 0:
@@ -460,7 +483,7 @@ def run_code_analysis(session: Session, cfg: Config,
                 cached += 1
                 continue
             row = analyze_diff(session, cfg, analyzer, repo_id, file_path, sha, diff,
-                               developer_id=dev_id)
+                               developer_id=dev_id, errors=errors)
             budget -= 1
             if row is not None:
                 analyzed += 1
@@ -468,4 +491,10 @@ def run_code_analysis(session: Session, cfg: Config,
     out = {"status": "ok", "analyzed": analyzed, "cached": cached, "excluded": skipped}
     if target_emails is not None:
         out["other_author_skipped"] = other_author
+    # Hiç yeni analiz olmadı ama LLM çağrıları hata verdiyse: sessiz "0 yeni"
+    # yerine NET sebep göster (ör. kredi yetersiz).
+    if analyzed == 0 and errors:
+        out["status"] = "error"
+        out["error_count"] = len(errors)
+        out["note"] = errors[-1]
     return out

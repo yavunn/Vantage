@@ -35,6 +35,8 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # Login brute-force koruması.
         "failed_login_count": "INTEGER DEFAULT 0",
         "locked_until": "TIMESTAMP WITH TIME ZONE",
+        # Oturum geçersiz kılma (parola değişince artar).
+        "token_version": "INTEGER DEFAULT 0",
     },
     "leaves": {
         # Yönetici karar notu (red gerekçesi). Migration'sız ortamda da eklenir.

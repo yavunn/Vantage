@@ -218,7 +218,7 @@ def _breakdown_pr_duration(field: str):
 
 def _breakdown_deploys(data: TeamData) -> list[dict]:
     return [
-        {"label": f"Teslim (merge)", "detail": "main'e merge proxy'si",
+        {"label": "Teslim (merge)", "detail": "main'e merge proxy'si",
          "value": None, "unit": "", "date": f"{d:%Y-%m-%d %H:%M}"}
         for d in _deploy_events(data)
     ]

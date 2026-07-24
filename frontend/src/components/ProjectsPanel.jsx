@@ -20,7 +20,6 @@ function ScoreBadge({ score }) {
 // AI/kural-tabanlı değerlendirme al. Admin "Tüm projeler" ile herkesinkini görür.
 export default function ProjectsPanel({ isAdmin }) {
   const [projects, setProjects] = useState([]);
-  const [showAll, setShowAll] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -32,9 +31,10 @@ export default function ProjectsPanel({ isAdmin }) {
   const [detailBusy, setDetailBusy] = useState(false);
 
   function load() {
-    listProjects(showAll && isAdmin).then(setProjects).catch((e) => setError(e.message));
+    // Admin backend'de zaten hepsini görür; kullanıcı yalnız kendininki.
+    listProjects(isAdmin).then(setProjects).catch((e) => setError(e.message));
   }
-  useEffect(load, [showAll]);
+  useEffect(load, []);
 
   async function add(e) {
     e.preventDefault();
@@ -105,34 +105,38 @@ export default function ProjectsPanel({ isAdmin }) {
 
   return (
     <div className="projects-panel">
-      <section className="section">
-        <div className="section-head">
+      {isAdmin ? (
+        <section className="section">
+          <h2>Tüm projeler</h2>
+          <p className="desc">
+            Tüm kullanıcıların projeleri aşağıda. Yönetici proje <b>eklemez</b> —
+            yalnız görüntüler (senkron/değerlendirme yapabilir).
+          </p>
+          {msg && <div className="admin-ok">{msg}</div>}
+          {error && <div className="login-error">{error}</div>}
+        </section>
+      ) : (
+        <section className="section">
           <h2>Proje ekle</h2>
-          {isAdmin && (
-            <label className="inline-check">
-              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-              Tüm kullanıcıların projeleri
+          <form className="admin-form" onSubmit={add}>
+            <label>Proje adı
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Örn. Kişisel API" required />
             </label>
-          )}
-        </div>
-        <form className="admin-form" onSubmit={add}>
-          <label>Proje adı
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Örn. Kişisel API" required />
-          </label>
-          <label>GitHub adresi
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/kullanici/repo" required />
-          </label>
-          <button type="submit" className="login-btn" disabled={busy}>
-            {busy ? "Ekleniyor…" : "Ekle ve senkronize et"}
-          </button>
-        </form>
-        <p className="desc">Public repo tokensiz çalışır. Özel repo için sunucuda GITHUB_TOKEN gerekir.</p>
-        {msg && <div className="admin-ok">{msg}</div>}
-        {error && <div className="login-error">{error}</div>}
-      </section>
+            <label>GitHub adresi
+              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/kullanici/repo" required />
+            </label>
+            <button type="submit" className="login-btn" disabled={busy}>
+              {busy ? "Ekleniyor…" : "Ekle ve senkronize et"}
+            </button>
+          </form>
+          <p className="desc">Public repo tokensiz çalışır. Özel repo için sunucuda GITHUB_TOKEN gerekir.</p>
+          {msg && <div className="admin-ok">{msg}</div>}
+          {error && <div className="login-error">{error}</div>}
+        </section>
+      )}
 
       <section className="section">
-        <h2>Projeler ({projects.length})</h2>
+        <h2>{isAdmin ? "Tüm kullanıcı projeleri" : "Projelerim"} ({projects.length})</h2>
         {projects.length === 0 && <p className="desc">Henüz proje yok.</p>}
         <div className="project-cards">
           {projects.map((p) => (

@@ -201,7 +201,7 @@ def test_user_izin_karar_veremez_403(client, actors):
 
 def test_directory_hesaplarla_tutarli(client, actors):
     # Bireysel görünüm kişi listesi = hesaba bağlı aktif çalışanların developer'ları.
-    dir_ids = {p["id"] for p in client.get("/api/directory").json()}
+    dir_ids = {p["id"] for p in client.get("/api/directory", headers=_auth(actors["admin_t"])).json()}
     emps = client.get("/api/auth/employees", headers=_auth(actors["admin_t"])).json()
     acct_dev_ids = {u["developer_id"] for u in emps if u["developer_id"] and u["is_active"]}
     assert dir_ids == acct_dev_ids

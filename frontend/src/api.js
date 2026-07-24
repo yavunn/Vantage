@@ -1,16 +1,8 @@
 // API istemcisi + oturum yönetimi.
-// Kimlik iki katmanlı: (1) auth uçları için JWT (Bearer), (2) dashboard
-// uçları için X-Dev-Id başlığı — giriş yapan kullanıcının developer_id'si.
-// Şirket ortamında X-Dev-Id katmanı SSO/reverse-proxy ile değişebilir.
+// Kimlik: JWT (Bearer) — TÜM uçlar (dashboard dahil) bunu ister.
 
 const TOKEN_KEY = "nabiz_token";
 const USER_KEY = "nabiz_user";
-
-let currentDevId = null;
-
-export function setCurrentDevId(id) {
-  currentDevId = id;
-}
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -32,14 +24,12 @@ function saveSession(token, user) {
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  currentDevId = null;
 }
 
 function authHeaders(extra = {}) {
   const headers = { ...extra };
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (currentDevId != null) headers["X-Dev-Id"] = String(currentDevId);
   return headers;
 }
 
@@ -139,18 +129,19 @@ export async function apiDelete(path) {
 export async function login(email, password) {
   const data = await apiPost("/api/auth/login", { email, password });
   saveSession(data.access_token, data.user);
-  setCurrentDevId(data.user.developer_id);
   return data.user;
 }
 
 export async function fetchMe() {
-  const user = await api("/api/auth/me");
-  setCurrentDevId(user.developer_id);
-  return user;
+  return api("/api/auth/me");
 }
 
-export function changePassword(current_password, new_password) {
-  return apiPost("/api/auth/change-password", { current_password, new_password });
+export async function changePassword(current_password, new_password) {
+  const data = await apiPost("/api/auth/change-password", { current_password, new_password });
+  // Backend parola değişince token_version artırır (eski token'lar düşer). Bu
+  // oturumun devam etmesi için dönen YENİ token'ı sakla.
+  if (data && data.access_token) localStorage.setItem(TOKEN_KEY, data.access_token);
+  return data;
 }
 
 export function updateProfile(patch) {
@@ -198,7 +189,6 @@ export function setupStatus() {
 export async function setup(payload) {
   const data = await apiPost("/api/auth/setup", payload);
   saveSession(data.access_token, data.user);
-  setCurrentDevId(data.user.developer_id);
   return data.user;
 }
 

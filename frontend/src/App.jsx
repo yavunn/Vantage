@@ -2,7 +2,7 @@
 // Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { lazy, Suspense, useEffect, useState } from "react";
-import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setCurrentDevId, setupStatus } from "./api.js";
+import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setupStatus } from "./api.js";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
 import SurveyBanner from "./components/SurveyBanner.jsx";
@@ -173,7 +173,6 @@ export default function App() {
         }
         const stored = getStoredUser();
         if (getToken() && stored) {
-          setCurrentDevId(stored.developer_id);
           setUser(stored);
           fetchMe()
             .then((u) => setUser(u))

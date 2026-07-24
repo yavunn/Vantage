@@ -1,8 +1,9 @@
 """Kullanıcı projeleri (GitHub) + commit listesi + commit pratiği değerlendirme.
 
-Erişim: kullanıcı kendi projelerini yönetir. Admin tüm projeleri/commit
-skorlarını görebilir (proje sahibi kararı — bkz. memory commit-score-decision).
-Skor kişiye değil commit PRATİĞİNE aittir; ceza dili yok.
+Erişim: kullanıcı kendi projelerini ekler/yönetir. Admin proje EKLEMEZ ama
+TÜM kullanıcıların projelerini/commit skorlarını doğrudan görür (proje sahibi
+kararı — bkz. memory commit-score-decision). Skor kişiye değil commit
+PRATİĞİNE aittir; ceza dili yok.
 
 İzolasyon: GitHub commitleri `project_commits` tablosuna gider, takım
 metriklerini besleyen `commits` tablosuna KARIŞMAZ.
@@ -114,6 +115,10 @@ def create_project(
     session: Session = Depends(get_session),
     user: User = Depends(current_user),
 ):
+    # Yönetici proje EKLEMEZ — projeleri yalnız görüntüler (herkesinkini görür).
+    if user.role == "admin":
+        raise HTTPException(status_code=403,
+                            detail="Yöneticiler proje eklemez — projeleri yalnız görüntüler.")
     try:
         parse_repo(body.github_url)  # erken doğrula
     except GitHubError as e:
@@ -131,11 +136,12 @@ def create_project(
 
 @router.get("")
 def list_projects(
-    all: bool = Query(default=False),
+    all: bool = Query(default=False),  # geriye uyum; admin her hâlükârda hepsini görür
     session: Session = Depends(get_session),
     user: User = Depends(current_user),
 ):
-    if all and user.role == "admin":
+    # Admin TÜM projeleri doğrudan görür (sahip adıyla). Kullanıcı yalnız kendininki.
+    if user.role == "admin":
         rows = session.scalars(select(UserProject).order_by(UserProject.id.desc())).all()
         return [_project_out(session, p, with_owner=True) for p in rows]
     rows = session.scalars(

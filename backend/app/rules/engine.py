@@ -19,7 +19,6 @@ from app.metrics.engine import (
     HOTFIX_HINTS,
     TeamData,
     _deploy_events,
-    _is_done,
     as_utc,
     load_team_data,
     review_latency,

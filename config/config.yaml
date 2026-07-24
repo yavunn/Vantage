@@ -29,14 +29,9 @@ sources:
       boards:
       - UOIzVeO2
       - rAUYPvr0
-  quality:
-    provider: none
-    sonarqube:
-      base_url: ''
-      token_env: SONAR_TOKEN
-      project_keys: []
-    linter:
-      command: ruff check --output-format json .
+  # Not: Dış kod-kalitesi taraması (SonarQube/linter) KALDIRILDI. Kod taraması
+  # artık kendi AI Kod Analizi modülümüzle yapılır (bkz. app/services/code_analysis.py,
+  # config'te code_analysis bölümü). 'quality' bölümü bilinçli olarak yoktur.
 metrics:
   cycle_time:
     enabled: true

@@ -152,8 +152,11 @@ export default function CodeAnalysisPanel({ me }) {
     try {
       toast("Analiz başladı…", "info");
       const r = await apiPost("/api/admin/code-analysis/run", {});
-      setMsg(`Analiz: ${JSON.stringify(r)}`);
-      toast(r.status === "ok" ? `Analiz tamam: ${r.analyzed} yeni` : (r.note || "Analiz bitti"), r.status === "ok" ? "ok" : "info");
+      const m = r.status === "ok"
+        ? `Analiz tamam: ${r.analyzed} yeni, ${r.cached ?? 0} önbellek.`
+        : (r.note || "Analiz bitti");
+      setMsg(m);
+      toast(m, r.status === "ok" ? "ok" : (r.status === "error" ? "error" : "info"));
       loadAudit(); loadOverview();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
@@ -168,6 +171,12 @@ export default function CodeAnalysisPanel({ me }) {
         <p className="desc">
           Kodun içeriğini analiz eden AI modülü. Skorlar repo/modül düzeyi — kişi değil.
           Açma/kapama tek yerden: <b>AI Sağlayıcı</b> seçimi (Kapalı = modül kapalı).
+        </p>
+        <p className="desc">
+          ⓘ Kod analizi şu an yalnızca <b>yerel git repolarında</b> (kaynak
+          <code> git_log</code>, config'teki <code>repos[].path</code>) çalışır.
+          GitLab/GitHub diff API'lerinden çekme henüz yok — uzak-repo diff'i
+          analiz edilmez.
         </p>
         {error && <p className="error-inline">{error.message}</p>}
         {msg && <p className="ok-inline">{msg}</p>}

@@ -1,9 +1,11 @@
 # Engineering Health Dashboard
 
 Şirketin **kendi verisiyle çalışan, on-prem** (dışarıya veri göndermeyen) mühendislik
-sağlığı panosu. Git, Jira/Trello ve SonarQube/linter verisini ortak bir şemaya
-normalize eder; DORA + akış metriklerini **takım seviyesinde sağlık göstergesi**
-olarak sunar ve bir kural motoruyla insan-dostu süreç önerileri üretir.
+sağlığı panosu. Git ve Jira/Trello verisini ortak bir şemaya normalize eder;
+DORA + akış metriklerini **takım seviyesinde sağlık göstergesi** olarak sunar,
+bir kural motoruyla insan-dostu süreç önerileri üretir. Kod içeriği taraması
+dış araca (SonarQube vb.) bağlı değildir — kendi **AI Kod Analizi** modülüyle
+yapılır (Claude ya da yerel/OpenAI-uyumlu LLM).
 
 **Kategori:** Engineering Intelligence / Developer Productivity (LinearB, Swarmia,
 Jellyfish muadili — ancak iç sürüm: veri asla dışarı çıkmaz).
@@ -67,9 +69,9 @@ Kaynak Adaptörleri → Normalizasyon (ortak şema) → Metrik Motoru (config ok
 
 - **Backend:** Python + FastAPI + SQLAlchemy, PostgreSQL (Alembic migration).
 - **Adaptör deseni (zorunlu):** her kaynak tek ortak arayüz uygular —
-  `GitProvider` (git log / GitLab), `TaskProvider` (Jira / Trello),
-  `QualityProvider` (SonarQube / linter fallback). Yeni kaynak eklemek çekirdeği
-  değiştirmez; kirli/eksik alanlar tek yerde (ingest) ele alınır.
+  `GitProvider` (git log / GitLab), `TaskProvider` (Jira / Trello). Yeni kaynak
+  eklemek çekirdeği değiştirmez; kirli/eksik alanlar tek yerde (ingest) ele alınır.
+  Kod içeriği taraması ayrı bir **AI Kod Analizi** modülüdür (dış araç değil).
 - **Zamanlayıcı:** APScheduler (config: `sync.interval_minutes`).
 - **Frontend:** React + Vite + Recharts; build çıktısını FastAPI servis eder
   (tek process, on-prem kurulumu kolay).
@@ -82,7 +84,7 @@ Kaynak Adaptörleri → Normalizasyon (ortak şema) → Metrik Motoru (config ok
 ```
 backend/
   app/
-    adapters/   # git_log, gitlab, jira, trello, sonarqube, linter, fixture + ortak arayüzler
+    adapters/   # git_log, gitlab, jira, trello, fixture + ortak arayüzler
     api/        # REST uçları (etik kurallar burada zorlanır)
     core/       # YAML config yükleyici, DB
     llm/        # opsiyonel öneri katmanı (pluggable, varsayılan kapalı)
@@ -92,7 +94,8 @@ backend/
     services/   # ingest, pipeline, sağlık durumu eşlemesi
   migrations/   # Alembic
   scripts/seed_dirty_data.py   # sentetik KİRLİ veri üreteci
-  tests/        # 28 test: metrikler (tam+eksik veri), kurallar, etik uçlar
+  tests/        # metrikler (tam+eksik veri), kurallar, etik uçlar, auth/İK/izin,
+                # anket anonimliği, kod-analiz prompt, projeler (90+ test)
 frontend/       # React dashboard
 config/config.yaml
 ```
@@ -110,6 +113,10 @@ python -m venv .venv
 # 2) Veritabanı — config/config.yaml'daki database.url'i ortamınıza göre ayarlayın
 #    (DATABASE_URL ortam değişkeni config'i ezer). Sonra:
 .venv\Scripts\alembic upgrade head
+#    Not: Uygulama açılışta (serve/sync) Base.metadata.create_all + ensure_schema_patches
+#    de çalıştırır — eksik tablo/kolonu backfill eder. Yani portatif/migration'sız
+#    demo kurulumunda alembic zorunlu değildir; migration + create_all birlikte
+#    şemayı garanti eder.
 
 # 3) Demo verisi (sentetik kirli veri) + ilk senkron
 .venv\Scripts\python scripts\seed_dirty_data.py

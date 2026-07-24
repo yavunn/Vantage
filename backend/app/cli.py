@@ -83,6 +83,7 @@ def set_password() -> None:
             sys.exit(1)
         user.password_hash = hash_password(password)
         user.is_active = True
+        user.token_version = (user.token_version or 0) + 1  # eski oturumları düşür
         user.updated_at = datetime.now(timezone.utc)
         session.commit()
         print(f"Parola ayarlandı: {email} (role={user.role})")
