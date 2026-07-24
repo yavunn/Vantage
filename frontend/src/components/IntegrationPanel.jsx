@@ -39,6 +39,7 @@ export default function IntegrationPanel() {
           trello_boards: (d.tasks.trello?.boards || []).join("\n"),
           trello_key: "",    // sır asla önden doldurulmaz
           trello_token: "",
+          github_token: "",  // sır — önden doldurulmaz
         });
       })
       .catch((e) => setError(e.message));
@@ -70,6 +71,7 @@ export default function IntegrationPanel() {
       // Sır alanları YALNIZCA doluysa gönder (boş göndermek mevcut sırrı silerdi).
       if (form.trello_key.trim()) payload.trello_key = form.trello_key.trim();
       if (form.trello_token.trim()) payload.trello_token = form.trello_token.trim();
+      if (form.github_token.trim()) payload.github_token = form.github_token.trim();
       await updateSources(payload);
       setMsg("Ayarlar kaydedildi. Trello için 'Şimdi senkronize et' ile board'ları çek.");
       load();
@@ -121,6 +123,7 @@ export default function IntegrationPanel() {
             <div className="src-provider">{data.git.provider}</div>
             <div className="src-meta">Repo sayısı: {data.git.repo_count}</div>
             <TokenBadge token={data.git.token} />
+            <TokenBadge token={data.git.github_token} />
           </div>
           <div className="source-card">
             <h3>Görevler</h3>
@@ -159,6 +162,11 @@ export default function IntegrationPanel() {
           <label>
             GitLab base URL
             <input value={form.gitlab_base_url} onChange={(e) => upd("gitlab_base_url", e.target.value)} placeholder="https://gitlab.sirket.local" />
+          </label>
+          <label>
+            GitHub token (özel repo)
+            <input type="password" autoComplete="off" value={form.github_token} onChange={(e) => upd("github_token", e.target.value)} placeholder={data.git.github_token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "github_pat_… (Contents: Read)"} />
+            <span className="field-hint">Özel GitHub reposu için PAT. Repoyu public yapmana gerek yok. Sır <code>.secrets.env</code>'e yazılır.</span>
           </label>
           <label>
             Görev sağlayıcı

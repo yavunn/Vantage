@@ -35,6 +35,8 @@ class SourcesUpdate(BaseModel):
     trello_boards: list[str] | None = None
     trello_key: str | None = None
     trello_token: str | None = None
+    # GitHub PAT: "Projelerim" özel repoları için. Sır → .secrets.env, config'e değil.
+    github_token: str | None = None
 
 
 def _env_status(var: str) -> dict:
@@ -67,6 +69,8 @@ def get_sources(
             "provider": cfg.sources.git.provider,
             "gitlab_base_url": cfg.sources.git.gitlab.base_url,
             "token": _env_status(cfg.sources.git.gitlab.token_env),
+            # "Projelerim" özel GitHub repoları için PAT durumu.
+            "github_token": _env_status("GITHUB_TOKEN"),
             "repo_count": len(cfg.sources.git.repos),
         },
         "tasks": {
@@ -134,6 +138,9 @@ def update_sources(
     if body.trello_token is not None:
         from app.core.secrets import set_secret
         set_secret(cfg.sources.tasks.trello.token_env, body.trello_token.strip())
+    if body.github_token is not None:
+        from app.core.secrets import set_secret
+        set_secret("GITHUB_TOKEN", body.github_token.strip())
 
     active_config_path().parent.mkdir(parents=True, exist_ok=True)
     with open(active_config_path(), "w", encoding="utf-8") as f:

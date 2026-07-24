@@ -21,6 +21,7 @@ import TrendChart from "./components/TrendChart.jsx";
 // Varsayılan (takım) görünümde gerekmeyen ağır panelleri tembel yükle —
 // ilk açılış paketi küçülür.
 const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
+const AnnotationsPanel = lazy(() => import("./components/AnnotationsPanel.jsx"));
 const HrDashboard = lazy(() => import("./components/HrDashboard.jsx"));
 const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
 const LeavesPanel = lazy(() => import("./components/LeavesPanel.jsx"));
@@ -131,7 +132,7 @@ export default function App() {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
       const order = user && user.role === "hr"
-        ? ["hr", "leaves", "accounts", "survey", "settings"]
+        ? ["hr", "leaves", "annotations", "accounts", "survey", "settings"]
         : ["team", "me", "projects", "leaves", "survey", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
@@ -150,7 +151,7 @@ export default function App() {
     let allowed;
     let fallback;
     if (user.role === "hr") {
-      allowed = new Set(["hr", "leaves", "accounts", "survey", "settings"]);
+      allowed = new Set(["hr", "leaves", "annotations", "accounts", "survey", "settings"]);
       fallback = "hr";
     } else {
       allowed = new Set(["team", "projects", "leaves", "survey", "settings"]);
@@ -358,6 +359,9 @@ export default function App() {
                 <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
                   İzinler
                 </button>
+                <button className={`tab ${tab === "annotations" ? "active" : ""}`} onClick={() => setTab("annotations")}>
+                  Anotasyonlar
+                </button>
                 <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
                   Hesaplar
                 </button>
@@ -449,6 +453,8 @@ export default function App() {
         {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} />}
 
         {tab === "hr" && isHr && <HrDashboard />}
+
+        {tab === "annotations" && isHr && <AnnotationsPanel teams={teams} />}
 
         {/* İK hesap rehberi: yalnız çalışan (user) ekler/sıfırlar. Performans
             bağlantısı YOK (onViewPerson geçilmez — etik sınır). */}

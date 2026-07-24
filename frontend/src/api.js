@@ -253,6 +253,11 @@ export function decideLeave(id, decision, note) {
   return apiPost(`/api/leaves/${id}/decision`, { decision, note });
 }
 
+// --- anotasyonlar (tatil/olay işaretleri) -------------------------------------
+export function listAnnotations(teamId) {
+  return api(`/api/annotations${teamId != null ? `?team_id=${teamId}` : ""}`);
+}
+
 // --- bildirimler --------------------------------------------------------------
 
 export function listNotifications() {

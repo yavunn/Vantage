@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  createLeave, decideLeave, deleteLeave, leaveSummary,
+  createLeave, decideLeave, deleteLeave, leaveSummary, listAnnotations,
   listEmployees, listLeaves, myLeaveRequests, pendingLeaves,
 } from "../api.js";
 import Modal from "./Modal.jsx";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
+const ANNOT_LABEL = { holiday: "Tatil", incident: "Incident", release: "Sürüm", other: "Not" };
+const ANNOT_ICON = { holiday: "🏖", incident: "⚠", release: "🚀", other: "📌" };
 const STATUS_LABEL = { pending: "Onay bekliyor", approved: "Onaylı", rejected: "Reddedildi" };
 const WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
@@ -29,6 +31,7 @@ function buildGrid(year, month) {
 export default function LeavesPanel({ user, canManage }) {
   const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [leaves, setLeaves] = useState([]);
+  const [annotations, setAnnotations] = useState([]);
   const [summary, setSummary] = useState([]);
   const [pending, setPending] = useState([]);
   const [mine, setMine] = useState([]);
@@ -49,6 +52,7 @@ export default function LeavesPanel({ user, canManage }) {
 
   function load() {
     listLeaves(month).then(setLeaves).catch((e) => setError(e.message));
+    listAnnotations().then(setAnnotations).catch(() => setAnnotations([]));
     myLeaveRequests().then(setMine).catch(() => setMine([]));
     if (canManage) {
       leaveSummary(month).then(setSummary).catch(() => setSummary([]));
@@ -85,6 +89,11 @@ export default function LeavesPanel({ user, canManage }) {
     return leaves.filter((lv) => lv.start_date <= s && lv.end_date >= s);
   }
 
+  function annotsOnDay(d) {
+    const s = ymd(d);
+    return annotations.filter((a) => a.date === s);
+  }
+
   function upd(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function add(e) {
@@ -95,11 +104,18 @@ export default function LeavesPanel({ user, canManage }) {
         start_date: form.start_date, end_date: form.end_date,
         leave_type: form.leave_type, description: form.description || null,
       };
-      if (canManage && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
+      const toAll = canManage && form.target_user_id === "all";
+      if (toAll && !window.confirm(
+        `${form.start_date}${form.end_date !== form.start_date ? ` → ${form.end_date}` : ""} tarihinde TÜM aktif çalışanlara izin eklenecek. Onaylıyor musun?`
+      )) return;
+      if (toAll) payload.target_all = true;
+      else if (canManage && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
       const res = await createLeave(payload);
-      setMsg(res.status === "pending"
-        ? "İzin isteğin gönderildi — yönetici onayı bekliyor. Onaylanınca takvime işlenecek."
-        : "İzin eklendi (onaylı).");
+      setMsg(toAll
+        ? `Şirket tatili eklendi — ${res.count} çalışana onaylı izin işlendi.`
+        : res.status === "pending"
+          ? "İzin isteğin gönderildi — yönetici onayı bekliyor. Onaylanınca takvime işlenecek."
+          : "İzin eklendi (onaylı).");
       setForm({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
       load();
     } catch (err) {
@@ -160,6 +176,15 @@ export default function LeavesPanel({ user, canManage }) {
               {d && (
                 <>
                   <div className="cal-day">{d.getDate()}</div>
+                  {annotsOnDay(d).map((a) => (
+                    <div
+                      key={"annot-" + a.id}
+                      className={`annot-chip ${a.kind}`}
+                      title={`${ANNOT_LABEL[a.kind] || a.kind}: ${a.label}${a.team_id == null ? " (tüm takımlar)" : ""}`}
+                    >
+                      <span aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span> {a.label}
+                    </div>
+                  ))}
                   <div className="cal-leaves">
                     {leavesOnDay(d).map((lv) => (
                       <button
@@ -364,6 +389,7 @@ export default function LeavesPanel({ user, canManage }) {
             <label>Kişi
               <select value={form.target_user_id} onChange={(e) => upd("target_user_id", e.target.value)}>
                 <option value="">Kendim ({user.display_name})</option>
+                <option value="all">🏢 Herkes (tüm aktif çalışanlar)</option>
                 {employees.filter((u) => u.developer_id != null).map((u) => (
                   <option key={u.id} value={u.id}>{u.display_name}</option>
                 ))}

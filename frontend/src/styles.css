@@ -790,9 +790,15 @@ th.sortable:hover { color: var(--brand); }
 .leave-chip.annual, .leave-chip.yillik { background: #7ed99a; }
 .leave-chip.sick, .leave-chip.rapor, .leave-chip.hastalik { background: #f7d488; }
 .leave-chip.other, .leave-chip.diger { background: #cfcdc6; }
+/* Anotasyon (tatil/olay) rozeti — izin çiplerinden ayrı, sol kenar renkli şerit. */
+.annot-chip { font-size: 10px; border-radius: 4px; padding: 1px 5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--surface-2); border-left: 3px solid var(--muted); color: var(--text-secondary); }
+.annot-chip.holiday { border-left-color: #4fb477; }
+.annot-chip.incident { border-left-color: #e07a5f; }
+.annot-chip.release { border-left-color: #5b8def; }
 @media (max-width: 640px) {
   .cal-cell { min-height: 56px; }
   .leave-chip { font-size: 9px; }
+  .annot-chip { font-size: 8.5px; }
 }
 
 /* ---- Yazdırma (Yazdır/PDF) ---- */

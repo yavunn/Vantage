@@ -1,7 +1,8 @@
 """Trend anotasyonları — tatil/incident/sürüm işaretleri.
 
-Okuma herkese açık (grafiklerde bağlam gösterilir). Yazma/silme yalnızca
-admin. Anotasyon metrik verisini DEĞİŞTİRMEZ; sadece görsel bağlamdır.
+Okuma herkese açık (grafiklerde bağlam gösterilir). Yazma/silme admin + İK
+(izin takvimine tatil/olay işaretleyebilsinler). Anotasyon metrik verisini
+DEĞİŞTİRMEZ; sadece görsel bağlamdır.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_admin
+from app.api.auth import require_admin_or_hr
 from app.core.db import get_session
 from app.models import TrendAnnotation, User
 
@@ -57,7 +58,7 @@ def list_annotations(
 def create_annotation(
     payload: AnnotationIn,
     session: Session = Depends(get_session),
-    admin: User = Depends(require_admin),
+    actor: User = Depends(require_admin_or_hr),
 ):
     if payload.kind not in VALID_KINDS:
         raise HTTPException(422, f"kind yalnızca {sorted(VALID_KINDS)} olabilir")
@@ -68,7 +69,7 @@ def create_annotation(
         date=payload.date,
         label=payload.label.strip(),
         kind=payload.kind,
-        created_by=admin.id,
+        created_by=actor.id,
         created_at=datetime.now(timezone.utc),
     )
     session.add(a)
@@ -81,7 +82,7 @@ def create_annotation(
 def delete_annotation(
     annotation_id: int,
     session: Session = Depends(get_session),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_admin_or_hr),
 ):
     a = session.get(TrendAnnotation, annotation_id)
     if a is None:

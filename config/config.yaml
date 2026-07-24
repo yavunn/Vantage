@@ -9,8 +9,10 @@ sync:
   interval_minutes: 60
 sources:
   git:
-    provider: none
-    repos: []
+    provider: git_log
+    repos:
+    - name: nabiz
+      path: C:/Users/Asus/Documents/GitHub/Muhendislik-IK-Metrik-Sistemi
     gitlab:
       base_url: ''
       token_env: GITLAB_TOKEN
@@ -109,8 +111,8 @@ rules:
   risky_deploy_window:
     enabled: true
 llm:
-  enabled: false
-  provider: none
+  enabled: true
+  provider: claude
   local:
     base_url: http://localhost:11434
     model: llama3.1
@@ -118,7 +120,7 @@ llm:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
 code_analysis:
-  enabled: false
+  enabled: true
   weights:
     readability: 1.0
     complexity: 1.0

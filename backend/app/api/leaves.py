@@ -34,7 +34,8 @@ class CreateLeaveBody(BaseModel):
     end_date: date
     leave_type: str = "annual"
     description: str | None = None
-    target_user_id: int | None = None  # yalnızca admin başkasına ekleyebilir
+    target_user_id: int | None = None  # yalnızca admin/İK başkasına ekleyebilir
+    target_all: bool = False  # yalnızca admin/İK: tüm aktif çalışanlara (şirket tatili)
 
 
 def _month_range(month: str) -> tuple[date, date]:
@@ -153,6 +154,26 @@ def create_leave(
         raise HTTPException(status_code=422, detail="leave_type: annual | sick | other")
     if body.end_date < body.start_date:
         raise HTTPException(status_code=422, detail="Bitiş tarihi başlangıçtan önce olamaz")
+
+    # Şirket geneli tatil: tüm aktif çalışanlara tek seferde onaylı izin.
+    if body.target_all:
+        if not _can_manage(user):
+            raise HTTPException(status_code=403, detail="Herkese izin ekleme yetkisi yok")
+        now = datetime.now(timezone.utc)
+        actives = session.scalars(
+            select(User).where(User.is_active.is_(True))
+        ).all()
+        count = 0
+        for u in actives:
+            session.add(Leave(
+                user_id=u.id, developer_id=u.developer_id,
+                start_date=body.start_date, end_date=body.end_date,
+                leave_type=body.leave_type, description=body.description,
+                status="approved", approved_by=user.id, approved_at=now, created_at=now,
+            ))
+            count += 1
+        session.commit()
+        return {"ok": True, "status": "approved", "count": count}
 
     target = user
     if body.target_user_id and body.target_user_id != user.id:
