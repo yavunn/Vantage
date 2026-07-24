@@ -195,6 +195,7 @@ class SurveyQuestion(BaseModel):
     key: str
     label: str
     type: str = "likert"  # likert (1-5) | text
+    required: bool = True
 
 
 class SurveySettings(BaseModel):
@@ -205,6 +206,9 @@ class SurveySettings(BaseModel):
     enabled: bool = False
     interval_days: int = 14
     min_responses: int = 4
+    # Bu rollerdeki kullanıcılar anketi DOLDURMAZ (anketi yönetirler). Katılım
+    # oranı paydasına da sayılmazlar. owner zaten admin → dahil.
+    exclude_roles: list[str] = Field(default_factory=lambda: ["admin"])
     # Sabit döngü hizası — bu Pazartesi'den itibaren interval_days pencereleri.
     epoch: date = date(2026, 1, 5)
     questions: list[SurveyQuestion] = Field(default_factory=lambda: [

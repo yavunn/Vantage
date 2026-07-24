@@ -40,6 +40,10 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # Yönetici karar notu (red gerekçesi). Migration'sız ortamda da eklenir.
         "decision_note": "TEXT",
     },
+    "survey_cycles": {
+        # Döngü açılışında dondurulan soru snapshot'ı (JSON metni).
+        "questions_json": "TEXT",
+    },
 }
 
 

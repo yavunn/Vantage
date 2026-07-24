@@ -327,8 +327,14 @@ export function updateLlmProvider(patch) {
 export function getCurrentSurvey() {
   return api("/api/survey/current");
 }
-export function submitSurvey(answers, comment) {
-  return apiPost("/api/survey/current", { answers, comment });
+export function submitSurvey(answers, texts) {
+  return apiPost("/api/survey/current", { answers, texts });
+}
+export function getSurveyQuestions() {
+  return api("/api/survey/questions");
+}
+export function updateSurveyQuestions(items) {
+  return apiPut("/api/survey/questions", items);
 }
 export function getSurveyResults(cycleKey) {
   return api(`/api/survey/results${cycleKey ? `?cycle=${encodeURIComponent(cycleKey)}` : ""}`);

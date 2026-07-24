@@ -313,8 +313,11 @@ export default function App() {
   const isAdmin = user.role === "admin";
   const isHr = user.role === "hr";
   const canManageLeaves = isAdmin || isHr;
-  // Açık + doldurulmamış anket varsa banner + nav rozeti gösterilir.
-  const surveyPending = !!(survey && survey.enabled && survey.ready && survey.is_open && !survey.already_submitted);
+  // Yönetici rolleri anketi DOLDURMAZ (backend respondent:false döner). Yüklenmeden
+  // önce admin'i varsayılan katılımcı-dışı say (sekme titremesin).
+  const surveyRespondent = survey ? survey.respondent !== false : !isAdmin;
+  // Açık + doldurulmamış anket varsa banner + nav rozeti gösterilir (yalnız katılımcıya).
+  const surveyPending = !!(surveyRespondent && survey && survey.enabled && survey.ready && survey.is_open && !survey.already_submitted);
 
   return (
     <div className="app">
@@ -365,9 +368,11 @@ export default function App() {
                 <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
                   Hesaplar
                 </button>
-                <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
-                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
-                </button>
+                {surveyRespondent && (
+                  <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
+                    Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
+                  </button>
+                )}
                 <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
                   Ayarlar
                 </button>
@@ -388,9 +393,11 @@ export default function App() {
                 <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
                   İzinler
                 </button>
-                <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
-                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
-                </button>
+                {surveyRespondent && (
+                  <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
+                    Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
+                  </button>
+                )}
                 {isAdmin && (
                   <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
                     Yönetici paneli
@@ -675,14 +682,14 @@ export default function App() {
           { key: "hr", label: "İK Panosu" },
           { key: "leaves", label: "İzinler" },
           { key: "accounts", label: "Hesaplar" },
-          { key: "survey", label: "Anket" },
+          ...(surveyRespondent ? [{ key: "survey", label: "Anket" }] : []),
           { key: "settings", label: "Ayarlar" },
         ] : [
           { key: "team", label: "Takım görünümü" },
           ...(individualAvailable ? [{ key: "me", label: "Bireysel görünüm" }] : []),
           { key: "projects", label: "Projelerim" },
           { key: "leaves", label: "İzinler" },
-          { key: "survey", label: "Anket" },
+          ...(surveyRespondent ? [{ key: "survey", label: "Anket" }] : []),
           ...(isAdmin ? [{ key: "admin", label: "Yönetici paneli" }] : []),
           { key: "settings", label: "Ayarlar" },
         ]}

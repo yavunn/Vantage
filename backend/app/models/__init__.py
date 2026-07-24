@@ -451,6 +451,11 @@ class SurveyCycle(Base):
     opens_at: Mapped[date] = mapped_column(Date)
     closes_at: Mapped[date] = mapped_column(Date)
     is_open: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Döngü açılırken o anki soru taslağının SNAPSHOT'ı (JSON list:
+    # [{key,label,type,required}]). Sorular sonradan değişse bile bu döngünün
+    # formu/agregası dondurulmuş sorulara göre çalışır. Eski döngülerde NULL →
+    # config.survey.questions'a düşülür (geriye uyum).
+    questions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SurveyResponse(Base):
@@ -466,6 +471,23 @@ class SurveyResponse(Base):
     # Save'den önce şifrelenmiş {answers, comment, schema_version} (Fernet).
     ciphertext: Mapped[str] = mapped_column(Text)
     schema_version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class SurveyQuestionTemplate(Base):
+    """Admin'in düzenlediği anket soru TASLAĞI (tek kaynak, sıralı). Döngü
+    açılırken bu taslak SurveyCycle.questions_json'a snapshot'lanır; taslak
+    değişikliği yalnız BİR SONRAKİ döngüde geçerli olur (açık/geçmiş döngü
+    dondurulmuş sorularını korur). Boşsa config.survey.questions'tan seed'lenir."""
+
+    __tablename__ = "survey_question_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    key: Mapped[str] = mapped_column(String(32), unique=True)
+    label: Mapped[str] = mapped_column(String(200))
+    type: Mapped[str] = mapped_column(String(16), default="likert")  # likert | text
+    required: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class SurveyParticipation(Base):

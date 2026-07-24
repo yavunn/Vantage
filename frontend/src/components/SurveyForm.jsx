@@ -42,7 +42,7 @@ function Shell({ children }) {
 
 export default function SurveyForm({ survey, onSubmitted }) {
   const [answers, setAnswers] = useState({});
-  const [comment, setComment] = useState("");
+  const [texts, setTexts] = useState({});
   const [busy, setBusy] = useState(false);
   const [justDone, setJustDone] = useState(false);
 
@@ -60,6 +60,19 @@ export default function SurveyForm({ survey, onSubmitted }) {
       </Shell>
     );
   }
+  // Yönetici rolleri anketi doldurmaz — yönetici mesajı göster.
+  if (survey.respondent === false) {
+    return (
+      <Shell>
+        <div className="survey-hero">
+          <h2>Memnuniyet Anketi</h2>
+          <p className="desc">
+            {survey.note || "Bu anketi sen yönetiyorsun; doldurman gerekmez."}
+          </p>
+        </div>
+      </Shell>
+    );
+  }
   if (survey.ready === false) {
     return (
       <Shell>
@@ -72,6 +85,7 @@ export default function SurveyForm({ survey, onSubmitted }) {
   }
 
   const likert = (survey.questions || []).filter((q) => q.type === "likert");
+  const textQs = (survey.questions || []).filter((q) => q.type === "text");
   const answered = likert.filter((q) => answers[q.key]).length;
   const total = likert.length;
   const allAnswered = total > 0 && answered === total;
@@ -119,11 +133,20 @@ export default function SurveyForm({ survey, onSubmitted }) {
     }
   }
 
+  function setText(key, v) {
+    setTexts((t) => ({ ...t, [key]: v }));
+  }
+
   async function submit() {
     if (!allAnswered) { toast("Tüm soruları yanıtla", "error"); return; }
     setBusy(true);
     try {
-      await submitSurvey(answers, comment.trim() || null);
+      const cleanTexts = {};
+      for (const q of textQs) {
+        const v = (texts[q.key] || "").trim();
+        if (v) cleanTexts[q.key] = v;
+      }
+      await submitSurvey(answers, cleanTexts);
       setJustDone(true);
       onSubmitted?.();
       toast("Anket gönderildi — anonim", "ok");
@@ -186,17 +209,19 @@ export default function SurveyForm({ survey, onSubmitted }) {
         ))}
       </div>
 
-      <label className="survey-comment">
-        Eklemek istediğin bir şey <span className="muted">(opsiyonel)</span>
-        <textarea
-          rows={3}
-          value={comment}
-          maxLength={2000}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Serbest yorum — bu alan da anonimdir. Kendini tanıtan bilgi yazma."
-        />
-        <span className="survey-hint">Bu alan da anonim. Seni belli edecek isim/detay yazma.</span>
-      </label>
+      {textQs.map((q) => (
+        <label key={q.key} className="survey-comment">
+          {q.label} <span className="muted">(opsiyonel)</span>
+          <textarea
+            rows={3}
+            value={texts[q.key] || ""}
+            maxLength={2000}
+            onChange={(e) => setText(q.key, e.target.value)}
+            placeholder="Serbest yorum — bu alan da anonimdir. Kendini tanıtan bilgi yazma."
+          />
+          <span className="survey-hint">Bu alan da anonim. Seni belli edecek isim/detay yazma.</span>
+        </label>
+      ))}
 
       <div className="survey-submit-row">
         <button className="login-btn" onClick={submit} disabled={busy || !allAnswered}>
