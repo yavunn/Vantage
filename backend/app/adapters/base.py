@@ -76,16 +76,6 @@ class NormalizedTask:
     transitions: list[NormalizedTransition] = field(default_factory=list)
 
 
-@dataclass
-class NormalizedQualitySnapshot:
-    repo_name: str
-    taken_at: datetime
-    coverage: float | None = None
-    complexity: float | None = None
-    duplication: float | None = None
-    code_smells: int | None = None
-
-
 # --- Sağlayıcı arayüzleri -----------------------------------------------------
 
 @runtime_checkable
@@ -101,10 +91,3 @@ class TaskProvider(Protocol):
     """Katman 1+2 — Jira ve Trello bu tek arayüzün arkasındadır."""
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]: ...
-
-
-@runtime_checkable
-class QualityProvider(Protocol):
-    """SonarQube ya da basit linter fallback — pluggable."""
-
-    def fetch_snapshots(self) -> list[NormalizedQualitySnapshot]: ...

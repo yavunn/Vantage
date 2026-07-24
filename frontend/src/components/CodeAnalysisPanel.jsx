@@ -132,11 +132,6 @@ export default function CodeAnalysisPanel({ me }) {
     finally { setProvBusy(false); }
   }
 
-  // Owner akışı: seç → kaydet → analiz et (tek tıkla). Kayıt başarısızsa analiz etme.
-  async function saveProviderAndRun() {
-    if (await saveProvider()) await runNow();
-  }
-
   async function save() {
     setError(null); setMsg(null); setBusy(true);
     try {
@@ -272,11 +267,6 @@ export default function CodeAnalysisPanel({ me }) {
                 <button className="login-btn" onClick={saveProvider} disabled={provBusy}>
                   {provBusy ? "Kaydediliyor…" : "Kaydet"}
                 </button>
-                <button className="mini" onClick={saveProviderAndRun}
-                  disabled={provBusy || busy || prov.provider === "none"}
-                  title={prov.provider === "none" ? "Önce bir AI sağlayıcı seç" : "Kaydet ve tüm repoları analiz et"}>
-                  Kaydet ve analiz et
-                </button>
               </div>
             </div>
           )}
@@ -285,7 +275,12 @@ export default function CodeAnalysisPanel({ me }) {
 
       <section className="section">
         <h3>Rubrik ağırlıkları</h3>
-        <p className="desc">Composite skorda her boyutun ağırlığı (0 = yok say).</p>
+        <p className="desc">
+          Her boyutun ağırlığı (0 = yok say). Bu değerler hem composite skoru hem
+          <b> AI'a giden prompt'u</b> etkiler — ağırlığı yüksek boyutu (okunabilirlik,
+          karmaşıklık, temizlik…) AI daha çok önemser. Kod taraması dış araca değil,
+          bu prompt'a bağlıdır.
+        </p>
         <div className="ca-weights">
           {Object.keys(DIM_LABELS).map((d) => (
             <label key={d} className="ca-slider">
@@ -360,9 +355,10 @@ export default function CodeAnalysisPanel({ me }) {
       <section className="section">
         <h3>Tüm kişiler</h3>
         <p className="desc">
-          Her kişiyi tek tek, isteğe bağlı analiz et. Atıf git commit yazarına
-          göre. Kıyaslamalı sıralama yok — her kişi kendi kodunun geri bildirimi.
-          git e-postası tanımsızsa atıf yapılamaz.
+          git e-postası eşlemesi + composite/Detay. Analiz için: üstte
+          <strong> Kişi seç → "Bu kişiyi analiz et"</strong> ya da en üstteki
+          <strong> "Şimdi analiz et (tüm repolar)"</strong> (herkesi kapsar,
+          commit yazarına atar). Kıyaslamalı sıralama yok.
         </p>
         <p className="desc">
           <strong>git e-posta</strong> = kişinin commit e-postası. Bağlı değilse
@@ -390,11 +386,6 @@ export default function CodeAnalysisPanel({ me }) {
                 <td className="num">{d.composite ?? "–"}</td>
                 <td className="num">{d.analyzed_files}</td>
                 <td>
-                  <button className="mini" disabled={!d.analyzable || runningDev === d.id}
-                    title={d.analyzable ? "" : "git e-postası yok — atıf yapılamaz"}
-                    onClick={() => analyzeDev(d)}>
-                    {runningDev === d.id ? "…" : "Analiz et"}
-                  </button>
                   <button className="mini ghost" disabled={!d.analyzed_files}
                     onClick={() => setDetailDev(d)}>Detay</button>
                 </td>

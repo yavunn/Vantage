@@ -1,8 +1,8 @@
 """İzin panosu uçları (İK/kapasite).
 
-Gizlilik: çalışan kendi iznini + kendi takım arkadaşlarının izinli günlerini
-(isim + tip) görür; admin herkesi görür. İzin verisi metrik/performans
-hesaplarına KARIŞMAZ — yalnızca kapasite bağlamı ve İK takibi.
+Gizlilik: çalışan YALNIZ kendi izinlerini görür; admin ve İK herkesin izinlerini
+görür. İzin verisi metrik/performans hesaplarına KARIŞMAZ — yalnızca kapasite
+bağlamı ve İK takibi.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
-from app.models import Developer, Leave, TeamMembership, User
+from app.models import Developer, Leave, User
 
 router = APIRouter(prefix="/api/leaves")
 
@@ -56,29 +56,6 @@ def _person_name(session: Session, user_id: int, developer_id: int | None) -> st
     return u.email.split("@")[0] if u else "?"
 
 
-def _team_user_ids(session: Session, user: User) -> set[int]:
-    """Kullanıcının takım arkadaşlarının user_id kümesi (kendisi dahil)."""
-    ids = {user.id}
-    if user.developer_id is None:
-        return ids
-    team_ids = [
-        m.team_id for m in session.scalars(
-            select(TeamMembership).where(TeamMembership.developer_id == user.developer_id)
-        ).all()
-    ]
-    if not team_ids:
-        return ids
-    dev_ids = [
-        m.developer_id for m in session.scalars(
-            select(TeamMembership).where(TeamMembership.team_id.in_(team_ids))
-        ).all()
-    ]
-    if dev_ids:
-        for u in session.scalars(select(User).where(User.developer_id.in_(dev_ids))).all():
-            ids.add(u.id)
-    return ids
-
-
 @router.get("")
 def list_leaves(
     month: str = Query(...),
@@ -90,7 +67,8 @@ def list_leaves(
     # Ay ile kesişen izinler.
     stmt = select(Leave).where(Leave.start_date <= m_end, Leave.end_date >= m_start)
     if not manage:
-        stmt = stmt.where(Leave.user_id.in_(_team_user_ids(session, user)))
+        # Çalışan yalnız KENDİ izinlerini görür (takım arkadaşları dahil değil).
+        stmt = stmt.where(Leave.user_id == user.id)
     rows = session.scalars(stmt.order_by(Leave.start_date)).all()
     out = []
     for lv in rows:

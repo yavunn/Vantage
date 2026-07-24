@@ -65,20 +65,14 @@ class TaskSource(BaseModel):
     trello: TrelloSource = Field(default_factory=TrelloSource)
 
 
-class SonarQubeSource(BaseModel):
-    base_url: str = ""
-    token_env: str = "SONAR_TOKEN"
-    project_keys: list[str] = Field(default_factory=list)
-
-
-class LinterSource(BaseModel):
-    command: str = ""
-
-
 class QualitySource(BaseModel):
-    provider: str = "none"  # sonarqube | linter | fixture | none
-    sonarqube: SonarQubeSource = Field(default_factory=SonarQubeSource)
-    linter: LinterSource = Field(default_factory=LinterSource)
+    """Dış kod-kalitesi taraması (SonarQube/linter) KALDIRILDI — kod taraması
+    artık kendi AI Kod Analizi modülümüzle yapılır (bkz. app/services/code_analysis.py).
+    Bu model yalnız eski config.yaml uyumu için durur; runtime'da okunmaz.
+    model_config extra=allow: eski 'sonarqube'/'linter' anahtarları yüklemeyi kırmaz."""
+
+    model_config = {"extra": "allow"}
+    provider: str = "none"
 
 
 class Sources(BaseModel):

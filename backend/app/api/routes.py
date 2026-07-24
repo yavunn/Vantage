@@ -23,7 +23,6 @@ from app.core.config import Config, get_config
 from app.core.db import get_session
 from app.metrics.engine import METRIC_FUNCS, load_team_data
 from app.models import (
-    CodeQualitySnapshot,
     Commit,
     Developer,
     MetricResult,
@@ -381,36 +380,6 @@ def team_code_health_series_endpoint(team_id: int, session: Session = Depends(ge
     if session.get(Team, team_id) is None:
         raise HTTPException(404, "Takım bulunamadı")
     return team_code_health_series(session, team_id, get_config())
-
-
-@router.get("/teams/{team_id}/quality")
-def team_quality(team_id: int, session: Session = Depends(get_session)):
-    if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
-    repos = session.scalars(select(Repo).where(Repo.team_id == team_id)).all()
-    out = []
-    for repo in repos:
-        snap = session.scalars(
-            select(CodeQualitySnapshot)
-            .where(CodeQualitySnapshot.repo_id == repo.id)
-            .order_by(CodeQualitySnapshot.taken_at.desc())
-            .limit(1)
-        ).first()
-        out.append(
-            {
-                "repo": repo.name,
-                "snapshot": None
-                if snap is None
-                else {
-                    "taken_at": snap.taken_at.isoformat() if snap.taken_at else None,
-                    "coverage": snap.coverage,
-                    "complexity": snap.complexity,
-                    "duplication": snap.duplication,
-                    "code_smells": snap.code_smells,
-                },
-            }
-        )
-    return out
 
 
 # --- bireysel görünüm (Faz 4: yetkili, leaderboard YOK) -------------------------

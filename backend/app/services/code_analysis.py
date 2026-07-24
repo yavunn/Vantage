@@ -36,6 +36,18 @@ DIMENSIONS = [
     "security", "code_smells", "conventions",
 ]
 
+# Türkçe etiketler — prompt'taki ağırlık yönlendirmesinde kullanılır (UI'daki
+# DIM_LABELS ile aynı anlam).
+DIM_LABELS_TR = {
+    "readability": "Okunabilirlik",
+    "complexity": "Karmaşıklık",
+    "maintainability": "Bakım kolaylığı",
+    "test_adequacy": "Test yeterliliği",
+    "security": "Güvenlik",
+    "code_smells": "Kod kokuları / temizlik",
+    "conventions": "Konvansiyonlar",
+}
+
 # --- Secret maskeleme ---------------------------------------------------------
 # Diff'te açık secret varsa LLM'e GİTMEDEN maskele. Kalıplar geniş tutulur;
 # yanlış-pozitif maskeleme, secret sızmasından iyidir.
@@ -117,6 +129,30 @@ _SYSTEM = (
 _PROMPT = "Dosya: {path}\n\n```diff\n{diff}\n```"
 
 
+def build_system(weights: dict[str, float] | None) -> str:
+    """Statik yönergeye ekip RUBRİK AĞIRLIKLARINI ekler: AI puanlarken ve öneri
+    verirken ağırlığı yüksek boyutlara daha çok dikkat etsin (ağırlık 0 = önemseme).
+    Aynı ağırlıklar composite skorda da kullanılır (çift görev). Kod taraması
+    dış araca (SonarQube vb.) bağlı DEĞİL — puanı bu prompt'la AI üretir."""
+    weights = weights or {}
+    ordered = sorted(DIMENSIONS, key=lambda d: weights.get(d, 1.0), reverse=True)
+    lines = []
+    for d in ordered:
+        w = float(weights.get(d, 1.0))
+        label = DIM_LABELS_TR.get(d, d)
+        if w <= 0:
+            lines.append(f"- {label}: ağırlık 0 — bu boyutu değerlendirme, önemseme.")
+        else:
+            pri = "YÜKSEK öncelik" if w >= 2 else ("düşük öncelik" if w < 1 else "normal")
+            lines.append(f"- {label}: ağırlık {w:.1f} ({pri})")
+    return (
+        _SYSTEM
+        + "\n\nBu ekip için boyut öncelik AĞIRLIKLARI (öneri verirken ve puanlarken "
+        "bu boyutlara orantılı dikkat ver; ağırlığı yüksek boyutta zayıflığı daha "
+        "belirgin vurgula):\n" + "\n".join(lines)
+    )
+
+
 @dataclass
 class AnalyzerResult:
     scores: dict[str, int]
@@ -132,17 +168,18 @@ class ClaudeAnalyzer:
 
     provider = "claude"
 
-    def __init__(self, model: str, api_key_env: str):
+    def __init__(self, model: str, api_key_env: str, system: str = _SYSTEM):
         import anthropic
 
         self.model = model
+        self.system = system
         self._client = anthropic.Anthropic(api_key=os.environ.get(api_key_env) or None)
 
     def analyze(self, file_path: str, diff_text: str) -> AnalyzerResult:
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=2048,
-            system=_SYSTEM,
+            system=self.system,
             thinking={"type": "disabled"},
             output_config={
                 "format": {"type": "json_schema", "schema": _ANALYSIS_SCHEMA},
@@ -170,17 +207,19 @@ class LocalAnalyzer:
 
     provider = "local"
 
-    def __init__(self, base_url: str, model: str, api_key: str | None = None):
+    def __init__(self, base_url: str, model: str, api_key: str | None = None,
+                 system: str = _SYSTEM):
         import httpx
 
         self._httpx = httpx
         self.base_url = base_url.rstrip("/")
         self.model = model
         self._api_key = api_key or None
+        self.system = system
 
     def analyze(self, file_path: str, diff_text: str) -> AnalyzerResult:
         prompt = (
-            _SYSTEM + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS)
+            self.system + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS)
             + ", summary, suggestions.\n\n" + _PROMPT.format(path=file_path, diff=diff_text)
         )
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
@@ -208,13 +247,16 @@ def build_analyzer(cfg: Config):
     gösterir, asla sessizce dış servise düşmez."""
     if not (cfg.llm.enabled and cfg.code_analysis.enabled):
         return None
+    # Rubrik ağırlıklarını system prompt'a göm (analiz dış araca değil bu prompt'a bağlı).
+    system = build_system(cfg.code_analysis.weights)
     if cfg.llm.provider == "claude":
-        return ClaudeAnalyzer(cfg.llm.claude.model, cfg.llm.claude.api_key_env)
+        return ClaudeAnalyzer(cfg.llm.claude.model, cfg.llm.claude.api_key_env, system)
     if cfg.llm.provider == "local":
         return LocalAnalyzer(
             cfg.llm.local.base_url,
             cfg.llm.local.model,
             os.environ.get(cfg.llm.local.api_key_env),
+            system,
         )
     return None
 

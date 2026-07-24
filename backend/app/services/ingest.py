@@ -14,13 +14,10 @@ from app.adapters.base import (
     GitProvider,
     NormalizedCommit,
     NormalizedPR,
-    NormalizedQualitySnapshot,
     NormalizedTask,
-    QualityProvider,
     TaskProvider,
 )
 from app.models import (
-    CodeQualitySnapshot,
     Commit,
     Developer,
     PRReview,
@@ -189,41 +186,22 @@ class Ingestor:
         self.session.flush()
         return count
 
-    def ingest_quality(self, snapshots: list[NormalizedQualitySnapshot]) -> int:
-        for s in snapshots:
-            repo = self._repo(s.repo_name)
-            self.session.add(
-                CodeQualitySnapshot(
-                    repo_id=repo.id,
-                    taken_at=s.taken_at,
-                    coverage=s.coverage,
-                    complexity=s.complexity,
-                    duplication=s.duplication,
-                    code_smells=s.code_smells,
-                )
-            )
-        self.session.flush()
-        return len(snapshots)
-
 
 def run_ingest(
     session: Session,
     git: GitProvider | None,
     tasks: TaskProvider | None,
-    quality: QualityProvider | None,
     repo_team_map: dict[str, str] | None = None,
 ) -> dict[str, int]:
     """Tüm kaynaklardan çek + normalize et + yaz. Kaynak yoksa atlanır.
-    repo_team_map: repo adı → takım adı (config'ten; commit/PR/kalite kaynağı
-    takım taşımadığında panonun dolması için)."""
+    repo_team_map: repo adı → takım adı (config'ten; commit/PR kaynağı takım
+    taşımadığında panonun dolması için)."""
     ing = Ingestor(session, repo_team_map=repo_team_map)
-    stats = {"commits": 0, "pull_requests": 0, "tasks": 0, "quality_snapshots": 0}
+    stats = {"commits": 0, "pull_requests": 0, "tasks": 0}
     if git is not None:
         stats["commits"] = ing.ingest_commits(git.fetch_commits())
         stats["pull_requests"] = ing.ingest_pull_requests(git.fetch_pull_requests())
     if tasks is not None:
         stats["tasks"] = ing.ingest_tasks(tasks.fetch_tasks())
-    if quality is not None:
-        stats["quality_snapshots"] = ing.ingest_quality(quality.fetch_snapshots())
     session.commit()
     return stats

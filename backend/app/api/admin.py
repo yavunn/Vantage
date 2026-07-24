@@ -25,10 +25,8 @@ router = APIRouter(prefix="/api/admin")
 class SourcesUpdate(BaseModel):
     git_provider: str | None = None       # git_log | gitlab | fixture
     tasks_provider: str | None = None     # jira | trello | fixture | none
-    quality_provider: str | None = None   # sonarqube | linter | fixture | none
     gitlab_base_url: str | None = None
     jira_base_url: str | None = None
-    sonarqube_base_url: str | None = None
     sync_interval_minutes: int | None = None
     # Trello: board id'leri config'e yazılır (sır değil); key/token ise sır
     # olarak .secrets.env'e + ortama yazılır, config'e ASLA girmez.
@@ -83,11 +81,6 @@ def get_sources(
                 "token": _env_status(cfg.sources.tasks.trello.token_env),
             },
         },
-        "quality": {
-            "provider": cfg.sources.quality.provider,
-            "sonarqube_base_url": cfg.sources.quality.sonarqube.base_url,
-            "token": _env_status(cfg.sources.quality.sonarqube.token_env),
-        },
     }
 
 
@@ -107,21 +100,16 @@ def update_sources(
     raw["sources"].setdefault("git", {}).setdefault("gitlab", {})
     raw["sources"].setdefault("tasks", {}).setdefault("jira", {})
     raw["sources"]["tasks"].setdefault("trello", {})
-    raw["sources"].setdefault("quality", {}).setdefault("sonarqube", {})
     raw.setdefault("sync", {})
 
     if body.git_provider is not None:
         raw["sources"]["git"]["provider"] = body.git_provider
     if body.tasks_provider is not None:
         raw["sources"]["tasks"]["provider"] = body.tasks_provider
-    if body.quality_provider is not None:
-        raw["sources"]["quality"]["provider"] = body.quality_provider
     if body.gitlab_base_url is not None:
         raw["sources"]["git"]["gitlab"]["base_url"] = body.gitlab_base_url
     if body.jira_base_url is not None:
         raw["sources"]["tasks"]["jira"]["base_url"] = body.jira_base_url
-    if body.sonarqube_base_url is not None:
-        raw["sources"]["quality"]["sonarqube"]["base_url"] = body.sonarqube_base_url
     if body.sync_interval_minutes is not None:
         raw["sync"]["interval_minutes"] = max(0, body.sync_interval_minutes)
     if body.trello_boards is not None:

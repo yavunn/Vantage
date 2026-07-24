@@ -24,6 +24,7 @@ const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
 const AnnotationsPanel = lazy(() => import("./components/AnnotationsPanel.jsx"));
 const HrDashboard = lazy(() => import("./components/HrDashboard.jsx"));
 const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
+const MyCodeHealth = lazy(() => import("./components/MyCodeHealth.jsx"));
 const LeavesPanel = lazy(() => import("./components/LeavesPanel.jsx"));
 const ProjectsPanel = lazy(() => import("./components/ProjectsPanel.jsx"));
 const Settings = lazy(() => import("./components/Settings.jsx"));
@@ -91,7 +92,6 @@ export default function App() {
   const [summary, setSummary] = useState(null);
   const [series, setSeries] = useState([]);
   const [signals, setSignals] = useState([]);
-  const [quality, setQuality] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [range, setRange] = useState(() => readNav().range);
   const [codeHealth, setCodeHealth] = useState(null);
@@ -247,10 +247,9 @@ export default function App() {
       .catch(setError);
   }, [teamId, range]);
 
-  // Kaliteyi ve anotasyonları aralıktan bağımsız yükle (takım değişince).
+  // Anotasyon + kod sağlığını aralıktan bağımsız yükle (takım değişince).
   useEffect(() => {
     if (teamId == null) return;
-    api(`/api/teams/${teamId}/quality`).then(setQuality).catch(() => setQuality([]));
     api(`/api/annotations?team_id=${teamId}`).then(setAnnotations).catch(() => setAnnotations([]));
     api(`/api/teams/${teamId}/code-health`).then(setCodeHealth).catch(() => setCodeHealth(null));
     api(`/api/teams/${teamId}/code-health/series`).then(setCodeHealthSeries).catch(() => setCodeHealthSeries(null));
@@ -594,38 +593,6 @@ export default function App() {
               )}
             </div>
           </section>
-
-          {quality.some((q) => q.snapshot) && (
-            <section className="section">
-              <h2>Kod kalitesi (araç ölçümü)</h2>
-              <table className="quality">
-                <thead>
-                  <tr>
-                    <th>Repo</th><th>Coverage</th><th>Complexity</th>
-                    <th>Duplication</th><th>Code Smells</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {quality.map((q) => (
-                    <tr key={q.repo}>
-                      <td>{q.repo}</td>
-                      {["coverage", "complexity", "duplication", "code_smells"].map((f) => (
-                        <td key={f} className="num">
-                          {q.snapshot && q.snapshot[f] != null ? (
-                            f === "coverage" || f === "duplication"
-                              ? `%${Number(q.snapshot[f]).toFixed(1)}`
-                              : Number(q.snapshot[f]).toFixed(0)
-                          ) : (
-                            <span className="na">veri yok</span>
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
         </>
       )}
 
@@ -653,6 +620,13 @@ export default function App() {
             </Suspense>
           ) : (
             <p className="desc">Bu hesap bir geliştiriciye bağlı değil.</p>
+          )}
+          {/* "Kodum" AI kod sağlığı: yalnız KENDİNE bakarken (admin başkasına
+              bakarken gizli — /api/me yalnız oturum sahibinin kodudur). */}
+          {user.developer_id != null && (viewDevId ?? user.developer_id) === user.developer_id && (
+            <Suspense fallback={LazyFallback}>
+              <MyCodeHealth user={user} />
+            </Suspense>
           )}
         </>
       )}

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { changePassword, updateProfile } from "../api.js";
 import { toast } from "../toast.js";
-import MyCodeHealth from "./MyCodeHealth.jsx";
 
 // Yaygın uygulama zaman dilimleri (kısa liste; kurum içi yeterli).
 const TIMEZONES = [
@@ -188,8 +187,6 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
         <p className="desc">Tema tercihi cihazında saklanır.</p>
         <button className="mini" onClick={onCycleTheme}>{themeLabel}</button>
       </section>
-
-      <MyCodeHealth user={user} />
 
       <section className="section">
         <h2>Oturum</h2>

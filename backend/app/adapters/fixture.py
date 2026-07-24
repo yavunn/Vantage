@@ -16,7 +16,6 @@ from pathlib import Path
 from app.adapters.base import (
     NormalizedCommit,
     NormalizedPR,
-    NormalizedQualitySnapshot,
     NormalizedReview,
     NormalizedTask,
     NormalizedTransition,
@@ -106,22 +105,4 @@ class FixtureTaskProvider:
                 ],
             )
             for t in _load(self.dir / "tasks.json")
-        ]
-
-
-class FixtureQualityProvider:
-    def __init__(self, fixture_dir: str | Path):
-        self.dir = Path(fixture_dir)
-
-    def fetch_snapshots(self) -> list[NormalizedQualitySnapshot]:
-        return [
-            NormalizedQualitySnapshot(
-                repo_name=s["repo_name"],
-                taken_at=_dt(s.get("taken_at")) or datetime.now().astimezone(),
-                coverage=s.get("coverage"),
-                complexity=s.get("complexity"),
-                duplication=s.get("duplication"),
-                code_smells=s.get("code_smells"),
-            )
-            for s in _load(self.dir / "quality.json")
         ]

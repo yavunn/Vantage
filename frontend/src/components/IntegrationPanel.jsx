@@ -3,7 +3,6 @@ import { getSources, triggerSync, updateSources } from "../api.js";
 
 const GIT_PROVIDERS = ["fixture", "git_log", "gitlab"];
 const TASK_PROVIDERS = ["fixture", "jira", "trello", "none"];
-const QUALITY_PROVIDERS = ["fixture", "sonarqube", "linter", "none"];
 
 function TokenBadge({ token }) {
   if (!token) return null;
@@ -31,10 +30,8 @@ export default function IntegrationPanel() {
         setForm({
           git_provider: d.git.provider,
           tasks_provider: d.tasks.provider,
-          quality_provider: d.quality.provider,
           gitlab_base_url: d.git.gitlab_base_url || "",
           jira_base_url: d.tasks.jira_base_url || "",
-          sonarqube_base_url: d.quality.sonarqube_base_url || "",
           sync_interval_minutes: d.sync_interval_minutes,
           trello_boards: (d.tasks.trello?.boards || []).join("\n"),
           trello_key: "",    // sır asla önden doldurulmaz
@@ -60,10 +57,8 @@ export default function IntegrationPanel() {
       const payload = {
         git_provider: form.git_provider,
         tasks_provider: form.tasks_provider,
-        quality_provider: form.quality_provider,
         gitlab_base_url: form.gitlab_base_url,
         jira_base_url: form.jira_base_url,
-        sonarqube_base_url: form.sonarqube_base_url,
         sync_interval_minutes: Number(form.sync_interval_minutes),
         trello_boards: form.trello_boards
           .split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
@@ -90,7 +85,7 @@ export default function IntegrationPanel() {
       const res = await triggerSync();
       const s = res.stats || {};
       setMsg(
-        `Senkron tamam · metrik: ${s.metric_results ?? 0}, öneri: ${s.recommendations ?? 0}, kalite: ${s.quality_snapshots ?? 0}`
+        `Senkron tamam · metrik: ${s.metric_results ?? 0}, öneri: ${s.recommendations ?? 0}`
       );
       load();
     } catch (err) {
@@ -137,11 +132,6 @@ export default function IntegrationPanel() {
             ) : (
               <TokenBadge token={data.tasks.token} />
             )}
-          </div>
-          <div className="source-card">
-            <h3>Kod Kalitesi</h3>
-            <div className="src-provider">{data.quality.provider}</div>
-            <TokenBadge token={data.quality.token} />
           </div>
         </div>
       </section>
@@ -199,16 +189,6 @@ export default function IntegrationPanel() {
               </p>
             </>
           )}
-          <label>
-            Kalite sağlayıcı
-            <select value={form.quality_provider} onChange={(e) => upd("quality_provider", e.target.value)}>
-              {QUALITY_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </label>
-          <label>
-            SonarQube base URL
-            <input value={form.sonarqube_base_url} onChange={(e) => upd("sonarqube_base_url", e.target.value)} placeholder="https://sonar.sirket.local" />
-          </label>
           <label>
             Otomatik senkron aralığı (dakika, 0 = kapalı)
             <input type="number" min={0} value={form.sync_interval_minutes} onChange={(e) => upd("sync_interval_minutes", e.target.value)} />

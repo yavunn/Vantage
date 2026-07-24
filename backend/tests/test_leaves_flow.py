@@ -3,7 +3,8 @@
 - Çalışan create -> pending (kendi kendine onaylanmaz).
 - Red note olmadan 422; note ile 200 + decision_note yazılır.
 - Karar sonrası izin sahibine bildirim düşer (redde gerekçeyle).
-- Takvim: rejected başkasına görünmez; başkasının decision_note'u sızmaz.
+- Takvim: çalışan YALNIZ kendi izinlerini görür (başkasınınki hiç görünmez);
+  admin/İK herkesi görür + karar notunu görür.
 - /mine reddedileni gerekçesiyle döner.
 """
 from __future__ import annotations
@@ -130,7 +131,7 @@ def test_mine_reddedileni_gerekceyle_doner(client, session):
     assert row["status"] == "rejected" and row["decision_note"] == "gerekçe X"
 
 
-def test_takvimde_reddedilen_ve_gerekce_baskasina_sizmaz(client, session):
+def test_calisan_yalniz_kendi_iznini_gorur(client, session):
     team = _team(session)
     a = _mk_user(session, "a@x.com", team_id=team.id)  # noqa: F841
     b = _mk_user(session, "b@x.com", team_id=team.id)  # aynı takım
@@ -148,10 +149,14 @@ def test_takvimde_reddedilen_ve_gerekce_baskasina_sizmaz(client, session):
     client.post(f"/api/leaves/{rid}/decision",
                 json={"decision": "rejected", "note": "gizli red"}, headers=_auth(at))
 
-    # b (takım arkadaşı) takvimi görür: a'nın ONAYLI izni görünür ama karar
-    # notu SIZMAZ; reddedilen izin hiç görünmez.
+    # b (takım arkadaşı) a'nın HİÇBİR iznini görmez — yalnız kendininkini.
     rows = client.get(f"/api/leaves?month={_month()}", headers=_auth(bt)).json()
     ids = {r["id"] for r in rows}
-    assert aid in ids and rid not in ids
-    approved_row = next(r for r in rows if r["id"] == aid)
-    assert approved_row["decision_note"] is None
+    assert aid not in ids and rid not in ids
+
+    # admin herkesi görür: onaylı + reddedilen; karar notu admin'e açıktır.
+    arows = client.get(f"/api/leaves?month={_month()}", headers=_auth(at)).json()
+    aids = {r["id"] for r in arows}
+    assert aid in aids  # onaylı takvimde
+    approved_row = next(r for r in arows if r["id"] == aid)
+    assert approved_row["decision_note"] == "gizli not"
