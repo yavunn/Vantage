@@ -124,15 +124,10 @@ code_analysis:
     security: 1.0
     code_smells: 1.0
     conventions: 1.0
-  exclude_globs:
-  - generated/*
-  - vendor/*
-  - node_modules/*
-  - dist/*
-  - build/*
-  - '*.min.js'
-  - '*.lock'
-  - '*.map'
+  # Hariç tutulan klasörler (node_modules, dist, build, vendor, generated,
+  # *.min.js …) artık koda gömülü: app/services/code_analysis.BUILTIN_EXCLUDES.
+  # Ayar değil, modülün doğru davranışı. Gerekirse buraya exclude_globs ile EK
+  # desen eklenebilir; temel listenin yerine geçmez.
   max_files_per_run: 40
   max_diff_lines: 400
 survey:

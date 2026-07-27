@@ -413,6 +413,8 @@ class CodeAnalysisAudit(Base):
     diff_hash: Mapped[str] = mapped_column(String(64))
     chars_sent: Mapped[int] = mapped_column(Integer)
     masked_secrets: Mapped[int] = mapped_column(Integer, default=0)
+    # Diff dışında kaç ek dosya okundu (derin okuma aracı). 0 = yalnız diff.
+    extra_reads: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
     outcome: Mapped[str] = mapped_column(String(20))  # ok | error | skipped

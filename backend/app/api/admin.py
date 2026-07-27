@@ -143,14 +143,15 @@ class CodeAnalysisUpdate(BaseModel):
     # NOT: sağlayıcı seçimi + kimlik bilgileri buradan DEĞİL, yalnız baş yönetici
     # (owner) /api/admin/llm-provider ucundan yönetir (bkz. llm_provider uçları).
     weights: dict[str, float] | None = None
-    exclude_globs: list[str] | None = None
+    # NOT: hariç tutulan klasörler (node_modules, dist, vendor…) ayar DEĞİL —
+    # code_analysis.BUILTIN_EXCLUDES'ta sabit, API'den değiştirilemez.
     max_files_per_run: int | None = None
     max_diff_lines: int | None = None
 
 
 @router.get("/code-analysis")
 def get_code_analysis(_: User = Depends(require_admin)):
-    """AI kod analizi ayarları (rubrik ağırlıkları, hariç klasörler, sıklık).
+    """AI kod analizi ayarları (rubrik ağırlıkları, analiz limitleri).
     API anahtarı config'e yazılmaz; yalnızca env durumu gösterilir."""
     cfg = get_config()
     ca = cfg.code_analysis
@@ -168,7 +169,6 @@ def get_code_analysis(_: User = Depends(require_admin)):
         "model": active_model,
         "api_key": active_key,
         "weights": ca.weights,
-        "exclude_globs": ca.exclude_globs,
         "max_files_per_run": ca.max_files_per_run,
         "max_diff_lines": ca.max_diff_lines,
     }
@@ -193,8 +193,6 @@ def update_code_analysis(body: CodeAnalysisUpdate, _: User = Depends(require_adm
         raw["code_analysis"]["weights"] = {
             d: max(0.0, float(body.weights.get(d, 1.0))) for d in DIMENSIONS
         }
-    if body.exclude_globs is not None:
-        raw["code_analysis"]["exclude_globs"] = [g for g in body.exclude_globs if g.strip()]
     if body.max_files_per_run is not None:
         raw["code_analysis"]["max_files_per_run"] = max(1, body.max_files_per_run)
     if body.max_diff_lines is not None:
@@ -366,6 +364,7 @@ def code_analysis_audit(
         {
             "id": a.id, "file_path": a.file_path, "diff_hash": a.diff_hash[:12],
             "chars_sent": a.chars_sent, "masked_secrets": a.masked_secrets,
+            "extra_reads": a.extra_reads,
             "provider": a.provider, "model": a.model, "outcome": a.outcome,
             "sent_at": a.sent_at.isoformat() if a.sent_at else None,
         }

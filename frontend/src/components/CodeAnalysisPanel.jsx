@@ -4,7 +4,9 @@ import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
 
-// AI kod analizi ayarları (admin). Rubrik ağırlıkları, hariç klasörler, sıklık.
+// AI kod analizi ayarları (admin). Rubrik ağırlıkları + analiz limitleri.
+// Hariç klasörler (node_modules, dist, vendor…) burada YOK: ayar değil, arka
+// planda sabit (backend BUILTIN_EXCLUDES).
 // API anahtarı config'e YAZILMAZ — env'den okunur.
 const DIM_LABELS = {
   readability: "Okunabilirlik",
@@ -138,7 +140,6 @@ export default function CodeAnalysisPanel({ me }) {
       // Yalnız rubrik/limit ayarları. Aç/kapa provider seçimiyle yönetilir.
       await apiPut("/api/admin/code-analysis", {
         weights: cfg.weights,
-        exclude_globs: cfg.exclude_globs,
         max_files_per_run: Number(cfg.max_files_per_run),
         max_diff_lines: Number(cfg.max_diff_lines),
       });
@@ -302,12 +303,12 @@ export default function CodeAnalysisPanel({ me }) {
       </section>
 
       <section className="section">
-        <h3>Hariç klasörler / sıklık</h3>
-        <label className="ca-block">
-          Analiz dışı desenler (her satır bir glob):
-          <textarea rows={5} value={(cfg.exclude_globs || []).join("\n")}
-            onChange={(e) => upd("exclude_globs", e.target.value.split("\n"))} />
-        </label>
+        <h3>Analiz limitleri</h3>
+        <p className="desc">
+          Maliyet freni. Analiz her seferinde tüm projeyi okumaz: yalnız değişen
+          dosyanın diff'ini ve commit mesajını görür, gerekirse birkaç ilgili
+          dosyaya bakar.
+        </p>
         <div className="ca-row">
           <label>Çalıştırma başına maks dosya:
             <input type="number" min="1" value={cfg.max_files_per_run}
@@ -411,7 +412,8 @@ export default function CodeAnalysisPanel({ me }) {
         <h3>Denetim logu (gizlilik şeffaflığı)</h3>
         <p className="desc">
           LLM'e ne gitti — <strong>içerik saklanmaz</strong>, yalnızca meta: dosya,
-          gönderilen karakter, maskelenen secret sayısı, sonuç.
+          gönderilen karakter, maskelenen secret sayısı, sonuç. "Ek okuma" =
+          diff yetmediği için ayrıca okunan dosya sayısı (en fazla 3).
         </p>
         {audit.length === 0 ? (
           <p className="desc">Henüz kayıt yok.</p>
@@ -419,7 +421,7 @@ export default function CodeAnalysisPanel({ me }) {
           <div className="drill-scroll">
             <table className="admin-table">
               <thead>
-                <tr><th>Tarih</th><th>Dosya</th><th className="num">Karakter</th><th className="num">Maskeli</th><th>Sonuç</th><th>Model</th></tr>
+                <tr><th>Tarih</th><th>Dosya</th><th className="num">Karakter</th><th className="num">Maskeli</th><th className="num">Ek okuma</th><th>Sonuç</th><th>Model</th></tr>
               </thead>
               <tbody>
                 {audit.map((a) => (
@@ -428,6 +430,7 @@ export default function CodeAnalysisPanel({ me }) {
                     <td><code>{a.file_path}</code></td>
                     <td className="num">{a.chars_sent}</td>
                     <td className="num">{a.masked_secrets > 0 ? <strong style={{ color: "var(--status-warning)" }}>{a.masked_secrets}</strong> : 0}</td>
+                    <td className="num">{a.extra_reads ?? 0}</td>
                     <td className={a.outcome === "ok" ? "" : "muted"}>{a.outcome}</td>
                     <td className="muted">{a.model || a.provider || "–"}</td>
                   </tr>

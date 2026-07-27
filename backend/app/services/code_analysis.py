@@ -8,6 +8,12 @@ MALİYET: Sadece değişen dosyalar analiz edilir, sonuçlar diff HASH'İNE gör
 önbelleğe alınır (aynı diff tekrar analiz edilmez). LLM çağrısı başarısız/kapalı
 olursa pano ÇÖKMEZ — 'analiz bekliyor' gösterilir (uydurma skor YOK).
 
+BAĞLAM: Tüm proje ASLA okunmaz. Varsayılan bağlam dar — dosya yolu + commit
+mesajı + o dosyanın diff'i. Model diff tek başına yetmediğini düşünürse
+'read_file' aracıyla en fazla MAX_EXTRA_READS dosyayı, dosya başına
+MAX_READ_LINES satır okuyabilir (yalnız Claude yolu). Üretilmiş / üçüncü taraf
+dosyalar (BUILTIN_EXCLUDES) hiçbir yoldan analize giremez.
+
 GÜVENLİK: Diff LLM'e gitmeden önce secret/token kalıpları maskelenir. Hangi
 verinin gittiği CodeAnalysisAudit'e loglanır (içerik değil, meta).
 
@@ -84,13 +90,34 @@ def mask_secrets(text: str) -> tuple[str, int]:
     return text, count
 
 
-def diff_hash(diff_text: str) -> str:
-    return hashlib.sha256(diff_text.encode("utf-8", "replace")).hexdigest()
+def diff_hash(diff_text: str, commit_message: str | None = None) -> str:
+    """Önbellek anahtarı. Commit mesajı da prompt'a girdiği için hash'e DAHİLDİR:
+    aynı diff farklı mesajla farklı analiz üretebilir. Bu değişiklikten önce
+    yazılmış satırların hash'i mesajsız hesaplanmıştı — o satırlar bir kereliğine
+    yeniden analiz edilir (kabul edilen tek seferlik maliyet)."""
+    payload = diff_text if not commit_message else f"{commit_message.strip()}\n\x1f\n{diff_text}"
+    return hashlib.sha256(payload.encode("utf-8", "replace")).hexdigest()
 
 
-def is_excluded(file_path: str, cfg: CodeAnalysisSettings) -> bool:
+# Analize ASLA girmemesi gereken desenler. Bunlar admin tercihi değil modülün
+# doğru davranışı: üretilmiş / üçüncü taraf / ikili dosyalar. Arayüzde gösterilmez,
+# API'den değiştirilemez. config'teki exclude_globs bunun YERİNE geçmez, EKLENİR.
+BUILTIN_EXCLUDES = [
+    "generated/*", "vendor/*", "node_modules/*", "dist/*", "build/*",
+    ".venv/*", "venv/*", "__pycache__/*",
+    "*.min.js", "*.min.css", "*.lock", "*.map", "*.pyc",
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "*.svg", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico", "*.pdf",
+    "*.woff", "*.woff2", "*.ttf",
+]
+
+
+def is_excluded(file_path: str, cfg: CodeAnalysisSettings | None = None) -> bool:
+    """Dosya analiz dışı mı. Temel liste sabit (BUILTIN_EXCLUDES); config'te ek
+    desen tanımlanmışsa üzerine eklenir."""
     p = file_path.replace("\\", "/")
-    return any(fnmatch.fnmatch(p, g) or fnmatch.fnmatch(p, f"*/{g}") for g in cfg.exclude_globs)
+    globs = [*BUILTIN_EXCLUDES, *(cfg.exclude_globs if cfg else [])]
+    return any(fnmatch.fnmatch(p, g) or fnmatch.fnmatch(p, f"*/{g}") for g in globs)
 
 
 def _truncate(diff_text: str, max_lines: int) -> tuple[str, int]:
@@ -127,6 +154,93 @@ _SYSTEM = (
     "kod/bu bölüm' dili). Türkçe yaz. Yalnızca istenen JSON şemasına uygun yanıt ver."
 )
 _PROMPT = "Dosya: {path}\n\n```diff\n{diff}\n```"
+# Commit mesajı bölümü — NİYETİ anlatır (mesaj yoksa hiç eklenmez).
+_COMMIT_BLOCK = "Commit mesajı:\n{msg}\n\n"
+_COMMIT_MSG_MAX_LINES = 20
+
+# read_file aracı açıkken system'e eklenir: varsayılan dar bağlam, gerekirse
+# ölçülü derinleşme.
+_DEEP_READ_GUIDE = (
+    "\n\nBAĞLAM KURALI: Varsayılan olarak yalnız diff ve commit mesajıyla "
+    "değerlendir. Tüm projeyi okumaya çalışma. Sadece diff tek başına yanıltıcıysa "
+    "(ör. çağrılan bir fonksiyonun sözleşmesi, testin varlığı, dosyanın diff dışı "
+    "kısmı gerekiyorsa) read_file ile en fazla birkaç ilgili dosyayı iste. "
+    "Gereksiz okuma maliyet demektir."
+)
+
+_READ_FILE_TOOL = {
+    "name": "read_file",
+    "description": (
+        "Repo'dan bir dosyanın içeriğini okur. Yalnızca diff tek başına "
+        "yetmediğinde kullan. Yol repo köküne GÖRELİ olmalı."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Repo köküne göreli dosya yolu"},
+            "start_line": {"type": "integer", "minimum": 1},
+            "end_line": {"type": "integer", "minimum": 1},
+        },
+        "required": ["path"],
+    },
+}
+
+# Derin okuma sınırları (aşılırsa araç metin olarak 'limit doldu' döner)
+MAX_EXTRA_READS = 3
+MAX_READ_LINES = 300
+
+
+def format_commit_message(msg: str | None) -> str | None:
+    """Commit mesajını prompt'a uygun kırpar (konu + gövde, ~20 satır)."""
+    if not msg or not msg.strip():
+        return None
+    lines = [ln.rstrip() for ln in msg.strip().splitlines()]
+    if len(lines) > _COMMIT_MSG_MAX_LINES:
+        lines = lines[:_COMMIT_MSG_MAX_LINES] + ["... (mesaj kırpıldı)"]
+    return "\n".join(lines)
+
+
+def build_user_prompt(file_path: str, diff_text: str, commit_message: str | None) -> str:
+    msg = format_commit_message(commit_message)
+    head = _COMMIT_BLOCK.format(msg=msg) if msg else ""
+    return head + _PROMPT.format(path=file_path, diff=diff_text)
+
+
+def read_repo_file(repo_path: str, rel_path: str, cfg: CodeAnalysisSettings | None = None,
+                   start_line: int | None = None,
+                   end_line: int | None = None) -> tuple[str, int]:
+    """read_file aracının gövdesi. Güvenlik sınırları burada zorlanır:
+    yol repo altında kalmalı, hariç dosyalar okunamaz, en fazla MAX_READ_LINES
+    satır döner, içerik maskelemeden geçer. (metin, maskelenen_secret) döner."""
+    from pathlib import Path
+
+    rel = (rel_path or "").replace("\\", "/").strip()
+    if not rel or rel.startswith("/") or ".." in rel.split("/"):
+        return "HATA: geçersiz yol (repo köküne göreli olmalı).", 0
+    root = Path(repo_path).resolve()
+    try:
+        target = (root / rel).resolve()
+        target.relative_to(root)
+    except (ValueError, OSError):
+        return "HATA: yol repo dışında.", 0
+    if is_excluded(rel, cfg):
+        return "HATA: bu dosya analiz kapsamı dışı (üretilmiş/üçüncü taraf).", 0
+    if not target.is_file():
+        return "HATA: dosya bulunamadı.", 0
+    try:
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "HATA: dosya okunamadı.", 0
+
+    start = max(1, start_line or 1)
+    end = end_line or (start + MAX_READ_LINES - 1)
+    end = min(end, start + MAX_READ_LINES - 1, len(lines))
+    if start > len(lines):
+        return f"HATA: dosyada {len(lines)} satır var, {start}. satır yok.", 0
+    body = "\n".join(f"{i}: {lines[i - 1]}" for i in range(start, end + 1))
+    masked, n = mask_secrets(body)
+    note = "" if end >= len(lines) else f"\n... ({len(lines)} satırın {start}-{end} arası)"
+    return f"{rel} ({start}-{end}):\n{masked}{note}", n
 
 
 def build_system(weights: dict[str, float] | None) -> str:
@@ -160,11 +274,19 @@ class AnalyzerResult:
     suggestions: list[str]
     provider: str
     model: str
+    # Derin okuma denetimi: kaç ek dosya okundu, kaç karakter daha gönderildi
+    extra_reads: int = 0
+    extra_chars: int = 0
+    masked_secrets: int = 0
 
 
 class ClaudeAnalyzer:
     """Claude API (resmi SDK). Structured outputs + effort=low ile deterministik
-    JSON. temperature GÖNDERİLMEZ (güncel modellerde 400)."""
+    JSON. temperature GÖNDERİLMEZ (güncel modellerde 400).
+
+    repo_path verilirse 'read_file' aracı açılır: model diff tek başına yetmezse
+    en fazla MAX_EXTRA_READS dosyayı, dosya başına MAX_READ_LINES satır okuyabilir.
+    Varsayılan davranış hâlâ dar bağlam — tüm proje ASLA okunmaz."""
 
     provider = "claude"
 
@@ -175,19 +297,77 @@ class ClaudeAnalyzer:
         self.system = system
         self._client = anthropic.Anthropic(api_key=os.environ.get(api_key_env) or None)
 
-    def analyze(self, file_path: str, diff_text: str) -> AnalyzerResult:
-        resp = self._client.messages.create(
+    def _create(self, messages, system, tools):
+        kwargs = dict(
             model=self.model,
             max_tokens=2048,
-            system=self.system,
+            system=system,
             thinking={"type": "disabled"},
             output_config={
                 "format": {"type": "json_schema", "schema": _ANALYSIS_SCHEMA},
                 "effort": "low",
             },
-            messages=[{"role": "user", "content": _PROMPT.format(path=file_path, diff=diff_text)}],
+            messages=messages,
         )
+        if tools:
+            kwargs["tools"] = tools
+        return self._client.messages.create(**kwargs)
+
+    def analyze(self, file_path: str, diff_text: str, commit_message: str | None = None,
+                repo_path: str | None = None,
+                ca_cfg: CodeAnalysisSettings | None = None) -> AnalyzerResult:
+        base_prompt = build_user_prompt(file_path, diff_text, commit_message)
+        messages = [{"role": "user", "content": base_prompt}]
+        tools = [_READ_FILE_TOOL] if repo_path else None
+        system = self.system + (_DEEP_READ_GUIDE if tools else "")
+
+        reads = 0
+        extra_chars = 0
+        masked = 0
+        try:
+            resp = self._create(messages, system, tools)
+        except Exception as e:  # noqa: BLE001
+            # Araçlı çağrıyı reddeden uç/model olursa dar bağlamla devam et
+            # (analiz kaybolmasın); kredi/kimlik hataları yeniden denenmez.
+            if not tools or "tool" not in str(e).lower():
+                raise
+            tools = None
+            resp = self._create(messages, self.system, None)
+
+        # Araç döngüsü: model dosya isterse oku, sonucu geri ver, tekrar sor.
+        for _ in range(MAX_EXTRA_READS + 1):
+            if resp.stop_reason != "tool_use":
+                break
+            messages.append({"role": "assistant", "content": resp.content})
+            results = []
+            for block in resp.content:
+                if getattr(block, "type", None) != "tool_use":
+                    continue
+                if reads >= MAX_EXTRA_READS:
+                    body = "HATA: okuma limiti doldu (en fazla 3 dosya). Eldeki bilgiyle karar ver."
+                else:
+                    inp = block.input or {}
+                    body, n = read_repo_file(
+                        repo_path, str(inp.get("path", "")), ca_cfg,
+                        inp.get("start_line"), inp.get("end_line"),
+                    )
+                    reads += 1
+                    extra_chars += len(body)
+                    masked += n
+                results.append({"type": "tool_result", "tool_use_id": block.id, "content": body})
+            messages.append({"role": "user", "content": results})
+            resp = self._create(messages, system, tools)
+
         text = next((b.text for b in resp.content if b.type == "text"), "")
+        if not text:
+            # Döngü araç isteğiyle bitti (model cevap vermedi): araç geçmişi
+            # olmadan tek seferlik dar bağlamla sonuca zorla.
+            resp = self._create(
+                [{"role": "user", "content": base_prompt
+                  + "\n\n(Ek dosya okuma limiti doldu; yalnız yukarıdaki bilgiyle değerlendir.)"}],
+                self.system, None,
+            )
+            text = next((b.text for b in resp.content if b.type == "text"), "")
         data = json.loads(text)
         return AnalyzerResult(
             scores={d: int(data[d]) for d in DIMENSIONS},
@@ -195,6 +375,9 @@ class ClaudeAnalyzer:
             suggestions=[str(s) for s in data.get("suggestions", [])][:3],
             provider="claude",
             model=self.model,
+            extra_reads=reads,
+            extra_chars=extra_chars,
+            masked_secrets=masked,
         )
 
 
@@ -217,10 +400,15 @@ class LocalAnalyzer:
         self._api_key = api_key or None
         self.system = system
 
-    def analyze(self, file_path: str, diff_text: str) -> AnalyzerResult:
+    def analyze(self, file_path: str, diff_text: str, commit_message: str | None = None,
+                repo_path: str | None = None,
+                ca_cfg: CodeAnalysisSettings | None = None) -> AnalyzerResult:
+        # Yerel uçta araç çağrısı garantisi yok: commit mesajı metin olarak girer,
+        # ek dosya okuma YAPILMAZ (repo_path yok sayılır).
         prompt = (
             self.system + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS)
-            + ", summary, suggestions.\n\n" + _PROMPT.format(path=file_path, diff=diff_text)
+            + ", summary, suggestions.\n\n"
+            + build_user_prompt(file_path, diff_text, commit_message)
         )
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         resp = self._httpx.post(
@@ -297,6 +485,8 @@ def analyze_diff(
     developer_id: int | None = None,
     now: datetime | None = None,
     errors: list[str] | None = None,
+    commit_message: str | None = None,
+    repo_path: str | None = None,
 ) -> CodeAnalysis | None:
     """Tek bir dosya diff'ini analiz eder (cache + maskeleme + audit).
     analyzer None ise 'analiz bekliyor' (audit=skipped). Hata olursa None
@@ -308,7 +498,7 @@ def analyze_diff(
     if is_excluded(file_path, ca_cfg):
         return None
 
-    h = diff_hash(diff_text)
+    h = diff_hash(diff_text, commit_message)
     # Cache: aynı diff daha önce analiz edildiyse tekrar LLM çağırma
     existing = session.scalar(
         select(CodeAnalysis).where(
@@ -333,7 +523,12 @@ def analyze_diff(
         return None
 
     try:
-        result = analyzer.analyze(file_path, truncated)
+        try:
+            result = analyzer.analyze(file_path, truncated, commit_message=commit_message,
+                                      repo_path=repo_path, ca_cfg=ca_cfg)
+        except TypeError:
+            # Eski/dar imzalı analizör — bağlamsız çağrıya düş.
+            result = analyzer.analyze(file_path, truncated)
     except Exception as e:  # noqa: BLE001 — pano çökmesin; sebep 'errors'a taşınır
         session.add(CodeAnalysisAudit(
             repo_id=repo_id, file_path=file_path, diff_hash=h,
@@ -358,7 +553,10 @@ def analyze_diff(
     session.add(row)
     session.add(CodeAnalysisAudit(
         repo_id=repo_id, file_path=file_path, diff_hash=h,
-        chars_sent=len(truncated), masked_secrets=n_secrets,
+        # chars_sent derin okumada gönderilen ek içeriği de kapsar
+        chars_sent=len(truncated) + result.extra_chars,
+        masked_secrets=n_secrets + result.masked_secrets,
+        extra_reads=result.extra_reads,
         provider=result.provider, model=result.model, outcome="ok", sent_at=now,
     ))
     session.flush()
@@ -381,28 +579,35 @@ def _run_git(args: list[str]) -> str:
 
 
 def iter_git_file_diffs(repo_path: str, max_commits: int = 40):
-    """Son commit'lerin dosya-bazlı diff'lerini üretir: (sha, author_email, file, diff).
+    """Son commit'lerin dosya-bazlı diff'lerini üretir:
+    (sha, author_email, commit_message, file, diff).
     author_email: commit'in git yazarı — analizi KİŞİYE atfetmek için (yardımcı
-    veri, kimlik ingest'teki gibi e-posta ile developer'a eşlenir)."""
+    veri, kimlik ingest'teki gibi e-posta ile developer'a eşlenir).
+    commit_message: konu + gövde — analize NİYET bağlamı verir."""
     from pathlib import Path
 
     p = Path(repo_path)
     if not (p / ".git").exists():
         return
-    # sha ve yazar e-postasını tek log çağrısında al
-    raw = _run_git(["-C", str(p), "log", "-n", str(max_commits), "--pretty=format:%H%x1f%ae"])
+    # sha, yazar e-postası ve mesajı tek log çağrısında al. Commit'ler \x1e ile,
+    # alanlar \x1f ile ayrılır (mesaj çok satırlı olabilir).
+    raw = _run_git(["-C", str(p), "log", "-n", str(max_commits),
+                    "--pretty=format:%H%x1f%ae%x1f%s%x1f%b%x1e"])
     commits = []
-    for line in raw.splitlines():
-        if "\x1f" in line:
-            sha, email = line.split("\x1f", 1)
-            commits.append((sha.strip(), email.strip().lower()))
-    for sha, email in commits:
+    for chunk in raw.split("\x1e"):
+        parts = chunk.strip("\n").split("\x1f")
+        if len(parts) < 4:
+            continue
+        sha, email, subject, body = parts[0], parts[1], parts[2], parts[3]
+        msg = subject.strip() + ("\n\n" + body.strip() if body.strip() else "")
+        commits.append((sha.strip(), email.strip().lower(), msg))
+    for sha, email, msg in commits:
         files = [f for f in _run_git(["-C", str(p), "show", "--name-only",
                                       "--pretty=format:", sha]).splitlines() if f.strip()]
         for f in files:
             diff = _run_git(["-C", str(p), "show", "--format=", sha, "--", f])
             if diff.strip():
-                yield sha, email, f, diff
+                yield sha, email, msg, f, diff
 
 
 def _resolve_developer_id(session: Session, dev_cache: dict, email: str | None) -> int | None:
@@ -464,7 +669,7 @@ def run_code_analysis(session: Session, cfg: Config,
             continue
         repo_row = session.scalar(select(Repo).where(Repo.name == repo_cfg.get("name")))
         repo_id = repo_row.id if repo_row else None
-        for sha, email, file_path, diff in iter_git_file_diffs(repo_cfg["path"]):
+        for sha, email, commit_msg, file_path, diff in iter_git_file_diffs(repo_cfg["path"]):
             if budget <= 0:
                 break
             if target_emails is not None and email not in target_emails:
@@ -474,7 +679,7 @@ def run_code_analysis(session: Session, cfg: Config,
                 skipped += 1
                 continue
             dev_id = only_developer_id if target_emails else _resolve_developer_id(session, dev_cache, email)
-            h = diff_hash(diff)
+            h = diff_hash(diff, commit_msg)
             pre = session.scalar(select(CodeAnalysis).where(
                 CodeAnalysis.repo_id == repo_id, CodeAnalysis.diff_hash == h))
             if pre is not None:
@@ -483,7 +688,8 @@ def run_code_analysis(session: Session, cfg: Config,
                 cached += 1
                 continue
             row = analyze_diff(session, cfg, analyzer, repo_id, file_path, sha, diff,
-                               developer_id=dev_id, errors=errors)
+                               developer_id=dev_id, errors=errors,
+                               commit_message=commit_msg, repo_path=repo_cfg["path"])
             budget -= 1
             if row is not None:
                 analyzed += 1

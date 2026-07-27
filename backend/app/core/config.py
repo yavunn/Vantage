@@ -162,7 +162,7 @@ class LLMSettings(BaseModel):
 class CodeAnalysisSettings(BaseModel):
     """AI kod analizi ayarları. Kişiyi puanlamaz — repo/modül düzeyinde toplar.
     Rubrik ağırlıkları composite skoru belirler; toplamları 0 değilse normalize
-    edilir. exclude_globs: analiz dışı klasörler (üretilen/vendor kod)."""
+    edilir."""
 
     enabled: bool = False
     # 7 boyut ağırlığı (composite skor için). Eşit varsayılan.
@@ -175,10 +175,9 @@ class CodeAnalysisSettings(BaseModel):
         "code_smells": 1.0,
         "conventions": 1.0,
     })
-    exclude_globs: list[str] = Field(default_factory=lambda: [
-        "generated/*", "vendor/*", "node_modules/*", "dist/*", "build/*",
-        "*.min.js", "*.lock", "*.map",
-    ])
+    # İsteğe bağlı EK hariç tutma desenleri; temel liste
+    # code_analysis.BUILTIN_EXCLUDES'ta sabittir (arayüzde/API'de yok).
+    exclude_globs: list[str] = Field(default_factory=list)
     # Bir çalıştırmada en fazla kaç diff analiz edilsin (maliyet freni)
     max_files_per_run: int = 40
     # Diff'te bu satır sayısını aşan dosyalar kırpılır (token freni)
