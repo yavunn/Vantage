@@ -121,6 +121,9 @@ export default function MetricCard({ metric, previous, onClick, series }) {
   return (
     <div
       className={`card${insufficient ? " insufficient" : ""}${clickable ? " clickable" : ""}`}
+      // Durum, kartın üst aksan şeridini boyar (CSS). Nokta + metin etiketiyle
+      // birlikte üçüncü kanal; renk tek başına anlam taşımaz.
+      data-status={metric.status}
       onClick={onClick}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}

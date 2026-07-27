@@ -2,9 +2,10 @@
 // Veri olmayan kovalar boşluk olarak görünür (connectNulls yok): eksik veri
 // dürüstçe boşluktur, sıfır değildir.
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -83,7 +84,15 @@ export default function TrendChart({ series, threshold, annotations }) {
         </p>
       ) : (
         <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+          <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+            {/* Çizginin altındaki sönen dolgu yalnız derinlik içindir: tek seri,
+                tek renk (seri rengi). Okuma hâlâ çizginin kendisinden yapılır. */}
+            <defs>
+              <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" style={{ stopColor: "var(--series-1)" }} stopOpacity={0.26} />
+                <stop offset="100%" style={{ stopColor: "var(--series-1)" }} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid stroke="var(--grid)" vertical={false} />
             <XAxis
               dataKey="label"
@@ -105,6 +114,7 @@ export default function TrendChart({ series, threshold, annotations }) {
                 color: "var(--text-primary)",
                 fontSize: 12.5,
               }}
+              cursor={{ stroke: "var(--muted)", strokeWidth: 1, strokeDasharray: "3 3" }}
               formatter={(v) => [formatValue(series.metric, v), series.name]}
             />
             {/* Hedef/eşik çizgileri: yeşil = sağlıklı sınır, kırmızı = zorlanma */}
@@ -136,16 +146,29 @@ export default function TrendChart({ series, threshold, annotations }) {
                 label={{ value: `⚑ ${m.text}`, position: "top", fill: KIND_COLOR[m.kind] || KIND_COLOR.other, fontSize: 10 }}
               />
             ))}
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="none"
+              fill="url(#trend-fill)"
+              connectNulls={false}
+              isAnimationActive={false}
+              activeDot={false}
+              // Çizgiyle AYNI dataKey — tooltip/legend'de ikinci kez sayılmasın.
+              tooltipType="none"
+              legendType="none"
+            />
             <Line
               type="monotone"
               dataKey="value"
               stroke="var(--series-1)"
               strokeWidth={2}
               dot={{ r: 3, fill: "var(--series-1)", strokeWidth: 0 }}
-              activeDot={{ r: 5 }}
+              // Etkin nokta yüzey rengiyle halkalanır — çizgi/ızgara üstünde ayrışır.
+              activeDot={{ r: 5, stroke: "var(--surface-1)", strokeWidth: 2 }}
               isAnimationActive={false}
             />
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       )}
     </div>
