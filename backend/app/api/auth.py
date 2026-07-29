@@ -130,13 +130,6 @@ def require_admin(user: User = Depends(current_user)) -> User:
     return user
 
 
-def require_hr(user: User = Depends(current_user)) -> User:
-    """Yalnızca İnsan Kaynakları (hr). Salt-İK uçları için."""
-    if user.role != "hr":
-        raise HTTPException(status_code=403, detail="Bu işlem için İK yetkisi gerekli")
-    return user
-
-
 def require_admin_or_hr(user: User = Depends(current_user)) -> User:
     """Paylaşımlı İK uçları: çalışan rehberi, izin özeti/onayı, kapasite.
     admin (ve owner=admin) ile hr geçer; düz user geçemez."""
