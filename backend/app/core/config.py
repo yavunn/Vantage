@@ -41,10 +41,22 @@ class GitLabSource(BaseModel):
     projects: list[str] = Field(default_factory=list)
 
 
+class GitHubSource(BaseModel):
+    """GitHub API ayarları. Repo listesi ortak `repos` alanından okunur;
+    her girdi `slug: owner/repo` (ya da tam URL) taşımalıdır."""
+
+    token_env: str = "GITHUB_TOKEN"
+    # Dosya listesi (rework metriği + hotspot kuralı) yalnız commit DETAY
+    # isteğiyle gelir; oran sınırını yakmamak için üst sınır.
+    detail_limit: int = 150
+    max_prs: int = 200
+
+
 class GitSource(BaseModel):
-    provider: str = "git_log"  # git_log | gitlab | fixture
+    provider: str = "git_log"  # git_log | github | gitlab | fixture
     repos: list[dict[str, Any]] = Field(default_factory=list)
     gitlab: GitLabSource = Field(default_factory=GitLabSource)
+    github: GitHubSource = Field(default_factory=GitHubSource)
 
 
 class JiraSource(BaseModel):
@@ -257,6 +269,14 @@ def active_config_path() -> Path:
 
 
 def load_config(path: str | Path | None = None) -> Config:
+    # Kalıcı sırları (DATABASE_URL, token'lar) ortama yükle — config OKUNMADAN
+    # önce. Yoksa bu modülü doğrudan kullanan her yol (ad-hoc script, REPL,
+    # yeni bir CLI komutu) config'teki geliştirme varsayılanına düşer ve
+    # sessizce yanlış veritabanına bağlanır. load_secrets() idempotenttir ve
+    # setdefault kullanır: gerçek ortam değişkeni her zaman kazanır.
+    from app.core.secrets import load_secrets
+    load_secrets()
+
     cfg_path = Path(path) if path else active_config_path()
     if not cfg_path.exists():
         # Config yoksa bile sistem ayağa kalkar; her şey varsayılanla çalışır

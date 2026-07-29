@@ -23,15 +23,20 @@ router = APIRouter(prefix="/api/admin")
 
 
 class RepoEntry(BaseModel):
-    """config.yaml'daki bir git repo girdisi. team boşsa eşleme yok demektir."""
+    """config.yaml'daki bir git repo girdisi. team boşsa eşleme yok demektir.
+
+    path : git_log sağlayıcısı için yerel klasör yolu.
+    slug : github sağlayıcısı için 'owner/repo' (ya da tam GitHub URL'i).
+    İkisi bir arada durabilir; hangisinin okunacağını sağlayıcı belirler."""
 
     name: str = Field(min_length=1, max_length=200)
     path: str = ""
+    slug: str = ""
     team: str = ""
 
 
 class SourcesUpdate(BaseModel):
-    git_provider: str | None = None       # git_log | gitlab | fixture
+    git_provider: str | None = None       # git_log | github | gitlab | fixture
     tasks_provider: str | None = None     # jira | trello | fixture | none
     gitlab_base_url: str | None = None
     jira_base_url: str | None = None
@@ -92,6 +97,7 @@ def get_sources(
         repos.append({
             "name": r["name"],
             "path": r.get("path"),
+            "slug": r.get("slug"),
             "team": r.get("team"),
             "commit_count": (session.scalar(
                 select(func.count()).select_from(Commit).where(Commit.repo_id == row.id)
@@ -107,8 +113,9 @@ def get_sources(
             "provider": cfg.sources.git.provider,
             "gitlab_base_url": cfg.sources.git.gitlab.base_url,
             "token": _env_status(cfg.sources.git.gitlab.token_env),
-            # "Projelerim" özel GitHub repoları için PAT durumu.
-            "github_token": _env_status("GITHUB_TOKEN"),
+            # Hem "Projelerim" özel repoları hem de github sağlayıcısı bu PAT'i
+            # kullanır. Public repo tokensiz çalışır ama oran sınırı 60/saat.
+            "github_token": _env_status(cfg.sources.git.github.token_env),
             "repo_count": len(cfg.sources.git.repos),
             "repos": repos,
         },
@@ -178,6 +185,8 @@ def update_sources(
                 continue
             seen.add(name)
             entry = {"name": name, "path": r.path.strip()}
+            if r.slug.strip():
+                entry["slug"] = r.slug.strip()
             if r.team.strip():
                 entry["team"] = r.team.strip()
             entries.append(entry)

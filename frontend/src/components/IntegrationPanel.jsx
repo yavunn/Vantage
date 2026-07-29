@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getSources, testSources, triggerSync, updateSources } from "../api.js";
 
-const GIT_PROVIDERS = ["fixture", "git_log", "gitlab"];
+const GIT_PROVIDERS = ["fixture", "git_log", "github", "gitlab"];
 const TASK_PROVIDERS = ["fixture", "jira", "trello", "none"];
 const NO_TEAM = "";
 
@@ -30,8 +30,11 @@ function WarnBox({ items, tone = "warn", title }) {
 // Repo → takım eşlemesi. Takımsız repo'nun commitleri hiçbir takım metriğine
 // giremez (metrik motoru commitleri takımın repolarından çeker), o yüzden bu
 // eşleme config'i elle düzenlemeye bırakılmaz.
-function RepoRow({ repo, teams, onChange, onRemove }) {
+function RepoRow({ repo, teams, provider, onChange, onRemove }) {
   const unmapped = !repo.team;
+  // git_log yerel klasör okur, github ise owner/repo ister. Yanlış alanı
+  // doldurmak sessiz bir "0 commit"e yol açardı, o yüzden alan sağlayıcıya göre.
+  const github = provider === "github";
   return (
     <div className={`repo-row editable ${unmapped ? "unmapped" : ""}`}>
       <div className="repo-ident">
@@ -41,12 +44,21 @@ function RepoRow({ repo, teams, onChange, onRemove }) {
           placeholder="repo adı (kimlik — değiştirmek commitleri ayırır)"
           onChange={(e) => onChange({ ...repo, name: e.target.value })}
         />
-        <input
-          className="repo-path-input"
-          value={repo.path || ""}
-          placeholder="C:/yol/klasor  ya da  /srv/repos/x"
-          onChange={(e) => onChange({ ...repo, path: e.target.value })}
-        />
+        {github ? (
+          <input
+            className="repo-path-input"
+            value={repo.slug || ""}
+            placeholder="owner/repo  ya da  https://github.com/owner/repo"
+            onChange={(e) => onChange({ ...repo, slug: e.target.value })}
+          />
+        ) : (
+          <input
+            className="repo-path-input"
+            value={repo.path || ""}
+            placeholder="C:/yol/klasor  ya da  /srv/repos/x"
+            onChange={(e) => onChange({ ...repo, path: e.target.value })}
+          />
+        )}
       </div>
       <div className="repo-meta">{repo.commit_count ?? 0} commit</div>
       <label className="repo-team">
@@ -196,7 +208,7 @@ export default function IntegrationPanel() {
 
   function addRepo() {
     setForm((f) => ({
-      ...f, repos: [...f.repos, { name: "", path: "", team: NO_TEAM, commit_count: 0 }],
+      ...f, repos: [...f.repos, { name: "", path: "", slug: "", team: NO_TEAM, commit_count: 0 }],
     }));
   }
 
@@ -221,7 +233,8 @@ export default function IntegrationPanel() {
         // Listenin tamamı gider (ekleme/çıkarma); adsız satırlar atılır.
         repos: form.repos
           .filter((r) => r.name.trim())
-          .map((r) => ({ name: r.name.trim(), path: (r.path || "").trim(), team: r.team || "" })),
+          .map((r) => ({ name: r.name.trim(), path: (r.path || "").trim(),
+                        slug: (r.slug || "").trim(), team: r.team || "" })),
         status_mapping: form.status_mapping,
       };
       // Sır alanları YALNIZCA doluysa gönder (boş göndermek mevcut sırrı silerdi).
@@ -283,7 +296,7 @@ export default function IntegrationPanel() {
     : "henüz yok";
   const repos = data.git.repos || [];
   const teams = data.teams || [];
-  const gitReposUsed = form.git_provider === "git_log";
+  const gitReposUsed = form.git_provider === "git_log" || form.git_provider === "github";
   const unmappedCount = form.repos.filter((r) => r.name.trim() && !r.team).length;
 
   return (
@@ -366,7 +379,17 @@ export default function IntegrationPanel() {
               <p className="field-hint">
                 Metrik motoru bir takımın commitlerini o takıma bağlı repolardan çeker.
                 Takımsız repo hiçbir metrik üretmez — pano "veri yetersiz" gösterir.
-                Yol, sunucunun eriştiği bir git klonu olmalı.
+                {form.git_provider === "github" ? (
+                  <>
+                    {" "}GitHub'da repo yolu <code>owner/repo</code> biçimindedir.
+                    <strong> PR metrikleri (review süresi, review gecikmesi, deploy
+                    sıklığı, hata oranı) yalnız bu sağlayıcıyla ölçülebilir</strong> —
+                    yerel <code>git log</code>'da pull request kaydı yoktur.
+                    Özel repo için aşağıdaki GitHub token'ı gerekir.
+                  </>
+                ) : (
+                  " Yol, sunucunun eriştiği bir git klonu olmalı."
+                )}
               </p>
               {form.repos.length === 0 ? (
                 <p className="desc">Henüz repo yok — "+ Repo ekle" ile başlayın.</p>
@@ -377,6 +400,7 @@ export default function IntegrationPanel() {
                       key={i}
                       repo={r}
                       teams={teams}
+                      provider={form.git_provider}
                       onChange={(next) => updRepo(i, next)}
                       onRemove={() => removeRepo(i)}
                     />

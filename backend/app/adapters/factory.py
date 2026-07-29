@@ -10,6 +10,7 @@ from pathlib import Path
 from app.adapters.base import GitProvider, TaskProvider
 from app.adapters.fixture import FixtureGitProvider, FixtureTaskProvider
 from app.adapters.git_log import GitLogProvider
+from app.adapters.github import GitHubProvider
 from app.adapters.gitlab import GitLabProvider
 from app.adapters.jira import JiraProvider
 from app.adapters.trello import TrelloProvider
@@ -22,6 +23,9 @@ def build_git_provider(cfg: Config, fixture_dir: Path = FIXTURE_DIR) -> GitProvi
     src = cfg.sources.git
     if src.provider == "git_log":
         return GitLogProvider(src.repos)
+    if src.provider == "github":
+        gh = src.github
+        return GitHubProvider(src.repos, gh.token_env, gh.detail_limit, gh.max_prs)
     if src.provider == "gitlab":
         gl = src.gitlab
         return GitLabProvider(gl.base_url, gl.token_env, gl.projects)

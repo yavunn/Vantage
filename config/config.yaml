@@ -4,20 +4,27 @@ app:
   window_days: 30
   bucket_days: 7
 database:
-  # BU DOSYA GIT'E GIRER — buraya kimlik bilgisi YAZMAYIN.
-  # Gerçek URL ortamdan gelir: DATABASE_URL (ya da backend/.secrets.env),
-  # config'teki değeri her zaman ezer. Aşağıdaki yalnızca kurulumsuz bir
-  # geliştirme varsayılanıdır. Örnek için .env.example'a bakın.
   url: sqlite:///./eng_health.db
 sync:
   interval_minutes: 60
 sources:
   git:
+    # provider: github  <-- PR metriklerini (pr_review_time, review_latency,
+    #   deployment_frequency, change_failure_rate) açan ayar budur. git_log
+    #   yerel klasörü okur ve orada pull request kaydı YOKTUR.
+    #   ŞU AN AÇIK DEĞİL çünkü GITHUB_TOKEN bu repoya yetkili değil (404).
+    #   Token'ı yetkilendirdikten sonra bu satırı 'github' yapın ya da
+    #   Yönetici paneli → Entegrasyon → Git sağlayıcı'dan seçin. slug hazır.
     provider: git_log
     repos:
     - name: nabiz
       path: C:/Users/Asus/Documents/GitHub/Muhendislik-IK-Metrik-Sistemi
+      slug: yavunn/Muhendislik-IK-Metrik-Sistemi
       team: People & Engineering Intelligence Platform
+    github:
+      token_env: GITHUB_TOKEN
+      detail_limit: 150
+      max_prs: 200
     gitlab:
       base_url: ''
       token_env: GITLAB_TOKEN
@@ -33,10 +40,18 @@ sources:
       token_env: TRELLO_TOKEN
       boards:
       - FMm9Vuzg
+    # Trello liste adları serbest metindir; eşlenmeyen bir liste hiçbir
+    # kategoriye girmez ve o kartlar WIP/hijyen sayımlarından SESSİZCE düşer.
+    # ('Tamamlandı', 'Yapılıyor' gibi adlar yerleşik varsayılanlarla zaten
+    # eşleşiyor — burada yalnız eşleşmeyenler listelenir.)
     status_mapping:
       backlog:
       - BACKLOG
       - Araştırma Konuları
+      - Yapılacaklar
+      # 'staj' bir park listesi: aktif çalışılmıyor, bu yüzden WIP'i şişirmesin
+      # diye backlog sayıldı. Gerçekte devam eden iş ise in_progress'e alın.
+      - staj
       in_progress:
       - DEVELOPMENT
       - TEST
@@ -116,11 +131,8 @@ rules:
   risky_deploy_window:
     enabled: true
 llm:
-  # On-prem kısıtı: KAPALI başlar — AI'ı açmak bilinçli bir tercih olmalı.
-  # Açmak için: Yönetici paneli → AI Kod Analizi → sağlayıcı seç (baş yönetici).
-  # 'local' (Ollama/vLLM) veri dışarı çıkarmaz; 'claude' dış servise istek atar.
-  enabled: false
-  provider: none
+  enabled: true
+  provider: claude
   local:
     base_url: http://localhost:11434
     model: llama3.1
@@ -128,8 +140,7 @@ llm:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
 code_analysis:
-  # llm ile birlikte açılır/kapanır (arayüzdeki sağlayıcı seçimi ikisini de yazar).
-  enabled: false
+  enabled: true
   weights:
     readability: 1.0
     complexity: 1.0

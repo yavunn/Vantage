@@ -194,9 +194,11 @@ def test_sources_ucu_repolari_takimlariyla_dondurur(client, session):
 
     body = client.get("/api/admin/sources", headers={"Authorization": f"Bearer {token}"}).json()
 
-    # Panel "repo sayısı: 1" yerine hangi repo, nereye bağlı gösterebilmeli
+    # Panel "repo sayısı: 1" yerine hangi repo, nereye bağlı gösterebilmeli.
+    # slug: github sağlayıcısının owner/repo alanı — git_log girdisinde boş.
     assert body["git"]["repos"] == [
-        {"name": "nabiz", "path": "/repo/nabiz", "team": None, "commit_count": 0}
+        {"name": "nabiz", "path": "/repo/nabiz", "slug": None,
+         "team": None, "commit_count": 0}
     ]
     # Takım seçimi için liste aynı yanıtta gelir (ikinci istek gerekmez)
     assert [t["name"] for t in body["teams"]] == ["Takım A"]
