@@ -5,7 +5,6 @@ ortak). Her test taze DB + taze config alır.
 """
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,7 +26,6 @@ sync:
 sources:
   git: {{ provider: fixture }}
   tasks: {{ provider: fixture }}
-  quality: {{ provider: fixture }}
 metrics:
   cycle_time: {{ enabled: true, source: jira_status, fallback: pr_merge }}
   pr_review_time: {{ enabled: true }}

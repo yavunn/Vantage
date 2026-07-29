@@ -1,7 +1,7 @@
 """Kural motoru testleri: her kuralın tetiklendiği senaryo (spec Bölüm 6)."""
 from __future__ import annotations
 
-from datetime import timedelta, timezone
+from datetime import timedelta
 
 from tests.conftest import NOW, days_ago, make_team
 

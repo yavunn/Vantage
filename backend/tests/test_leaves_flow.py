@@ -134,7 +134,7 @@ def test_mine_reddedileni_gerekceyle_doner(client, session):
 def test_calisan_yalniz_kendi_iznini_gorur(client, session):
     team = _team(session)
     a = _mk_user(session, "a@x.com", team_id=team.id)  # noqa: F841
-    b = _mk_user(session, "b@x.com", team_id=team.id)  # aynı takım
+    _mk_user(session, "b@x.com", team_id=team.id)  # aynı takım
     _mk_user(session, "admin@x.com", role="admin")
     at = _token(client, "admin@x.com")
     bt = _token(client, "b@x.com")

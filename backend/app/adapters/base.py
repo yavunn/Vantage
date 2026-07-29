@@ -1,7 +1,7 @@
 """Adaptör arayüzleri ve normalize DTO'lar.
 
-Adaptör deseni ZORUNLUDUR (spec Bölüm 3): her kaynak (git, jira, trello,
-sonarqube) tek bir ortak arayüzü uygular. Yeni kaynak eklemek çekirdeği
+Adaptör deseni ZORUNLUDUR (spec Bölüm 3): her kaynak (git, gitlab, jira,
+trello) tek bir ortak arayüzü uygular. Yeni kaynak eklemek çekirdeği
 bozmaz; kirli/eksik alanlar tek yerde (ingest servisi) ele alınır.
 
 Adaptörler DB'ye dokunmaz — yalnızca normalize DTO listeleri döner.

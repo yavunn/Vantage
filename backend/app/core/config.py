@@ -82,20 +82,14 @@ class TaskSource(BaseModel):
     status_mapping: StatusMapping = Field(default_factory=StatusMapping)
 
 
-class QualitySource(BaseModel):
+class Sources(BaseModel):
     """Dış kod-kalitesi taraması (SonarQube/linter) KALDIRILDI — kod taraması
     artık kendi AI Kod Analizi modülümüzle yapılır (bkz. app/services/code_analysis.py).
-    Bu model yalnız eski config.yaml uyumu için durur; runtime'da okunmaz.
-    model_config extra=allow: eski 'sonarqube'/'linter' anahtarları yüklemeyi kırmaz."""
+    Eski config.yaml'lardaki `sources.quality` bloğu pydantic'in varsayılan
+    extra="ignore" davranışıyla sessizce yok sayılır; yükleme kırılmaz."""
 
-    model_config = {"extra": "allow"}
-    provider: str = "none"
-
-
-class Sources(BaseModel):
     git: GitSource = Field(default_factory=GitSource)
     tasks: TaskSource = Field(default_factory=TaskSource)
-    quality: QualitySource = Field(default_factory=QualitySource)
 
 
 class MetricConfig(BaseModel):

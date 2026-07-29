@@ -128,7 +128,6 @@ def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatc
 
     # config.yaml'a anahtar SIZMAZ.
     from app.core.config import DEFAULT_CONFIG_PATH
-    import app.core.config as cfgmod
     cfg_path = os.environ.get("EHD_CONFIG") or str(DEFAULT_CONFIG_PATH)
     assert "sk-test-12345" not in open(cfg_path, encoding="utf-8").read()
 
