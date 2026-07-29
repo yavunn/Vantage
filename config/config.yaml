@@ -9,12 +9,6 @@ sync:
   interval_minutes: 60
 sources:
   git:
-    # provider: github  <-- PR metriklerini (pr_review_time, review_latency,
-    #   deployment_frequency, change_failure_rate) açan ayar budur. git_log
-    #   yerel klasörü okur ve orada pull request kaydı YOKTUR.
-    #   ŞU AN AÇIK DEĞİL çünkü GITHUB_TOKEN bu repoya yetkili değil (404).
-    #   Token'ı yetkilendirdikten sonra bu satırı 'github' yapın ya da
-    #   Yönetici paneli → Entegrasyon → Git sağlayıcı'dan seçin. slug hazır.
     provider: git_log
     repos:
     - name: nabiz
@@ -40,17 +34,11 @@ sources:
       token_env: TRELLO_TOKEN
       boards:
       - FMm9Vuzg
-    # Trello liste adları serbest metindir; eşlenmeyen bir liste hiçbir
-    # kategoriye girmez ve o kartlar WIP/hijyen sayımlarından SESSİZCE düşer.
-    # ('Tamamlandı', 'Yapılıyor' gibi adlar yerleşik varsayılanlarla zaten
-    # eşleşiyor — burada yalnız eşleşmeyenler listelenir.)
     status_mapping:
       backlog:
       - BACKLOG
       - Araştırma Konuları
       - Yapılacaklar
-      # 'staj' bir park listesi: aktif çalışılmıyor, bu yüzden WIP'i şişirmesin
-      # diye backlog sayıldı. Gerçekte devam eden iş ise in_progress'e alın.
       - staj
       in_progress:
       - DEVELOPMENT

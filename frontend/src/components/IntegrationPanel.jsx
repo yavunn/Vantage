@@ -79,59 +79,6 @@ function RepoRow({ repo, teams, provider, onChange, onRemove }) {
   );
 }
 
-// Kaynaktaki kolon adları serbest metindir (Trello listesi, Jira adımı).
-// Eşlenmeyen kolon WIP'e "akıştaki iş" olarak girer ve takımı yok yere kırmızı
-// yapar — bu yüzden görülen statüler tek tek kategoriye atanır.
-const CATEGORY_LABELS = {
-  backlog: "Backlog / bekleyen",
-  in_progress: "Akışta (WIP)",
-  done: "Bitti",
-};
-
-function StatusMapper({ observed, mapping, onChange }) {
-  const lookup = {};
-  for (const cat of Object.keys(CATEGORY_LABELS)) {
-    for (const name of mapping[cat] || []) lookup[name.trim().toLowerCase()] = cat;
-  }
-  const names = [...new Set([
-    ...observed,
-    ...Object.values(mapping).flat(),
-  ])].sort((a, b) => a.localeCompare(b, "tr"));
-
-  function assign(name, category) {
-    const next = {};
-    for (const cat of Object.keys(CATEGORY_LABELS)) {
-      next[cat] = (mapping[cat] || []).filter(
-        (n) => n.trim().toLowerCase() !== name.trim().toLowerCase()
-      );
-    }
-    if (category) next[category] = [...next[category], name];
-    onChange(next);
-  }
-
-  if (names.length === 0) {
-    return <p className="desc">Henüz statü görülmedi — önce senkronize edin.</p>;
-  }
-  return (
-    <div className="status-map">
-      {names.map((name) => {
-        const cat = lookup[name.trim().toLowerCase()] || "";
-        return (
-          <div key={name} className={`status-map-row ${cat ? "" : "unmapped"}`}>
-            <span className="status-name">{name}</span>
-            <select value={cat} onChange={(e) => assign(name, e.target.value)}>
-              <option value="">— eşlenmedi (varsayılana düşer) —</option>
-              {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
-                <option key={k} value={k}>{label}</option>
-              ))}
-            </select>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function TestResult({ result }) {
   if (!result) return null;
   const rows = [
@@ -190,7 +137,6 @@ export default function IntegrationPanel() {
           trello_token: "",
           github_token: "",  // sır — önden doldurulmaz
           repos: (d.git.repos || []).map((r) => ({ ...r, team: r.team || NO_TEAM })),
-          status_mapping: d.tasks.status_mapping || { backlog: [], in_progress: [], done: [] },
         });
       })
       .catch((e) => setError(e.message));
@@ -235,7 +181,6 @@ export default function IntegrationPanel() {
           .filter((r) => r.name.trim())
           .map((r) => ({ name: r.name.trim(), path: (r.path || "").trim(),
                         slug: (r.slug || "").trim(), team: r.team || "" })),
-        status_mapping: form.status_mapping,
       };
       // Sır alanları YALNIZCA doluysa gönder (boş göndermek mevcut sırrı silerdi).
       if (form.trello_key.trim()) payload.trello_key = form.trello_key.trim();
@@ -458,25 +403,6 @@ export default function IntegrationPanel() {
                 ve süreç ortamına yazılır. Boş bırakırsan mevcut sır korunur.
               </p>
             </>
-          )}
-
-          {form.tasks_provider !== "none" && (
-            <div className="span-2 repo-block">
-              <div className="repo-block-head">
-                <h3>Statü eşlemesi</h3>
-              </div>
-              <p className="field-hint">
-                Kaynaktaki kolon adları serbest metindir ("Araştırma Konuları",
-                "DEVELOPMENT"). Eşlenmeyen kolon <strong>akıştaki iş</strong> sayılır ve
-                WIP'i şişirir; cycle time da yanlış noktadan başlar. Aşağıdaki liste
-                senkronda gerçekten görülen statülerden üretilir.
-              </p>
-              <StatusMapper
-                observed={data.tasks.observed_statuses || []}
-                mapping={form.status_mapping}
-                onChange={(next) => upd("status_mapping", next)}
-              />
-            </div>
           )}
 
           <button type="submit" className="login-btn" disabled={saving}>

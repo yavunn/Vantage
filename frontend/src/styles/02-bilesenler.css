@@ -415,17 +415,6 @@ th.sortable:hover { color: var(--brand); }
   .repo-row, .repo-row.editable { grid-template-columns: 1fr; }
 }
 
-/* Statü eşlemesi: kaynak kolon adı → akış kategorisi */
-.status-map { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
-.status-map-row {
-  display: grid; grid-template-columns: 1fr 240px; align-items: center; gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-sm);
-}
-.status-map-row.unmapped { border-color: color-mix(in srgb, var(--status-warning) 45%, transparent); }
-.status-name { font-weight: 600; font-size: var(--text-sm); }
-@media (max-width: 640px) { .status-map-row { grid-template-columns: 1fr; } }
-
 /* ---- Takımlar paneli ---- */
 .team-create { display: flex; gap: var(--space-2); margin: var(--space-4) 0; max-width: 460px; }
 .team-create input {

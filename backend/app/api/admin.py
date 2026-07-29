@@ -55,9 +55,6 @@ class SourcesUpdate(BaseModel):
     # değiştirilir; verilmezse dokunulmaz. Kurulu sistemde yeni repo bağlamak
     # sunucuya girip YAML düzenlemeyi gerektirmemeli.
     repos: list[RepoEntry] | None = None
-    # Kaynak kolon/statü adlarının akış kategorilerine eşlenmesi. Serbest metin
-    # olduğu için gömülü liste yetmez; eşlenmezse WIP/cycle time sessizce yanlış.
-    status_mapping: dict[str, list[str]] | None = None
 
 
 def _env_status(var: str) -> dict:
@@ -81,7 +78,7 @@ def get_sources(
     session: Session = Depends(get_session),
     _: User = Depends(require_admin),
 ):
-    from app.models import Commit, Repo, Task, Team
+    from app.models import Commit, Repo, Team
 
     cfg = get_config()
     last_sync = session.scalar(select(func.max(MetricResult.computed_at)))
@@ -128,15 +125,12 @@ def get_sources(
                 "key": _env_status(cfg.sources.tasks.trello.key_env),
                 "token": _env_status(cfg.sources.tasks.trello.token_env),
             },
-            # Kaynakta GÖRÜLEN statüler + mevcut eşleme: yönetici hangi kolonun
-            # nereye düştüğünü tahmin etmek zorunda kalmasın.
-            "status_mapping": {
-                c: getattr(cfg.sources.tasks.status_mapping, c)
-                for c in ("backlog", "in_progress", "done")
-            },
-            "observed_statuses": sorted({
-                t.status.strip() for t in session.scalars(select(Task)) if t.status and t.status.strip()
-            }),
+            # NOT: statü eşlemesi (kolon adı → backlog/in_progress/done) BU UÇTA
+            # DÖNMEZ ve panelden düzenlenmez. Ekip zaten kartı Trello'da doğru
+            # listeye taşıyarak akışı belirliyor; ikinci bir eşleme ekranı aynı
+            # kararı iki yerde yönetmek demekti. Eşleme config.yaml'da yaşamaya
+            # ve metrik motoru tarafından KULLANILMAYA devam eder
+            # (sources.tasks.status_mapping → app/metrics/engine.py:resolve_statuses).
         },
     }
 
@@ -202,12 +196,9 @@ def update_sources(
                 entry["team"] = team
             else:
                 entry.pop("team", None)
-    if body.status_mapping is not None:
-        raw["sources"]["tasks"]["status_mapping"] = {
-            category: [s.strip() for s in (names or []) if s and s.strip()]
-            for category, names in body.status_mapping.items()
-            if category in ("backlog", "in_progress", "done")
-        }
+    # status_mapping bu uçtan YAZILMAZ (panelden kaldırıldı). config.yaml'daki
+    # mevcut blok olduğu gibi korunur: raw yeniden yazılırken dokunulmadığı için
+    # motor onu okumaya devam eder.
 
     # Sırlar (Trello key/token): config'e YAZILMAZ — .secrets.env + ortama.
     cfg = get_config()

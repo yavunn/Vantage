@@ -157,41 +157,32 @@ def test_ayni_adli_repo_iki_kez_yazilmaz(client, session):
     assert len(repos) == 1 and repos[0]["path"] == "/1"
 
 
-def test_statu_eslemesi_arayuzden_yazilir(client, session):
+def test_statu_eslemesi_arayuzden_YAZILMAZ(client, session):
+    """Statü eşlemesi panelden kaldırıldı: ekip akışı Trello'da kartı doğru
+    listeye taşıyarak belirliyor, ikinci bir eşleme ekranı aynı kararı iki
+    yerde yönetmek demekti.
+
+    KRİTİK: eşleme config'te YAŞAMAYA ve motor tarafından KULLANILMAYA devam
+    eder (bkz. test_metrics: eşleme testleri). Bu test yalnız uç yüzeyinin
+    kapandığını ve mevcut config'in bozulmadığını doğrular."""
     from app.core.config import get_config, reset_config_cache
 
-    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
-    r = client.put("/api/admin/sources", json={"status_mapping": {
-        "backlog": ["Araştırma Konuları", "  "],
-        "in_progress": ["DEVELOPMENT", "TEST"],
-        "done": ["DONE"],
-        "uydurma_kategori": ["X"],  # bilinmeyen kategori yazılmaz
-    }}, headers=auth)
-    assert r.status_code == 200, r.text
     reset_config_cache()
-    sm = get_config().sources.tasks.status_mapping
-    assert sm.backlog == ["Araştırma Konuları"]  # boş satır atılır
-    assert sm.in_progress == ["DEVELOPMENT", "TEST"]
-    assert not hasattr(sm, "uydurma_kategori")
+    onceki = list(get_config().sources.tasks.status_mapping.backlog)
 
-
-def test_sources_gorulen_statuleri_dondurur(client, session):
-    """Arayüz hangi kolonun eşlenmediğini yöneticiye tahmin ettirmemeli."""
-    from app.models import Task, Team
-
-    team = Team(name="T")
-    session.add(team)
-    session.flush()
-    session.add_all([
-        Task(source="trello", external_id="a", team_id=team.id, status="DEVELOPMENT"),
-        Task(source="trello", external_id="b", team_id=team.id, status="Araştırma Konuları"),
-        Task(source="trello", external_id="c", team_id=team.id, status=None),
-    ])
-    session.commit()
     auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+    # Bilinmeyen alan artık şemada yok → sessizce yok sayılır, 200 döner.
+    r = client.put("/api/admin/sources",
+                   json={"status_mapping": {"backlog": ["UYDURMA"]}}, headers=auth)
+    assert r.status_code == 200, r.text
 
+    reset_config_cache()
+    assert get_config().sources.tasks.status_mapping.backlog == onceki
+
+    # GET yanıtında da eşleme/görülen statü alanları yok.
     body = client.get("/api/admin/sources", headers=auth).json()
-    assert body["tasks"]["observed_statuses"] == ["Araştırma Konuları", "DEVELOPMENT"]
+    assert "status_mapping" not in body["tasks"]
+    assert "observed_statuses" not in body["tasks"]
 
 
 # --- Genel ayarlar ------------------------------------------------------------
