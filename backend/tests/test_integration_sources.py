@@ -17,7 +17,6 @@ from sqlalchemy import select
 
 from tests.conftest import days_ago
 
-
 # --- Sahte HTTP katmanı (Trello ağa çıkmadan test edilir) ---------------------
 
 class _FakeResp:

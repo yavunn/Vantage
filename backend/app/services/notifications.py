@@ -166,7 +166,8 @@ def scan_and_emit_trend_alarms(session: Session) -> int:
 
 
 def _emit_signal_alarms(session: Session, team) -> int:
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
 
     from app.core.config import get_config
     from app.metrics.engine import load_team_data

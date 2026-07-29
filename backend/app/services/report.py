@@ -32,8 +32,7 @@ from app.metrics.engine import (
     load_team_data,
 )
 from app.models import Recommendation, Team
-from app.services.health import METRIC_META, STATUS_LABELS, health_status
-from app.services.health import METRIC_THRESHOLD_MAP
+from app.services.health import METRIC_META, METRIC_THRESHOLD_MAP, STATUS_LABELS, health_status
 from app.services.signals import compute_signals
 
 VALID_DAYS = {7, 30, 90}

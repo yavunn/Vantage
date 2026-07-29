@@ -104,10 +104,10 @@ def test_risky_deploy_window_tetiklenir(session):
 
 
 def test_saglikli_takimda_kural_tetiklenmez(session):
-    from app.models import PullRequest
-    from app.rules.engine import run_rules
-    from app.models import Recommendation
     from sqlalchemy import select
+
+    from app.models import PullRequest, Recommendation
+    from app.rules.engine import run_rules
 
     team, repo, devs, _ = make_team(session)
     session.add(PullRequest(

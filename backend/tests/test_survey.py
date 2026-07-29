@@ -66,8 +66,9 @@ def survey_on(monkeypatch):
 
 def test_cevap_tablosunda_kullanici_kolonu_yok(app_env):
     from sqlalchemy import inspect
-    from app.core.db import get_engine
+
     import app.models  # noqa: F401
+    from app.core.db import get_engine
 
     cols = {c["name"] for c in inspect(get_engine()).get_columns("survey_responses")}
     # Kişiye bağlayacak HİÇBİR kolon olmamalı.
@@ -90,7 +91,7 @@ def test_gonderim_sifreli_ve_anonim(client, session, survey_on):
                     headers=_auth(t))
     assert r.status_code == 200, r.text
 
-    from app.models import SurveyResponse, SurveyParticipation
+    from app.models import SurveyParticipation, SurveyResponse
     resp = session.scalars(__import__("sqlalchemy").select(SurveyResponse)).all()
     assert len(resp) == 1
     # Düz metin DB'de bulunmamalı — payload şifreli.
@@ -256,6 +257,7 @@ def test_sorular_put_yalniz_admin(client, session, survey_on):
 def test_snapshot_izolasyonu(session, survey_on):
     import json as _json
     from datetime import date
+
     from app.core.config import get_config
     from app.services import survey as ssvc
 
@@ -279,6 +281,7 @@ def test_snapshot_izolasyonu(session, survey_on):
 def test_agrega_snapshot_ve_v1_uyum(session, survey_on):
     import json as _json
     from datetime import date
+
     from app.core.config import get_config
     from app.core.survey_crypto import encrypt_payload
     from app.models import SurveyCycle, SurveyResponse

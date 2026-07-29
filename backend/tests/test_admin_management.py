@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from tests.conftest import make_team
+
 # Ortak yardımcılar tek yerde dursun (client fixture'ı da oradan gelir).
 from tests.test_integration_sources import _admin_token, _set_git_repos, client  # noqa: F401
 

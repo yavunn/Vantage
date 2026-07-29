@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
-
 # --- Normalize DTO'lar (ortak şemanın taşıma hâli) ---------------------------
 
 @dataclass

@@ -1,0 +1,30 @@
+# Ruff yapılandırması — CI ve yerel çalıştırma AYNI kuralları görsün.
+# Amaç dar: ölü kod ve gerçek hata sınıfları. Biçim/stil tartışması yok.
+
+line-length = 110
+
+[lint]
+select = [
+  "F",       # pyflakes: kullanılmayan import/değişken, tanımsız isim
+  "E9",      # sözdizimi/çalıştırma hataları
+  "B",       # bugbear: sessiz hata sınıfları (mutable default, raise-from…)
+  "SIM115",  # context manager'sız open() — dosya tanıtıcısı sızıntısı
+  "I",       # import sıralaması (tek başına gürültü değil, çakışmayı azaltır)
+]
+
+ignore = [
+  # FastAPI'nin TEMEL deseni: Depends()/Query() varsayılan değerde çağrılır.
+  # Bugbear bunu "her çağrıda yeniden değerlendirilmez" diye işaretler; burada
+  # kasıtlı ve doğrudur.
+  "B008",
+  # İstisnayı yeniden yükseltirken 'from' zinciri: 5 gerçek noktada düzeltildi,
+  # ama HTTPException'ı doğrudan yükselten yerlerde zorunlu tutmak gürültü.
+  "B904",
+]
+
+[lint.per-file-ignores]
+# pytest fixture'ları: `from tests.conftest import client` sonra `def test_x(client)`
+# — ruff bunu "yeniden tanımlama" sanır. Fixture mekanizmasının doğası.
+"tests/*" = ["F811"]
+# Alembic şablonundan gelen dosyalar: otomatik üretilmiş import düzeni.
+"migrations/*" = ["I001"]

@@ -31,13 +31,13 @@ from app.models import (
     User,
 )
 from app.services.commit_alignment import alignment_summary
-from app.services.scoring import overall_score
 from app.services.health import (
     METRIC_META,
     METRIC_THRESHOLD_MAP,
     STATUS_LABELS,
     health_status,
 )
+from app.services.scoring import overall_score
 
 # Bu router'daki TÜM uçlar geçerli JWT ister (dashboard okuma dahil). Kimlik
 # artık YALNIZ JWT'den gelir — eski, taklit edilebilen X-Dev-Id başlığı kaldırıldı.

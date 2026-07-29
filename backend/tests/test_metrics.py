@@ -245,10 +245,11 @@ class TestProcessHygiene:
 
 class TestConfigKapatma:
     def test_kapali_metrik_hesaplanmaz(self, session, app_env):
+        from sqlalchemy import select
+
         from app.core.config import get_config
         from app.metrics.engine import compute_all
         from app.models import MetricResult
-        from sqlalchemy import select
 
         team, repo, devs, _ = make_team(session)
         add_pr(session, repo, devs[0], opened_d=10, merged_d=6)

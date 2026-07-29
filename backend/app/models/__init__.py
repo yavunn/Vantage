@@ -6,9 +6,7 @@ sistemi asla çökertmez (İlke A: kirli veri hata değil, ana özelliktir).
 """
 from __future__ import annotations
 
-from datetime import datetime
-
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,

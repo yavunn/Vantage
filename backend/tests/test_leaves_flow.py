@@ -109,6 +109,7 @@ def test_karar_bildirimi_calisana_duser(client, session):
                 json={"decision": "rejected", "note": "başka hafta dene"}, headers=_auth(at))
 
     from sqlalchemy import select
+
     from app.models import Notification
     notifs = session.scalars(
         select(Notification).where(Notification.user_id == emp.id,

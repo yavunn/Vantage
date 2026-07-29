@@ -29,11 +29,13 @@ jobs:
         working-directory: backend
         run: python -m pytest tests -q
 
-      # Ölü kod / kullanılmayan import taraması. Türkçe metinlerdeki "belirsiz
-      # unicode karakter" uyarıları (RUF001-003) bilinçli olarak kapsam dışı.
+      # Ölü kod / gerçek hata sınıfları. Kural seçimi backend/ruff.toml'da —
+      # CI ve yerel çalıştırma aynı kuralları görsün diye komut satırında
+      # --select YOK. (Türkçe metinlerdeki "belirsiz unicode" uyarıları ve
+      # FastAPI'nin Depends() deseni bilinçli olarak kapsam dışı.)
       - name: Lint (ölü kod)
         working-directory: backend
-        run: python -m ruff check app tests scripts --select F,E9,B,SIM115
+        run: python -m ruff check app tests scripts migrations
 
   frontend:
     runs-on: ubuntu-latest

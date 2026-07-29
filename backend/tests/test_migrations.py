@@ -108,10 +108,10 @@ def test_alembic_semasi_modellerle_ortusuyor(fresh_db_url):
 
 def test_alembic_tek_head_tasiyor():
     """Çatallanmış revizyon grafiği `upgrade head`'i belirsizleştirir."""
+    from pathlib import Path
+
     from alembic.config import Config
     from alembic.script import ScriptDirectory
-
-    from pathlib import Path
 
     backend_dir = Path(__file__).resolve().parents[1]
     cfg = Config(str(backend_dir / "alembic.ini"))
