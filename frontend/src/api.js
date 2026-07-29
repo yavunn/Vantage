@@ -46,6 +46,10 @@ const FIELD_TR = {
 
 // FastAPI 422 doğrulama hatası: detail bir LİSTE. İnsan-okur Türkçe mesaja çevir.
 function humanizeDetail(detail) {
+  // Gövde yok ya da JSON değil (ör. 500 + HTML hata sayfası, proxy kesintisi):
+  // boş dön ki çağıran HTTP kodunu göstersin. "Geçersiz istek" demek yanıltıcı
+  // olurdu — istek geçersiz değil, sunucu cevap veremedi.
+  if (detail == null) return "";
   if (typeof detail === "string") return detail;
   if (!Array.isArray(detail)) return "Geçersiz istek";
   return detail
