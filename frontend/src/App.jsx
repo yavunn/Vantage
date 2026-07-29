@@ -4,14 +4,15 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setupStatus } from "./api.js";
 import { toast } from "./toast.js";
+import { applyTheme, RANGE_OPTIONS, readNav, writeNav } from "./nav.js";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
 import SurveyBanner from "./components/SurveyBanner.jsx";
+import TopBar from "./components/TopBar.jsx";
 import CodeHealthCard from "./components/CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./components/CodeHealthDrilldown.jsx";
 import MetricCard from "./components/MetricCard.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
-import NotificationBell from "./components/NotificationBell.jsx";
 import PersonPicker, { pushRecent } from "./components/PersonPicker.jsx";
 import MetricDrilldown from "./components/MetricDrilldown.jsx";
 import Setup from "./components/Setup.jsx";
@@ -32,54 +33,9 @@ const SurveyForm = lazy(() => import("./components/SurveyForm.jsx"));
 
 const LazyFallback = <div className="app">Yükleniyor…</div>;
 
-const RANGE_OPTIONS = [7, 30, 90];
 
-function BrandMark() {
-  return (
-    <span className="topbar-mark" aria-hidden="true">
-      <svg viewBox="0 0 96 28" width="96" height="28">
-        <polyline
-          className="ecg"
-          points="0,14 18,14 24,14 29,4 36,24 42,14 48,14 53,9 58,19 63,14 96,14"
-          fill="none" stroke="currentColor" strokeWidth="2.2"
-          strokeLinecap="round" strokeLinejoin="round"
-        />
-      </svg>
-    </span>
-  );
-}
 
-function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === "light" || theme === "dark") root.dataset.theme = theme;
-  else delete root.dataset.theme;
-}
 
-// Gezinme durumu: URL hash (paylaşılabilir/yer imi) öncelikli, yoksa
-// localStorage (reload'da kaldığın yer). #tab=team&team=1&range=30
-function readNav() {
-  const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
-  const ls = (k) => localStorage.getItem(k) || undefined;
-  const rangeRaw = h.get("range") || ls("nabiz_range");
-  const teamRaw = h.get("team") || ls("nabiz_team");
-  return {
-    tab: h.get("tab") || ls("nabiz_tab") || "team",
-    range: [7, 30, 90].includes(Number(rangeRaw)) ? Number(rangeRaw) : 30,
-    team: teamRaw != null ? Number(teamRaw) : null,
-  };
-}
-
-function writeNav({ tab, team, range }) {
-  if (tab) localStorage.setItem("nabiz_tab", tab);
-  if (team != null) localStorage.setItem("nabiz_team", String(team));
-  if (range) localStorage.setItem("nabiz_range", String(range));
-  const p = new URLSearchParams();
-  if (tab) p.set("tab", tab);
-  if (team != null) p.set("team", String(team));
-  if (range) p.set("range", String(range));
-  const next = "#" + p.toString();
-  if (location.hash !== next) history.replaceState(null, "", next);
-}
 
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
@@ -333,110 +289,24 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Topbar iki katman: üst = kimlik/hesap, alt = gezinme + bağlam.
-          Takım seçici yalnız takıma bağlı sekmelerde görünür (bağlam kirliliği
-          olmasın). Tüm eylemler korunur; yalnız yerleşim değişti. */}
-      <header className="topbar">
-        <div className="topbar-row topbar-row-main">
-          <div className="topbar-brand">
-            <BrandMark />
-            <div>
-              <h1>Nabız</h1>
-              <span className="topbar-suffix">Mühendislik Sağlığı Panosu</span>
-            </div>
-          </div>
-
-          <div className="topbar-user">
-            <button className="mini ghost cmdk-trigger" onClick={() => setPaletteOpen(true)} title="Hızlı arama (Ctrl+K)">
-              <span aria-hidden="true">⌕</span> Ara <kbd>Ctrl K</kbd>
-            </button>
-            <NotificationBell onNavigate={({ teamId: tid, survey: goSurvey }) => {
-              if (goSurvey) { setTab("survey"); return; }
-              if (tid != null) { setTeamId(tid); setTab("team"); }
-            }} />
-            <button className="mini ghost" onClick={cycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
-            <span className="user-chip">
-              {user.display_name}
-              {isAdmin && <span className="role-badge">admin</span>}
-              {isHr && <span className="role-badge hr-badge">İK</span>}
-            </span>
-            <button className="mini ghost" onClick={doLogout}>Çıkış</button>
-          </div>
-        </div>
-
-        <div className="topbar-row topbar-row-nav">
-          <nav className="topbar-tabs" aria-label="Ana gezinme">
-            {isHr ? (
-              <>
-                <button className={`tab ${tab === "hr" ? "active" : ""}`} onClick={() => setTab("hr")}>
-                  İK Panosu
-                </button>
-                <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
-                  İzinler
-                </button>
-                <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
-                  Hesaplar
-                </button>
-                {surveyRespondent && (
-                  <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
-                    Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
-                  </button>
-                )}
-                <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
-                  Ayarlar
-                </button>
-              </>
-            ) : (
-              <>
-                <button className={`tab ${tab === "team" ? "active" : ""}`} onClick={() => setTab("team")}>
-                  Takım görünümü
-                </button>
-                {individualAvailable && (
-                  <button className={`tab ${tab === "me" ? "active" : ""}`} onClick={() => setTab("me")}>
-                    Bireysel görünüm
-                  </button>
-                )}
-                <button className={`tab ${tab === "projects" ? "active" : ""}`} onClick={() => setTab("projects")}>
-                  Projelerim
-                </button>
-                <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
-                  İzinler
-                </button>
-                {surveyRespondent && (
-                  <button className={`tab ${tab === "survey" ? "active" : ""}`} onClick={() => setTab("survey")}>
-                    Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
-                  </button>
-                )}
-                {isAdmin && (
-                  <button className={`tab ${tab === "admin" ? "active" : ""}`} onClick={() => setTab("admin")}>
-                    Yönetici paneli
-                  </button>
-                )}
-                <button className={`tab ${tab === "settings" ? "active" : ""}`} onClick={() => setTab("settings")}>
-                  Ayarlar
-                </button>
-              </>
-            )}
-          </nav>
-
-          {tab === "team" && (
-            <label className="topbar-context">
-              <span className="ctx-label">Takım</span>
-              <select value={teamId ?? ""} onChange={(e) => setTeamId(Number(e.target.value))} aria-label="Takım seç">
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-
-        <span className="sub">
-          Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı,
-          "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
-          {uiConfig.anonymize_individuals && " · Anonim mod açık (takım-agregat)."}
-        </span>
-      </header>
+      <TopBar
+        user={user}
+        isAdmin={isAdmin}
+        isHr={isHr}
+        tab={tab}
+        onTab={setTab}
+        teams={teams}
+        teamId={teamId}
+        onTeam={setTeamId}
+        individualAvailable={individualAvailable}
+        surveyRespondent={surveyRespondent}
+        surveyPending={surveyPending}
+        anonymized={uiConfig.anonymize_individuals}
+        themeLabel={themeLabel}
+        onCycleTheme={cycleTheme}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onLogout={doLogout}
+      />
 
       {surveyPending && tab !== "survey" && !surveyDismissed && (
         <SurveyBanner
