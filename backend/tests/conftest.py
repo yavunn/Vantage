@@ -72,6 +72,11 @@ def app_env(tmp_path, monkeypatch):
     reset_config_cache()
     reset_engine()
     Base.metadata.create_all(get_engine())
+    # Giriş hız sınırı modül seviyesinde sayaç tutar; TestClient'ın IP'si her
+    # testte aynı ("testclient"). Sıfırlanmazsa bir testin başarısız giriş
+    # denemeleri sonraki testleri 429'a düşürür.
+    from app.api.auth import _login_attempts
+    _login_attempts.clear()
     yield cfg_file
     reset_engine()
     reset_config_cache()

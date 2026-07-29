@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -51,6 +51,43 @@ LOCKOUT_MINUTES = 15
 # anlamli bir direnc vermiyor; hesap kilidi yalniz CEVRIMICI denemeyi
 # yavaslatir. Mevcut hesaplar etkilenmez — yalniz yeni/degisen parolalar.
 MIN_PASSWORD_LENGTH = 10
+
+# IP bazlı giriş sınırı. Hesap kilidi TEK hesabı korur; saldırgan hesap hesap
+# dolaşarak (password spraying) ya da e-posta numaralandırarak kilidi hiç
+# tetiklemeyebilir. Bu sayaç kaynağı sınırlar. Tek process + on-prem olduğu
+# için bellek içi yeterli; birden çok worker'a geçilirse Redis'e taşınmalı.
+LOGIN_RATE_MAX = 20          # pencere başına başarısız deneme
+LOGIN_RATE_WINDOW_MIN = 5    # kayan pencere (dakika)
+_login_attempts: dict[str, list[datetime]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    """İstemci IP'si. Ters vekil arkasındaysa X-Forwarded-For'un İLK adresi.
+
+    Not: X-Forwarded-For istemci tarafından uydurulabilir; on-prem kurulumda
+    uygulamanın önünde güvenilen bir vekil olduğu varsayılır. Bu sınır ek bir
+    katmandır, hesap kilidinin yerine geçmez."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "bilinmiyor"
+
+
+def _rate_limited(ip: str, now: datetime) -> bool:
+    """Kayan pencerede eşik aşıldı mı? Sayaç yalnız BAŞARISIZ denemede artar."""
+    pencere = now - timedelta(minutes=LOGIN_RATE_WINDOW_MIN)
+    denemeler = [t for t in _login_attempts.get(ip, []) if t > pencere]
+    _login_attempts[ip] = denemeler
+    return len(denemeler) >= LOGIN_RATE_MAX
+
+
+def _record_failed_login(ip: str, now: datetime) -> None:
+    _login_attempts.setdefault(ip, []).append(now)
+    # Sözlük sınırsız büyümesin: boşalan IP kayıtlarını at.
+    if len(_login_attempts) > 5000:
+        pencere = now - timedelta(minutes=LOGIN_RATE_WINDOW_MIN)
+        for k in [k for k, v in _login_attempts.items() if not any(t > pencere for t in v)]:
+            _login_attempts.pop(k, None)
 
 
 # --- şemalar ------------------------------------------------------------------
@@ -219,8 +256,18 @@ def _user_out(session: Session, user: User) -> dict:
 # --- uçlar --------------------------------------------------------------------
 
 @router.post("/login")
-def login(body: LoginBody, session: Session = Depends(get_session)):
+def login(body: LoginBody, request: Request, session: Session = Depends(get_session)):
     now = datetime.now(timezone.utc)
+
+    # Önce kaynak sınırı: hesap kilidi tek hesabı korur, bu ise aynı IP'den
+    # farklı hesapları taramayı (password spraying) yavaşlatır.
+    ip = _client_ip(request)
+    if _rate_limited(ip, now):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Çok fazla giriş denemesi. {LOGIN_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+        )
+
     user = session.scalar(select(User).where(User.email == body.email.lower()))
 
     # Hesap geçici kilitli mi? (brute-force koruması). Kilit süresi dolmuşsa
@@ -241,6 +288,8 @@ def login(body: LoginBody, session: Session = Depends(get_session)):
 
     ok = user is not None and user.is_active and verify_password(body.password, user.password_hash)
     if not ok:
+        # IP sayacı hesap VAR OLMASA da artar: numaralandırma da yavaşlasın.
+        _record_failed_login(ip, now)
         # Başarısız deneme sayacını artır; eşiği aşarsa kilitle. (Var olan hesap
         # için; olmayan e-postada sayaç yok — kullanıcı sayımı sızdırılmaz,
         # mesaj aynıdır.)

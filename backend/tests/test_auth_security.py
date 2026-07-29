@@ -73,6 +73,40 @@ def test_anotasyon_yazma_duz_kullaniciya_kapali(client, session):
     assert client.delete("/api/annotations/1", headers=_auth(t)).status_code == 403
 
 
+def test_ip_bazli_giris_siniri(client, session):
+    """Hesap kilidi TEK hesabı korur; saldırgan hesap hesap dolaşırsa hiç
+    tetiklenmez. IP sayacı var olmayan hesaplarda da artmalı."""
+    from app.api.auth import LOGIN_RATE_MAX
+
+    # Hiç var olmayan hesaplara deneme yap: hesap kilidi devreye giremez.
+    for i in range(LOGIN_RATE_MAX):
+        r = client.post("/api/auth/login",
+                        json={"email": f"yok{i}@x.com", "password": "yanlisparola"})
+        assert r.status_code == 401, f"{i}. denemede beklenmedik: {r.status_code}"
+
+    # Eşik aşıldı → 429, artık e-posta/parola bile denenmiyor.
+    r = client.post("/api/auth/login", json={"email": "yok99@x.com", "password": "x"})
+    assert r.status_code == 429
+    assert "giriş denemesi" in r.json()["detail"]
+
+    # DOĞRU parola bile bu pencerede geçmez — sınır kaynağa uygulanır.
+    _mk_user(session, "gercek@x.com", password="dogruParola123")
+    r = client.post("/api/auth/login",
+                    json={"email": "gercek@x.com", "password": "dogruParola123"})
+    assert r.status_code == 429
+
+
+def test_basarili_girisler_siniri_tetiklemez(client, session):
+    """Sayaç yalnız BAŞARISIZ denemede artmalı; normal kullanım engellenmesin."""
+    from app.api.auth import LOGIN_RATE_MAX
+
+    _mk_user(session, "u@x.com", password="dogruParola123")
+    for _ in range(LOGIN_RATE_MAX + 5):
+        r = client.post("/api/auth/login",
+                        json={"email": "u@x.com", "password": "dogruParola123"})
+        assert r.status_code == 200
+
+
 def test_parola_degisince_eski_token_gecersiz(client, session):
     _mk_user(session, "u@x.com", password="eski123")
     t_old = _login(client, "u@x.com", "eski123")

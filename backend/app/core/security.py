@@ -1,5 +1,10 @@
 """Kimlik doğrulama yardımcıları: parola hash'leme (bcrypt) + JWT üretimi/çözümü.
 
+JWT kütüphanesi PyJWT'dir. Önceki python-jose, saf-Python `ecdsa` paketini
+sürüklüyordu (CVE-2024-23342, "düzeltilmeyecek" damgalı yan-kanal). Bu proje
+yalnız HS256 (HMAC) kullandığı için o kod yolu hiç çalışmıyordu — yani risk
+teoriktı; yine de gereksiz bağımlılık ve saldırı yüzeyi kaldırıldı.
+
 On-prem kısıt: JWT imza anahtarı ortam değişkeninden (EHD_SECRET) okunur.
 GÜVENLİK: Tahmin edilebilir SABİT bir varsayılan YOKTUR (repo herkese açık —
 sabit anahtar = token taklidi). EHD_SECRET yoksa `ensure_jwt_secret()` başlangıçta
@@ -13,7 +18,8 @@ import secrets as _secrets_mod
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 
 ALGORITHM = "HS256"
 TOKEN_TTL_HOURS = 12
@@ -71,6 +77,8 @@ def create_access_token(user_id: int, role: str, token_version: int = 0) -> str:
 
 def decode_access_token(token: str) -> dict | None:
     try:
+        # algorithms listesi TEK öğeli: "alg: none" ya da algoritma karıştırma
+        # saldırısına kapı bırakmaz. Süre dolmuşsa PyJWT kendi hata verir.
         return jwt.decode(token, _secret(), algorithms=[ALGORITHM])
-    except JWTError:
+    except PyJWTError:
         return None

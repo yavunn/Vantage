@@ -142,7 +142,7 @@ Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 Ürün arayüzü **Nabız** adıyla gerçek giriş sistemi ve İK/çalışan modülleri içerir.
 
 ### Giriş ve hesaplar
-- **Gerçek giriş:** e-posta + parola (bcrypt hash) → JWT (`python-jose`, HS256).
+- **Gerçek giriş:** e-posta + parola (bcrypt hash) → JWT (`PyJWT`, HS256).
   İmza anahtarı `EHD_SECRET` ortam değişkeninden okunur. Tahmin edilebilir SABİT
   varsayılan YOKTUR: env verilmemişse açılışta güçlü rastgele bir anahtar üretilip
   gitignore'lu `backend/.secrets.env`'e yazılır (`ensure_jwt_secret`). Yine de
