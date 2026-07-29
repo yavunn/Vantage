@@ -1,9 +1,78 @@
 import { useEffect, useState } from "react";
 import {
-  genSurveyKey, getSurveyCycles, getSurveyQuestions, getSurveyResults,
-  getSurveyStatus, updateSurveyQuestions,
+  genSurveyKey, getSettings, getSurveyCycles, getSurveyQuestions, getSurveyResults,
+  getSurveyStatus, updateSettings, updateSurveyQuestions,
 } from "../api.js";
 import { toast } from "../toast.js";
+
+// Anket ayarları sonuçlarla aynı sekmede durur: ayarı değiştiren kişi etkisini
+// hemen aynı ekranda görür, ikinci bir kopyası başka yerde yaşamaz.
+function SurveySettings({ onSaved }) {
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getSettings().then((d) => setForm(d.survey)).catch(() => setForm(null));
+  }, []);
+
+  if (!form) return null;
+
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await updateSettings({
+        survey_enabled: form.enabled,
+        survey_interval_days: Number(form.interval_days),
+        survey_min_responses: Number(form.min_responses),
+      });
+      toast("Anket ayarları kaydedildi", "ok");
+      onSaved && onSaved();
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <section className="section">
+      <h2>Anket ayarları</h2>
+      <form className="settings-admin" onSubmit={save}>
+        <label className="switch-row">
+          <input type="checkbox" checked={form.enabled}
+                 onChange={(e) => upd("enabled", e.target.checked)} />
+          <span>
+            <strong>Anket açık</strong>
+            <em>Kapalıyken kimseye anket gösterilmez ve yeni döngü açılmaz.</em>
+          </span>
+        </label>
+        <div className="grid-2">
+          <label>
+            Döngü aralığı (gün)
+            <input type="number" min={1} value={form.interval_days}
+                   onChange={(e) => upd("interval_days", e.target.value)} />
+          </label>
+          <label>
+            Asgari yanıt (gizlilik eşiği)
+            <input type="number" min={1} value={form.min_responses}
+                   onChange={(e) => upd("min_responses", e.target.value)} />
+            <span className="field-hint">
+              Bu sayının altında sonuç gösterilmez — tek yanıt ifşa olmasın.
+            </span>
+          </label>
+        </div>
+        <div className="settings-actions">
+          <button className="login-btn" type="submit" disabled={saving}>
+            {saving ? "Kaydediliyor…" : "Anket ayarlarını kaydet"}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
 
 // Admin: anket sonuçları — YALNIZ agrega. Kişi/isim yok; k-eşiği altında gizli.
 // Şifreleme anahtarını yalnız baş yönetici (owner) üretir.
@@ -61,6 +130,8 @@ export default function SurveyAdminPanel({ me }) {
           </div>
         )}
       </section>
+
+      <SurveySettings onSaved={loadStatus} />
 
       <QuestionsEditor />
 

@@ -244,8 +244,16 @@ export function decideLeave(id, decision, note) {
 }
 
 // --- anotasyonlar (tatil/olay işaretleri) -------------------------------------
+// İzin takviminin bir parçası: aynı ekranda hem izinler hem tatil/olay işaretleri
+// yönetilir. Yazma/silme admin + İK (backend de öyle zorlar).
 export function listAnnotations(teamId) {
   return api(`/api/annotations${teamId != null ? `?team_id=${teamId}` : ""}`);
+}
+export function createAnnotation(payload) {
+  return apiPost("/api/annotations", payload);
+}
+export function deleteAnnotation(id) {
+  return apiDelete(`/api/annotations/${id}`);
 }
 
 // --- bildirimler --------------------------------------------------------------
@@ -300,6 +308,39 @@ export function updateSources(patch) {
 
 export function triggerSync() {
   return apiPost("/api/admin/sync", {});
+}
+
+// Kuru çalıştırma: kaynaklar okunabiliyor mu? DB'ye yazmaz.
+export function testSources() {
+  return apiPost("/api/admin/sources/test", {});
+}
+
+// --- yönetici: takım yönetimi ------------------------------------------------
+
+export function listTeamsAdmin() {
+  return api("/api/admin/teams");
+}
+
+export function createTeam(name) {
+  return apiPost("/api/admin/teams", { name });
+}
+
+export function renameTeam(id, name) {
+  return apiPatch(`/api/admin/teams/${id}`, { name });
+}
+
+export function deleteTeam(id) {
+  return apiDelete(`/api/admin/teams/${id}`);
+}
+
+// --- yönetici: genel ayarlar (metrik/eşik/kural/anket/gizlilik) --------------
+
+export function getSettings() {
+  return api("/api/admin/settings");
+}
+
+export function updateSettings(patch) {
+  return apiPut("/api/admin/settings", patch);
 }
 
 // --- baş yönetici (owner): AI sağlayıcı ---------------------------------------

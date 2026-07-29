@@ -14,13 +14,13 @@ Hepsi TAKIM seviyesinde sağlık göstergesidir; bireysel çıktı sayacı deği
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import Config
+from app.core.config import Config, get_config
 from app.models import (
     Commit,
     MetricResult,
@@ -35,6 +35,18 @@ DONE_STATUSES = {"done", "closed", "resolved", "bitti", "tamamlandı"}
 IN_PROGRESS_STATUSES = {"in progress", "doing", "yapılıyor", "in review", "review"}
 # WIP'e sayılmayan bekleme statüleri: backlog'daki iş "devam eden" değildir
 BACKLOG_STATUSES = {"to do", "todo", "backlog", "open", "yapılacak"}
+# Yalnızca VARSAYILAN. Gerçek eşleme config'ten gelir (sources.tasks.status_mapping)
+# ve resolve_statuses() ile birleştirilir — kaynak kolon adları serbest metindir.
+DEFAULT_STATUSES = {
+    "done": DONE_STATUSES,
+    "in_progress": IN_PROGRESS_STATUSES,
+    "backlog": BACKLOG_STATUSES,
+}
+
+# Kaynak yeteneği: alan KAYNAKTA YOKSA doldurulmaması süreç hijyeni eksikliği
+# değildir. Bu bir ayar değil, aracın gerçeği (Trello'da estimate alanı yoktur).
+SOURCES_WITHOUT_ESTIMATE = {"trello"}
+
 FIX_HINTS = ("fix", "hotfix", "bugfix", "düzeltme")
 # CFR için daha dar sinyal: her "fix" commit'i deploy hatası değildir;
 # acil müdahale dilini arıyoruz (hotfix/revert)
@@ -48,8 +60,35 @@ def as_utc(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
-def _is_done(status: str | None) -> bool:
-    return (status or "").strip().lower() in DONE_STATUSES
+def resolve_statuses(cfg: Config | None = None) -> dict[str, set[str]]:
+    """Varsayılan statü sözlüğü + config beyanı → kategori→adlar eşlemesi.
+
+    Config'te beyan edilen ad ÖNCE tüm kategorilerden düşülür, sonra beyan
+    edildiği kategoriye eklenir: böylece varsayılanla çakışan bir ad (ör.
+    'open') sessizce iki kategoride birden kalmaz, beyan kazanır."""
+    out = {k: set(v) for k, v in DEFAULT_STATUSES.items()}
+    mapping = getattr(getattr(cfg, "sources", None), "tasks", None)
+    mapping = getattr(mapping, "status_mapping", None)
+    if mapping is None:
+        return out
+    declared: dict[str, str] = {}
+    for category in out:
+        for name in getattr(mapping, category, None) or []:
+            if name and name.strip():
+                declared[name.strip().lower()] = category
+    for name, category in declared.items():
+        for names in out.values():
+            names.discard(name)
+        out[category].add(name)
+    return out
+
+
+def _in(status: str | None, names: set[str]) -> bool:
+    return (status or "").strip().lower() in names
+
+
+def _is_done(status: str | None, statuses: dict[str, set[str]] | None = None) -> bool:
+    return _in(status, (statuses or DEFAULT_STATUSES)["done"])
 
 
 @dataclass
@@ -112,16 +151,22 @@ class TeamData:
     """Bir takımın penceresi içindeki ham verisi — metrik fonksiyonlarına girdi."""
 
     team: Team
-    member_count: int
+    member_count: int            # GERÇEK üye sayısı; 0 olabilir → kişi-başı metrik yok
     commits: list[Commit]        # pencere içi
     prs: list[PullRequest]       # pencereye dokunan (açılış ya da merge içeride)
     all_prs_count: int           # completeness paydası için tüm PR sayısı
     tasks: list[Task]            # takımın tüm task'ları (WIP için hepsi gerekir)
     start: datetime
     end: datetime
+    # Config'ten çözümlenmiş statü eşlemesi (kategori → adlar). Metrik
+    # fonksiyonları gömülü sabit yerine bunu kullanır.
+    statuses: dict[str, set[str]] = field(default_factory=lambda: {
+        k: set(v) for k, v in DEFAULT_STATUSES.items()
+    })
 
 
-def load_team_data(session: Session, team: Team, start: datetime, end: datetime) -> TeamData:
+def load_team_data(session: Session, team: Team, start: datetime, end: datetime,
+                   cfg: Config | None = None) -> TeamData:
     repo_ids = [r.id for r in session.scalars(select(Repo).where(Repo.team_id == team.id))]
     commits = [
         c for c in session.scalars(select(Commit).where(Commit.repo_id.in_(repo_ids)))
@@ -150,28 +195,32 @@ def load_team_data(session: Session, team: Team, start: datetime, end: datetime)
     ).all()
     return TeamData(
         team=team,
-        member_count=max(1, sum(1 for m in members if m.role != "manager")),
+        # GERÇEK sayı: 0 üyeli takımda "kişi başı" metrik uydurmak yerine
+        # metrik "veri yetersiz" olmalı (bkz. wip).
+        member_count=sum(1 for m in members if m.role != "manager"),
         commits=commits,
         prs=prs,
         all_prs_count=len(all_prs),
         tasks=tasks,
         start=start,
         end=end,
+        statuses=resolve_statuses(cfg if cfg is not None else get_config()),
     )
 
 
 # --- Tekil metrik fonksiyonları ------------------------------------------------
 
-def _task_done_at(task: Task) -> datetime | None:
+def _task_done_at(task: Task, statuses: dict[str, set[str]] | None = None) -> datetime | None:
     for tr in sorted(task.transitions, key=lambda t: as_utc(t.changed_at) or datetime.min.replace(tzinfo=timezone.utc)):
-        if _is_done(tr.to_status):
+        if _is_done(tr.to_status, statuses):
             return as_utc(tr.changed_at)
     return None
 
 
-def _task_started_at(task: Task) -> datetime | None:
+def _task_started_at(task: Task, statuses: dict[str, set[str]] | None = None) -> datetime | None:
+    names = (statuses or DEFAULT_STATUSES)["in_progress"]
     for tr in sorted(task.transitions, key=lambda t: as_utc(t.changed_at) or datetime.min.replace(tzinfo=timezone.utc)):
-        if (tr.to_status or "").strip().lower() in IN_PROGRESS_STATUSES:
+        if _in(tr.to_status, names):
             return as_utc(tr.changed_at)
     return as_utc(task.created_at)
 
@@ -188,14 +237,14 @@ def cycle_time(data: TeamData, cfg: Config) -> MetricOutcome:
         if layer in ("jira_status", "jira_dates"):
             done_in_window = [
                 t for t in data.tasks
-                if (d := _task_done_at(t)) is not None and data.start <= d <= data.end
+                if (d := _task_done_at(t, data.statuses)) is not None and data.start <= d <= data.end
             ]
             if not done_in_window:
                 continue  # bu katmanda veri yok → fallback'e düş
             durations = []
             for t in done_in_window:
-                start_ts = _task_started_at(t) if layer == "jira_status" else as_utc(t.created_at)
-                end_ts = _task_done_at(t)
+                start_ts = _task_started_at(t, data.statuses) if layer == "jira_status" else as_utc(t.created_at)
+                end_ts = _task_done_at(t, data.statuses)
                 if start_ts and end_ts and end_ts >= start_ts:
                     durations.append((end_ts - start_ts).total_seconds() / 86400)
             if durations:
@@ -299,13 +348,21 @@ def change_failure_rate(data: TeamData, cfg: Config) -> MetricOutcome:
 
 def wip(data: TeamData, cfg: Config) -> MetricOutcome:
     """Kişi başı açık iş — tıkanma göstergesi. source: task status;
-    fallback: açık PR sayısı (Katman 0)."""
+    fallback: açık PR sayısı (Katman 0).
+
+    Takımın üyesi yoksa KİŞİ BAŞI bir sayı üretilemez: paydayı 1'e yuvarlamak
+    "10 iş / hayali 1 kişi" gibi yanlış bir kırmızı üretirdi. Değer uydurmak
+    yerine 'veri yetersiz' döner (İlke A)."""
+    if data.member_count <= 0:
+        return ZERO
     with_status = [t for t in data.tasks if t.status is not None]
     if with_status:
+        # Backlog VE done dışındakiler akıştaki iştir. Kategoriler config'ten
+        # gelir; kaynak kolon adları ("Araştırma Konuları") gömülü listede yok.
         open_tasks = [
             t for t in with_status
-            if not _is_done(t.status)
-            and (t.status or "").strip().lower() not in BACKLOG_STATUSES
+            if not _is_done(t.status, data.statuses)
+            and not _in(t.status, data.statuses["backlog"])
         ]
         return MetricOutcome(
             value=len(open_tasks) / data.member_count,
@@ -361,7 +418,7 @@ def estimate_accuracy(data: TeamData, cfg: Config) -> MetricOutcome:
     gizlenir; asla varsayılan uydurulmaz (İlke B kuralı)."""
     done = [
         t for t in data.tasks
-        if (d := _task_done_at(t)) is not None and data.start <= d <= data.end
+        if (d := _task_done_at(t, data.statuses)) is not None and data.start <= d <= data.end
     ]
     if not done:
         return ZERO
@@ -369,7 +426,7 @@ def estimate_accuracy(data: TeamData, cfg: Config) -> MetricOutcome:
     for t in done:
         if t.estimate_hours is None or t.estimate_hours <= 0:
             continue
-        start_ts, end_ts = _task_started_at(t), _task_done_at(t)
+        start_ts, end_ts = _task_started_at(t, data.statuses), _task_done_at(t, data.statuses)
         if start_ts and end_ts and end_ts > start_ts:
             actual_h = (end_ts - start_ts).total_seconds() / 3600
             ratios.append(min(actual_h / t.estimate_hours, 10.0))  # uç değer kırp
@@ -421,12 +478,12 @@ def mttr(data: TeamData, cfg: Config) -> MetricOutcome:
                 t for t in data.tasks
                 if ((t.type or "").strip().lower() in INCIDENT_TYPES
                     or any(h in (t.title or "").lower() for h in INCIDENT_HINTS))
-                and (d := _task_done_at(t)) is not None and data.start <= d <= data.end
+                and (d := _task_done_at(t, data.statuses)) is not None and data.start <= d <= data.end
             ]
             hours = []
             for t in incidents:
                 start_ts = as_utc(t.created_at)
-                end_ts = _task_done_at(t)
+                end_ts = _task_done_at(t, data.statuses)
                 if start_ts and end_ts and end_ts >= start_ts:
                     hours.append((end_ts - start_ts).total_seconds() / 3600)
             if hours:
@@ -456,9 +513,18 @@ def process_hygiene(data: TeamData, cfg: Config) -> MetricOutcome:
     Yüksek = süreç izlenebilir; düşük = süreç körlüğü var, planlama iyileştir."""
     components: list[float] = []
     if data.tasks:
-        components.append(
-            sum(1 for t in data.tasks if t.estimate_hours is not None) / len(data.tasks)
-        )
+        # Estimate bileşeni YALNIZCA alanı olan kaynaklar için sayılır. Trello'da
+        # estimate alanı yoktur; onu "doldurulmamış" saymak takımı var olmayan bir
+        # eksiklikten cezalandırır ve metriği yapısal tavana çakar (İlke B:
+        # alan yoksa metrik gizlenir, varsayılan uydurulmaz).
+        estimable = [
+            t for t in data.tasks
+            if (t.source or "").strip().lower() not in SOURCES_WITHOUT_ESTIMATE
+        ]
+        if estimable:
+            components.append(
+                sum(1 for t in estimable if t.estimate_hours is not None) / len(estimable)
+            )
         components.append(
             sum(1 for t in data.tasks if t.transitions) / len(data.tasks)
         )

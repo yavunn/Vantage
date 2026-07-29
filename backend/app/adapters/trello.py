@@ -18,6 +18,18 @@ DONE_LIST_HINTS = ("done", "bitti", "tamamlan")
 BUG_LABEL_HINTS = ("bug", "hata", "fix")
 
 
+def _board_error(board_id: str, status: int) -> str:
+    """Board okunamadığında kullanıcıya NET sebep. Sessiz atlama, entegrasyonu
+    çalışıyor sanmaya yol açar — eksiklik görünür olmalı."""
+    if status == 404:
+        return (f"Trello board '{board_id}' bulunamadı (404) — id yanlış olabilir ya da "
+                "token bu board'u görmüyor. Doğru id board URL'inde: trello.com/b/<ID>/isim")
+    if status in (401, 403):
+        return (f"Trello board '{board_id}': erişim reddedildi ({status}) — API key/token "
+                "bu board'u okuyamıyor.")
+    return f"Trello board '{board_id}': okunamadı (HTTP {status})."
+
+
 def _dt(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -32,6 +44,8 @@ class TrelloProvider:
         self.key = os.environ.get(key_env, "")
         self.token = os.environ.get(token_env, "")
         self.boards = boards
+        # Okunamayan board'lar burada birikir; ingest bunu senkron sonucuna taşır.
+        self.warnings: list[str] = []
 
     def _client(self) -> httpx.Client:
         return httpx.Client(
@@ -42,16 +56,35 @@ class TrelloProvider:
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]:
         out: list[NormalizedTask] = []
+        self.warnings = []
+        if not self.boards:
+            self.warnings.append("Trello board listesi boş — çekilecek kart yok.")
+            return out
+        if not self.key or not self.token:
+            self.warnings.append("Trello API key/token tanımsız — hiçbir board okunamaz.")
+            return out
         with self._client() as client:
             for board_id in self.boards:
-                board_resp = client.get(f"/boards/{board_id}", params={"fields": "name"})
-                board_name = board_resp.json().get("name") if board_resp.status_code == 200 else None
+                try:
+                    board_resp = client.get(f"/boards/{board_id}", params={"fields": "name"})
+                except httpx.HTTPError as e:
+                    self.warnings.append(f"Trello board '{board_id}': bağlanılamadı ({type(e).__name__}).")
+                    continue
+                if board_resp.status_code != 200:
+                    # Ölü/erişilemeyen board sessizce atlanmaz — senkron bunu raporlar.
+                    self.warnings.append(_board_error(board_id, board_resp.status_code))
+                    continue
+                board_name = board_resp.json().get("name")
 
                 cards_resp = client.get(
                     f"/boards/{board_id}/cards",
                     params={"fields": "name,idList,dateLastActivity,due,labels,idMembers"},
                 )
                 if cards_resp.status_code != 200:
+                    self.warnings.append(
+                        f"Trello board '{board_name or board_id}': kartlar okunamadı "
+                        f"(HTTP {cards_resp.status_code})."
+                    )
                     continue
                 lists_resp = client.get(f"/boards/{board_id}/lists", params={"fields": "name"})
                 list_names = {

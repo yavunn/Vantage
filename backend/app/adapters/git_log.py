@@ -23,13 +23,28 @@ class GitLogProvider:
     def __init__(self, repos: list[dict]):
         """repos: [{name, path, team}] — config'ten gelir."""
         self.repos = repos
+        # Okunamayan repolar burada birikir; ingest bunu senkron sonucuna taşır.
+        self.warnings: list[str] = []
 
     def fetch_commits(self, since: datetime | None = None) -> list[NormalizedCommit]:
         out: list[NormalizedCommit] = []
+        self.warnings = []
+        if not self.repos:
+            self.warnings.append("Git repo listesi boş — çekilecek commit yok.")
+            return out
         for repo in self.repos:
-            path = Path(repo.get("path", ""))
+            name = repo.get("name") or "(isimsiz repo)"
+            raw_path = repo.get("path") or ""
+            if not raw_path:
+                self.warnings.append(f"Repo '{name}': yol (path) tanımsız — commit çekilemedi.")
+                continue
+            path = Path(raw_path)
             if not (path / ".git").exists():
-                continue  # erişilemeyen repo tüm senkronu düşürmez
+                # Erişilemeyen repo tüm senkronu düşürmez ama sessiz de kalmaz.
+                self.warnings.append(
+                    f"Repo '{name}': '{raw_path}' bir git deposu değil (.git yok) — commit çekilemedi."
+                )
+                continue
             args = ["git", "-C", str(path), "log", f"--pretty=format:{LOG_FORMAT}", "--numstat"]
             if since:
                 args.append(f"--since={since.isoformat()}")
@@ -37,7 +52,8 @@ class GitLogProvider:
                 raw = subprocess.run(
                     args, capture_output=True, text=True, encoding="utf-8", timeout=120
                 ).stdout
-            except (subprocess.SubprocessError, OSError):
+            except (subprocess.SubprocessError, OSError) as e:
+                self.warnings.append(f"Repo '{name}': git komutu çalıştırılamadı ({type(e).__name__}).")
                 continue
             out.extend(self._parse(raw, repo["name"]))
         return out

@@ -21,7 +21,6 @@ import TrendChart from "./components/TrendChart.jsx";
 // Varsayılan (takım) görünümde gerekmeyen ağır panelleri tembel yükle —
 // ilk açılış paketi küçülür.
 const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
-const AnnotationsPanel = lazy(() => import("./components/AnnotationsPanel.jsx"));
 const HrDashboard = lazy(() => import("./components/HrDashboard.jsx"));
 const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
 const MyCodeHealth = lazy(() => import("./components/MyCodeHealth.jsx"));
@@ -132,7 +131,7 @@ export default function App() {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
       const order = user && user.role === "hr"
-        ? ["hr", "leaves", "annotations", "accounts", "survey", "settings"]
+        ? ["hr", "leaves", "accounts", "survey", "settings"]
         : ["team", "me", "projects", "leaves", "survey", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
@@ -151,7 +150,7 @@ export default function App() {
     let allowed;
     let fallback;
     if (user.role === "hr") {
-      allowed = new Set(["hr", "leaves", "annotations", "accounts", "survey", "settings"]);
+      allowed = new Set(["hr", "leaves", "accounts", "survey", "settings"]);
       fallback = "hr";
     } else {
       allowed = new Set(["team", "projects", "leaves", "survey", "settings"]);
@@ -198,6 +197,17 @@ export default function App() {
     window.addEventListener("nabiz:session-expired", onExpired);
     return () => window.removeEventListener("nabiz:session-expired", onExpired);
   }, []);
+
+  // Takım listesi yönetici panelinden değişebilir (ekle/sil/yeniden adlandır).
+  // Seçili takım silinmişse seçim ilk takıma düşer, ekran boş kalmasın.
+  function refreshTeams() {
+    api("/api/teams")
+      .then((tms) => {
+        setTeams(tms);
+        setTeamId((cur) => (tms.some((t) => t.id === cur) ? cur : (tms[0]?.id ?? null)));
+      })
+      .catch(() => {});
+  }
 
   // Giriş sonrası çekirdek veriyi yükle (parola değiştirme beklemiyorsa).
   useEffect(() => {
@@ -360,9 +370,6 @@ export default function App() {
                 <button className={`tab ${tab === "leaves" ? "active" : ""}`} onClick={() => setTab("leaves")}>
                   İzinler
                 </button>
-                <button className={`tab ${tab === "annotations" ? "active" : ""}`} onClick={() => setTab("annotations")}>
-                  Anotasyonlar
-                </button>
                 <button className={`tab ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
                   Hesaplar
                 </button>
@@ -455,11 +462,9 @@ export default function App() {
 
         {tab === "projects" && !isHr && <ProjectsPanel isAdmin={isAdmin} />}
 
-        {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} />}
+        {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} teams={teams} />}
 
         {tab === "hr" && isHr && <HrDashboard />}
-
-        {tab === "annotations" && isHr && <AnnotationsPanel teams={teams} />}
 
         {/* İK hesap rehberi: yalnız çalışan (user) ekler/sıfırlar. Performans
             bağlantısı YOK (onViewPerson geçilmez — etik sınır). */}
@@ -471,6 +476,7 @@ export default function App() {
           <AdminPanel
             teams={teams}
             me={user}
+            onTeamsChanged={refreshTeams}
             onViewPerson={individualAvailable ? (devId) => { pushRecent(devId); setViewDevId(devId); setTab("me"); } : undefined}
           />
         )}

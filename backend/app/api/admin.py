@@ -10,7 +10,7 @@ import os
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,14 @@ from app.core.db import get_session
 from app.models import MetricResult, User
 
 router = APIRouter(prefix="/api/admin")
+
+
+class RepoEntry(BaseModel):
+    """config.yaml'daki bir git repo girdisi. team boşsa eşleme yok demektir."""
+
+    name: str = Field(min_length=1, max_length=200)
+    path: str = ""
+    team: str = ""
 
 
 class SourcesUpdate(BaseModel):
@@ -35,6 +43,16 @@ class SourcesUpdate(BaseModel):
     trello_token: str | None = None
     # GitHub PAT: "Projelerim" özel repoları için. Sır → .secrets.env, config'e değil.
     github_token: str | None = None
+    # repo adı → takım adı. Boş değer eşlemeyi kaldırır. Takımsız repo'nun
+    # commitleri hiçbir takım metriğine giremez, o yüzden bu panelden yönetilir.
+    repo_teams: dict[str, str] | None = None
+    # Repo listesinin TAMAMI (ekleme/çıkarma). Verilirse config'teki liste bununla
+    # değiştirilir; verilmezse dokunulmaz. Kurulu sistemde yeni repo bağlamak
+    # sunucuya girip YAML düzenlemeyi gerektirmemeli.
+    repos: list[RepoEntry] | None = None
+    # Kaynak kolon/statü adlarının akış kategorilerine eşlenmesi. Serbest metin
+    # olduğu için gömülü liste yetmez; eşlenmezse WIP/cycle time sessizce yanlış.
+    status_mapping: dict[str, list[str]] | None = None
 
 
 def _env_status(var: str) -> dict:
@@ -58,11 +76,33 @@ def get_sources(
     session: Session = Depends(get_session),
     _: User = Depends(require_admin),
 ):
+    from app.models import Commit, Repo, Task, Team
+
     cfg = get_config()
     last_sync = session.scalar(select(func.max(MetricResult.computed_at)))
+
+    # Config'teki repolar + DB'deki karşılığı (takım bağlı mı, kaç commit geldi).
+    # Panel "repo sayısı: 1" demek yerine hangi reponun nereye bağlı olduğunu gösterir.
+    db_repos = {r.name: r for r in session.scalars(select(Repo))}
+    repos = []
+    for r in cfg.sources.git.repos:
+        if not isinstance(r, dict) or not r.get("name"):
+            continue
+        row = db_repos.get(r["name"])
+        repos.append({
+            "name": r["name"],
+            "path": r.get("path"),
+            "team": r.get("team"),
+            "commit_count": (session.scalar(
+                select(func.count()).select_from(Commit).where(Commit.repo_id == row.id)
+            ) or 0) if row else 0,
+        })
+
     return {
         "last_sync": last_sync.isoformat() if last_sync else None,
         "sync_interval_minutes": cfg.sync.interval_minutes,
+        # Repo→takım açılır listesi için; takımsız repo metrik üretmez.
+        "teams": [{"id": t.id, "name": t.name} for t in session.scalars(select(Team))],
         "git": {
             "provider": cfg.sources.git.provider,
             "gitlab_base_url": cfg.sources.git.gitlab.base_url,
@@ -70,6 +110,7 @@ def get_sources(
             # "Projelerim" özel GitHub repoları için PAT durumu.
             "github_token": _env_status("GITHUB_TOKEN"),
             "repo_count": len(cfg.sources.git.repos),
+            "repos": repos,
         },
         "tasks": {
             "provider": cfg.sources.tasks.provider,
@@ -80,6 +121,15 @@ def get_sources(
                 "key": _env_status(cfg.sources.tasks.trello.key_env),
                 "token": _env_status(cfg.sources.tasks.trello.token_env),
             },
+            # Kaynakta GÖRÜLEN statüler + mevcut eşleme: yönetici hangi kolonun
+            # nereye düştüğünü tahmin etmek zorunda kalmasın.
+            "status_mapping": {
+                c: getattr(cfg.sources.tasks.status_mapping, c)
+                for c in ("backlog", "in_progress", "done")
+            },
+            "observed_statuses": sorted({
+                t.status.strip() for t in session.scalars(select(Task)) if t.status and t.status.strip()
+            }),
         },
     }
 
@@ -117,6 +167,38 @@ def update_sources(
         raw["sources"]["tasks"]["trello"]["boards"] = [
             b.strip() for b in body.trello_boards if b and b.strip()
         ]
+    if body.repos is not None:
+        # Listenin TAMAMI değişir (ekleme/çıkarma). Aynı ad iki kez verilemez:
+        # repo adı ingest'te kimlik anahtarıdır, çakışırsa commitler karışır.
+        seen: set[str] = set()
+        entries = []
+        for r in body.repos:
+            name = r.name.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            entry = {"name": name, "path": r.path.strip()}
+            if r.team.strip():
+                entry["team"] = r.team.strip()
+            entries.append(entry)
+        raw["sources"]["git"]["repos"] = entries
+    if body.repo_teams is not None:
+        # Repo→takım eşlemesi config'te repo girdisinin 'team' alanında yaşar;
+        # pipeline bunu repo_team_map'e çevirip ingest'e verir.
+        for entry in raw["sources"]["git"].setdefault("repos", []):
+            if not isinstance(entry, dict) or entry.get("name") not in body.repo_teams:
+                continue
+            team = (body.repo_teams[entry["name"]] or "").strip()
+            if team:
+                entry["team"] = team
+            else:
+                entry.pop("team", None)
+    if body.status_mapping is not None:
+        raw["sources"]["tasks"]["status_mapping"] = {
+            category: [s.strip() for s in (names or []) if s and s.strip()]
+            for category, names in body.status_mapping.items()
+            if category in ("backlog", "in_progress", "done")
+        }
 
     # Sırlar (Trello key/token): config'e YAZILMAZ — .secrets.env + ortama.
     cfg = get_config()
@@ -458,3 +540,267 @@ def trigger_sync(_: User = Depends(require_admin)):
 
     stats = run_pipeline()
     return {"ok": True, "stats": stats}
+
+
+@router.post("/sources/test")
+def test_sources(_: User = Depends(require_admin)):
+    """Kaynakları KURU çalıştırır: neyin okunabildiğini söyler, DB'ye YAZMAZ.
+
+    Senkronu beklemeden 'board id yanlış' / 'repo yolu bozuk' gibi hataları
+    yüzeye çıkarır — yanlış ayarla saatlerce boş pano izlenmesin."""
+    from app.adapters.factory import build_git_provider, build_task_provider
+    from app.core.secrets import load_secrets
+
+    load_secrets()  # arayüzden yeni girilen token bu testte de geçerli olsun
+    cfg = get_config()
+
+    def _probe(provider, label: str, fetch) -> dict:
+        if provider is None:
+            return {"ok": False, "provider": None,
+                    "detail": f"{label} sağlayıcısı yok (provider: none/tanımsız)."}
+        try:
+            items = fetch(provider)
+        except Exception as e:  # noqa: BLE001 — test ucu asla 500 vermemeli
+            return {"ok": False, "provider": type(provider).__name__,
+                    "detail": f"{label} okunamadı: {type(e).__name__}.",
+                    "warnings": list(getattr(provider, "warnings", []))}
+        warnings = list(getattr(provider, "warnings", []))
+        return {"ok": not warnings, "provider": type(provider).__name__,
+                "count": len(items), "warnings": warnings}
+
+    git = build_git_provider(cfg)
+    git_res = _probe(git, "Git", lambda p: p.fetch_commits())
+    if git is not None and "count" in git_res:
+        git_res["pull_requests"] = len(git.fetch_pull_requests())
+
+    tasks_res = _probe(build_task_provider(cfg), "Görev", lambda p: p.fetch_tasks())
+
+    # Takımsız repo senkronda metrik üretmez — testte de söylensin.
+    unmapped = [
+        r["name"] for r in cfg.sources.git.repos
+        if isinstance(r, dict) and r.get("name") and not r.get("team")
+    ]
+    return {
+        "git": git_res,
+        "tasks": tasks_res,
+        "unmapped_repos": unmapped,
+        "ok": git_res.get("ok", False) and tasks_res.get("ok", False) and not unmapped,
+    }
+
+
+# --- Takım yönetimi (servis edilen üründe config dosyasına dokunmadan) ---------
+# Takımlar şimdiye dek YALNIZCA ingest sırasında (Trello board adı / repo eşlemesi)
+# örtük olarak doğuyordu; oluşturma, yeniden adlandırma ve silme yolu yoktu.
+# Kurulu bir sistemde bu, "yeni takım için sunucuya gir ve YAML düzenle" demekti.
+
+class TeamBody(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+def _team_usage(session: Session, team_id: int) -> dict:
+    """Takıma ne bağlı? Silme kararını yönetici bilerek versin diye gösterilir."""
+    from app.models import Repo, Task, TeamMembership
+
+    return {
+        "members": session.scalar(select(func.count()).select_from(TeamMembership)
+                                  .where(TeamMembership.team_id == team_id)) or 0,
+        "repos": session.scalar(select(func.count()).select_from(Repo)
+                                .where(Repo.team_id == team_id)) or 0,
+        "tasks": session.scalar(select(func.count()).select_from(Task)
+                                .where(Task.team_id == team_id)) or 0,
+    }
+
+
+@router.get("/teams")
+def list_teams_admin(
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    from app.models import Team
+
+    out = []
+    for t in session.scalars(select(Team).order_by(Team.name)):
+        usage = _team_usage(session, t.id)
+        out.append({
+            "id": t.id, "name": t.name, **usage,
+            # Silinebilir mi: yönetici önce üyeyi/repoyu bilinçli olarak ayırmalı.
+            "deletable": usage["members"] == 0 and usage["repos"] == 0,
+        })
+    return out
+
+
+@router.post("/teams", status_code=201)
+def create_team(
+    body: TeamBody,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    from app.models import Team
+
+    name = body.name.strip()
+    if session.scalar(select(Team).where(Team.name == name)) is not None:
+        raise HTTPException(status_code=409, detail=f"'{name}' adlı takım zaten var.")
+    team = Team(name=name)
+    session.add(team)
+    session.commit()
+    return {"id": team.id, "name": team.name, "members": 0, "repos": 0, "tasks": 0,
+            "deletable": True}
+
+
+@router.patch("/teams/{team_id}")
+def rename_team(
+    team_id: int,
+    body: TeamBody,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """Takımı yeniden adlandırır ve config'teki repo eşlemesini BİRLİKTE günceller.
+
+    Eşleme adla tutulduğu için config güncellenmezse bir sonraki senkron eski
+    adla YENİ bir takım yaratır ve repo oraya kayardı (sessiz veri bölünmesi)."""
+    from app.models import Team
+
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+    new_name = body.name.strip()
+    if new_name == team.name:
+        return {"ok": True, "id": team.id, "name": team.name, "config_updated": False}
+    if session.scalar(select(Team).where(Team.name == new_name)) is not None:
+        raise HTTPException(status_code=409, detail=f"'{new_name}' adlı takım zaten var.")
+
+    old_name = team.name
+    team.name = new_name
+    session.commit()
+
+    config_updated = _rewrite_repo_team_name(old_name, new_name)
+    return {"ok": True, "id": team.id, "name": team.name, "config_updated": config_updated}
+
+
+def _rewrite_repo_team_name(old_name: str, new_name: str | None) -> bool:
+    """config.yaml'daki repo→takım eşlemelerinde adı günceller (None = kaldırır)."""
+    path = active_config_path()
+    if not path.exists():
+        return False
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    repos = (raw.get("sources", {}).get("git", {}) or {}).get("repos") or []
+    changed = False
+    for entry in repos:
+        if isinstance(entry, dict) and entry.get("team") == old_name:
+            if new_name:
+                entry["team"] = new_name
+            else:
+                entry.pop("team", None)
+            changed = True
+    if changed:
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+        reset_config_cache()
+    return changed
+
+
+@router.delete("/teams/{team_id}")
+def delete_team(
+    team_id: int,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """Takımı siler. Üye ya da repo bağlıysa REDDEDER — yönetici önce bilinçli
+    olarak ayırsın (kazara veri kopması olmasın). Task'lar silinmez, takımsız
+    kalır; metrik/öneri satırları temizlenir (o takım artık yok)."""
+    from app.models import Recommendation, Task, Team, TrendAnnotation
+
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+    usage = _team_usage(session, team_id)
+    blockers = []
+    if usage["members"]:
+        blockers.append(f"{usage['members']} üye")
+    if usage["repos"]:
+        blockers.append(f"{usage['repos']} repo")
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail=("Takım silinemedi — önce şunları ayırın: " + ", ".join(blockers)
+                    + ". (Repo için Entegrasyon → Repo'lar, üye için Hesaplar sekmesi.)"),
+        )
+
+    # Task'lar KORUNUR, yalnızca takımsız kalır: gerçek iş kaydı silinmemeli.
+    for t in session.scalars(select(Task).where(Task.team_id == team_id)):
+        t.team_id = None
+    for a in session.scalars(select(TrendAnnotation).where(TrendAnnotation.team_id == team_id)):
+        a.team_id = None
+    for m in session.scalars(select(MetricResult).where(
+            MetricResult.scope == "team", MetricResult.scope_id == team_id)):
+        session.delete(m)
+    for r in session.scalars(select(Recommendation).where(
+            Recommendation.scope == "team", Recommendation.scope_id == team_id)):
+        session.delete(r)
+    session.delete(team)
+    session.commit()
+    # Config'te bu takıma işaret eden repo eşlemesi varsa temizle (kalırsa
+    # sonraki senkron takımı sessizce geri yaratırdı).
+    _rewrite_repo_team_name(team.name, None)
+    return {"ok": True, "detached_tasks": usage["tasks"]}
+
+
+# --- Görünürlük + anket ayarları ---------------------------------------------
+# Kapsam BİLİNÇLİ olarak dar: yalnızca yöneticinin gerçekten bilebileceği
+# kararlar. Eşik/kural/metrik değerleri buraya AİT DEĞİL — onlar yöneticinin
+# tahmin edeceği sayılar değil, sistemin veriden çıkarması gereken şeyler.
+# (Bir form koymak, sorumluluğu bilmeyen tarafa atıyordu.)
+
+class SettingsUpdate(BaseModel):
+    # app.* — kimlik görünürlüğü; İK talebiyle değişir, kod değişmemeli.
+    individual_view_enabled: bool | None = None
+    anonymize_individuals: bool | None = None
+    # survey.*
+    survey_enabled: bool | None = None
+    survey_interval_days: int | None = None
+    survey_min_responses: int | None = None
+
+
+@router.get("/settings")
+def get_settings(_: User = Depends(require_admin)):
+    cfg = get_config()
+    return {
+        "app": {
+            "individual_view_enabled": cfg.app.individual_view_enabled,
+            "anonymize_individuals": cfg.app.anonymize_individuals,
+        },
+        "survey": {
+            "enabled": cfg.survey.enabled,
+            "interval_days": cfg.survey.interval_days,
+            "min_responses": cfg.survey.min_responses,
+        },
+    }
+
+
+@router.put("/settings")
+def update_settings(body: SettingsUpdate, _: User = Depends(require_admin)):
+    raw: dict = {}
+    if active_config_path().exists():
+        with open(active_config_path(), encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    raw.setdefault("app", {})
+    raw.setdefault("survey", {})
+
+    if body.individual_view_enabled is not None:
+        raw["app"]["individual_view_enabled"] = body.individual_view_enabled
+    if body.anonymize_individuals is not None:
+        raw["app"]["anonymize_individuals"] = body.anonymize_individuals
+    if body.survey_enabled is not None:
+        raw["survey"]["enabled"] = body.survey_enabled
+    if body.survey_interval_days is not None:
+        raw["survey"]["interval_days"] = max(1, body.survey_interval_days)
+    if body.survey_min_responses is not None:
+        # Gizlilik eşiği: 1'in altına inerse tek yanıt ifşa olur.
+        raw["survey"]["min_responses"] = max(1, body.survey_min_responses)
+
+    active_config_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(active_config_path(), "w", encoding="utf-8") as f:
+        yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+    reset_config_cache()
+    return {"ok": True}

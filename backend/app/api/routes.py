@@ -570,13 +570,14 @@ def _dev_metrics(
     data = load_team_data(session, team, start, end)
     filtered = TeamData(
         team=data.team,
-        member_count=1,
+        member_count=1,  # bireysel izdüşüm: payda kişinin kendisidir
         commits=[c for c in data.commits if c.author_id == dev.id],
         prs=[p for p in data.prs if p.author_id == dev.id],
         all_prs_count=len([p for p in data.prs if p.author_id == dev.id]),
         tasks=[t for t in data.tasks if t.assignee_id == dev.id],
         start=start,
         end=end,
+        statuses=data.statuses,  # takımla aynı statü eşlemesi
     )
     out = {}
     for key, func in (

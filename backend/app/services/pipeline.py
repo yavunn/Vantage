@@ -31,6 +31,18 @@ def run_pipeline() -> dict:
             build_task_provider(cfg),
             repo_team_map=repo_team_map,
         )
+        # Takımsız repo = commitleri hiçbir takım metriğine girmez (metrik motoru
+        # commitleri takımın repolarından çeker). Sessiz kalırsa pano boş görünür
+        # ve sebebi anlaşılmaz — senkron bunu açıkça söyler.
+        stats["warnings"] = [
+            *stats.get("warnings", []),
+            *(
+                f"Repo '{r['name']}' hiçbir takıma bağlı değil — commitleri hiçbir takım "
+                "metriğine girmez. Entegrasyon → Repo'lar bölümünden takım seçin."
+                for r in cfg.sources.git.repos
+                if isinstance(r, dict) and r.get("name") and not r.get("team")
+            ),
+        ]
         metrics_written = compute_all(session, cfg)
         recs_written = run_rules(session, cfg)
         # Metrik kırmızıya döndüyse ilgili yönetici/adminlere trend alarmı üret.

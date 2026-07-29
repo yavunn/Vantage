@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  createLeave, decideLeave, deleteLeave, leaveSummary, listAnnotations,
-  listEmployees, listLeaves, myLeaveRequests, pendingLeaves,
+  createAnnotation, createLeave, decideLeave, deleteAnnotation, deleteLeave,
+  leaveSummary, listAnnotations, listEmployees, listLeaves, myLeaveRequests,
+  pendingLeaves,
 } from "../api.js";
 import Modal from "./Modal.jsx";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 const ANNOT_LABEL = { holiday: "Tatil", incident: "Incident", release: "Sürüm", other: "Not" };
 const ANNOT_ICON = { holiday: "🏖", incident: "⚠", release: "🚀", other: "📌" };
+const ANNOT_KINDS = [
+  { v: "holiday", t: "Tatil" },
+  { v: "incident", t: "Incident" },
+  { v: "release", t: "Sürüm" },
+  { v: "other", t: "Diğer" },
+];
 const STATUS_LABEL = { pending: "Onay bekliyor", approved: "Onaylı", rejected: "Reddedildi" };
 const WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
@@ -28,7 +35,7 @@ function buildGrid(year, month) {
   return cells;
 }
 
-export default function LeavesPanel({ user, canManage }) {
+export default function LeavesPanel({ user, canManage, teams = [] }) {
   const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [leaves, setLeaves] = useState([]);
   const [annotations, setAnnotations] = useState([]);
@@ -45,6 +52,9 @@ export default function LeavesPanel({ user, canManage }) {
   const [personFilter, setPersonFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [onlyMine, setOnlyMine] = useState(false);
+  // Takvim işaretleri (tatil/olay) — izinlerle aynı takvimde durduğu için
+  // yönetimi de burada. Kapsam boş = global (tüm takımlar), ör. resmi tatil.
+  const [annotForm, setAnnotForm] = useState({ date: ymd(new Date()), label: "", kind: "holiday", team_id: "" });
 
   const month = monthKey(cursor);
   const year = cursor.getFullYear();
@@ -61,6 +71,12 @@ export default function LeavesPanel({ user, canManage }) {
   }
   useEffect(load, [month]);
   useEffect(() => { if (canManage) listEmployees().then(setEmployees).catch(() => {}); }, []);
+
+  // Başka bir aya bakarken işaret eklenecekse tarih o aya düşsün — bugünün
+  // tarihiyle yanlışlıkla görünmeyen bir güne işaret konmasın.
+  useEffect(() => {
+    setAnnotForm((f) => (f.date.startsWith(month) ? f : { ...f, date: `${month}-01` }));
+  }, [month]);
 
   async function approve(lv) {
     setError(null); setMsg(null);
@@ -128,6 +144,30 @@ export default function LeavesPanel({ user, canManage }) {
     try { await deleteLeave(lv.id); load(); } catch (err) { setError(err.message); }
   }
 
+  const updAnnot = (k, v) => setAnnotForm((f) => ({ ...f, [k]: v }));
+
+  async function addAnnotation(e) {
+    e.preventDefault();
+    setError(null); setMsg(null);
+    try {
+      await createAnnotation({
+        date: annotForm.date,
+        label: annotForm.label.trim(),
+        kind: annotForm.kind,
+        team_id: annotForm.team_id === "" ? null : Number(annotForm.team_id),
+      });
+      setMsg("Takvim işareti eklendi.");
+      setAnnotForm((f) => ({ ...f, date: ymd(new Date()), label: "" }));
+      load();
+    } catch (err) { setError(err.message); }
+  }
+
+  async function removeAnnotation(a) {
+    if (!window.confirm(`"${a.label}" işareti silinsin mi?`)) return;
+    setError(null); setMsg(null);
+    try { await deleteAnnotation(a.id); load(); } catch (err) { setError(err.message); }
+  }
+
   const monthName = cursor.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
 
   // Listede tekilleştir: aynı izin birden çok güne yayıldığında bir kez göster.
@@ -136,6 +176,17 @@ export default function LeavesPanel({ user, canManage }) {
     for (const lv of leaves) if (!seen.has(lv.id)) seen.set(lv.id, lv);
     return [...seen.values()].sort((a, b) => a.start_date.localeCompare(b.start_date));
   }, [leaves]);
+
+  // Takvimde görünen ayın işaretleri — liste takvimle aynı bağlamı göstersin.
+  const monthAnnots = useMemo(
+    () => annotations.filter((a) => a.date.startsWith(month))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    [annotations, month]
+  );
+  const teamName = useMemo(
+    () => Object.fromEntries(teams.map((t) => [t.id, t.name])),
+    [teams]
+  );
 
   // Kişi + tür filtresi: İK uzun listede aradığını hızlı bulsun.
   const people = useMemo(
@@ -205,6 +256,60 @@ export default function LeavesPanel({ user, canManage }) {
         {error && <div className="login-error">{error}</div>}
         {msg && <div className="admin-ok">{msg}</div>}
       </section>
+
+      {/* Takvim işaretleri: resmi tatil/incident/sürüm. Takvimde zaten burada
+          görünüyorlar, yönetimleri de burada — ayrı bir sekmede değil. Aynı
+          işaretler trend grafiklerinde de bağlam olarak çıkar; metrik verisini
+          DEĞİŞTİRMEZLER. Yazma yetkisi admin + İK (backend de öyle zorlar). */}
+      {canManage && (
+        <section className="section">
+          <h2>Takvim işaretleri ({monthAnnots.length})</h2>
+          <p className="desc">
+            Resmi tatil, incident ya da sürüm gibi günleri işaretle. Takvimde ve
+            trend grafiklerinde bağlam olarak görünür — bir tepe/çukur yanlış
+            okunmasın diye. İzin hakkından düşmez, metrik verisini değiştirmez.
+          </p>
+          <form className="inline-form" onSubmit={addAnnotation}>
+            <input type="date" value={annotForm.date}
+                   onChange={(e) => updAnnot("date", e.target.value)} required />
+            <input value={annotForm.label} onChange={(e) => updAnnot("label", e.target.value)}
+                   placeholder="Etiket (ör. Ramazan Bayramı)" required />
+            <select value={annotForm.kind} onChange={(e) => updAnnot("kind", e.target.value)} aria-label="Tür">
+              {ANNOT_KINDS.map((k) => <option key={k.v} value={k.v}>{k.t}</option>)}
+            </select>
+            <select value={annotForm.team_id} onChange={(e) => updAnnot("team_id", e.target.value)} aria-label="Kapsam">
+              <option value="">Tüm takımlar</option>
+              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button type="submit" className="mini">Ekle</button>
+          </form>
+
+          {monthAnnots.length === 0 ? (
+            <p className="desc">{monthName} ayında işaret yok.</p>
+          ) : (
+            <ul className="leave-list">
+              {monthAnnots.map((a) => (
+                <li key={a.id} className="leave-list-item">
+                  <span className="annot-icon" aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span>
+                  <div className="leave-list-main">
+                    <div className="leave-list-top">
+                      <strong>{a.label}</strong>
+                      <span className="leave-badge">{ANNOT_LABEL[a.kind] || a.kind}</span>
+                    </div>
+                    <div className="leave-list-dates">
+                      {a.date} · {a.team_id == null ? "Tüm takımlar" : (teamName[a.team_id] || "Takım")}
+                    </div>
+                  </div>
+                  <button className="mini danger leave-del" title="İşareti sil"
+                          onClick={() => removeAnnotation(a)}>
+                    Sil
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {/* İzin isteklerim: her çalışan kendi isteklerinin durumunu + red gerekçesini görür. */}
       <section className="section">

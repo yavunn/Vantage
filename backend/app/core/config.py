@@ -59,10 +59,27 @@ class TrelloSource(BaseModel):
     boards: list[str] = Field(default_factory=list)
 
 
+class StatusMapping(BaseModel):
+    """Kaynaktaki statü/kolon adlarının akış kategorilerine eşlenmesi.
+
+    Trello listesi, Jira workflow adımı — hepsi SERBEST METİNDİR ve ekipten
+    ekibe değişir ("Araştırma Konuları", "DEVELOPMENT", "QA Bekliyor"…).
+    Gömülü kelime listesi bunu asla kapsayamaz; kapsamadığında WIP ve cycle
+    time SESSİZCE yanlış çıkar. Bu yüzden eşleme config'ten yönetilir.
+
+    Beyan edilen ad varsayılan kategorisinden çıkarılır (açık beyan kazanır),
+    böylece ör. 'open' backlog yerine in_progress yapılabilir."""
+
+    backlog: list[str] = Field(default_factory=list)
+    in_progress: list[str] = Field(default_factory=list)
+    done: list[str] = Field(default_factory=list)
+
+
 class TaskSource(BaseModel):
     provider: str = "none"  # jira | trello | fixture | none
     jira: JiraSource = Field(default_factory=JiraSource)
     trello: TrelloSource = Field(default_factory=TrelloSource)
+    status_mapping: StatusMapping = Field(default_factory=StatusMapping)
 
 
 class QualitySource(BaseModel):

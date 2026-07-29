@@ -7,7 +7,6 @@ import {
   setEmployment,
   updateEmployee,
 } from "../api.js";
-import AnnotationsPanel from "./AnnotationsPanel.jsx";
 import AuditPanel from "./AuditPanel.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
@@ -15,6 +14,8 @@ import Modal from "./Modal.jsx";
 import OnboardingPanel from "./OnboardingPanel.jsx";
 import SurveyAdminPanel from "./SurveyAdminPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
+import TeamsPanel from "./TeamsPanel.jsx";
+import VisibilitySettings from "./VisibilitySettings.jsx";
 import { toast } from "../toast.js";
 
 // Panoya kopyala; başarısızsa (izin yok/eski tarayıcı) sessiz düşmesin.
@@ -48,7 +49,7 @@ function randomPassword() {
 // hrMode: İK yalnız hesap rehberini kullanır — çalışan (user) ekler ve user
 // parolası sıfırlar. Rol değiştirme / silme / pasifleştirme / entegrasyon /
 // denetim İK'ya KAPALI (backend de 403 verir; UI de göstermez).
-export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) {
+export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hrMode = false }) {
   const [subtab, setSubtab] = useState("accounts"); // accounts | integration
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
@@ -230,7 +231,6 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
           <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
           <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
           <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
-          <button className={`tab ${subtab === "annotations" ? "active" : ""}`} onClick={() => setSubtab("annotations")}>Anotasyonlar</button>
           <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
           <button className={`tab ${subtab === "survey" ? "active" : ""}`} onClick={() => setSubtab("survey")}>Memnuniyet</button>
           <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
@@ -240,8 +240,6 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
       {!hrMode && subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
       {!hrMode && subtab === "integration" && <IntegrationPanel />}
-
-      {!hrMode && subtab === "annotations" && <AnnotationsPanel teams={teams} />}
 
       {!hrMode && subtab === "code" && <CodeAnalysisPanel me={me} />}
 
@@ -405,6 +403,13 @@ export default function AdminPanel({ teams, me, onViewPerson, hrMode = false }) 
               </div>
             )}
           </section>
+
+          {/* Takımlar ve görünürlük hesapların alt başlıkları: ikisi de
+              "kim, hangi takımda, adı görünsün mü" sorusunun parçası.
+              İK'ya gösterilmez — bu uçlar admin ister (403 alırdı). */}
+          {!hrMode && <TeamsPanel onChanged={onTeamsChanged} />}
+
+          {!hrMode && <VisibilitySettings />}
         </>
       )}
 

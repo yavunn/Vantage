@@ -10,12 +10,12 @@ from __future__ import annotations
 from tests.conftest import NOW, days_ago, make_team
 
 
-def _team_data(session, team, window_days=30):
+def _team_data(session, team, window_days=30, cfg=None):
     from datetime import timedelta
 
     from app.metrics.engine import load_team_data
 
-    return load_team_data(session, team, NOW - timedelta(days=window_days), NOW)
+    return load_team_data(session, team, NOW - timedelta(days=window_days), NOW, cfg)
 
 
 def _cfg():
@@ -119,6 +119,57 @@ class TestWIP:
         out = wip(_team_data(session, team), _cfg())
         assert out.value is None
 
+    def test_uyesiz_takimda_kisi_basi_metrik_uydurulmaz(self, session):
+        """Payda 1'e yuvarlanırsa '10 iş / hayali 1 kişi' gibi yanlış bir
+        kırmızı çıkar. Üye yoksa değer üretilmez (İlke A)."""
+        from app.metrics.engine import wip
+        from app.models import Task
+
+        team, repo, devs, _ = make_team(session, devs=(), manager="mgr")
+        for i in range(3):
+            session.add(Task(source="trello", external_id=f"T-{i}", team_id=team.id,
+                             status="DEVELOPMENT"))
+        session.commit()
+        out = wip(_team_data(session, team), _cfg())
+        assert out.value is None
+        assert out.completeness == 0.0
+
+    def test_config_ile_eslenen_kolon_backlog_sayilir(self, session):
+        """Trello/Jira kolon adları serbest metindir; gömülü liste yetmez.
+        'Araştırma Konuları' eşlenmezse WIP'e girer ve takımı yok yere kırmızı yapar."""
+        from app.metrics.engine import wip
+        from app.models import Task
+
+        team, repo, devs, _ = make_team(session)  # 2 üye
+        for i, status in enumerate(["DEVELOPMENT", "TEST", "Araştırma Konuları",
+                                    "Araştırma Konuları", "DONE"]):
+            session.add(Task(source="trello", external_id=f"T-{i}", team_id=team.id,
+                             status=status))
+        session.commit()
+
+        # Eşleme yokken: 2 araştırma kartı da "akıştaki iş" sayılır → 4/2 = 2.0
+        assert wip(_team_data(session, team), _cfg()).value == 2.0
+
+        # Eşleme verilince: yalnız DEVELOPMENT + TEST akışta → 2/2 = 1.0
+        cfg = _cfg()
+        cfg.sources.tasks.status_mapping.backlog = ["Araştırma Konuları"]
+        cfg.sources.tasks.status_mapping.done = ["DONE"]
+        data = _team_data(session, team, cfg=cfg)
+        assert wip(data, cfg).value == 1.0
+
+    def test_beyan_edilen_ad_varsayilan_kategoriyi_ezer(self, app_env):
+        """'open' varsayılanda backlog'dur; in_progress beyan edilirse
+        iki kategoride birden kalmaz — açık beyan kazanır.
+        (app_env: taze config; mutasyon gerçek config'e sızmasın.)"""
+        from app.core.config import get_config
+        from app.metrics.engine import resolve_statuses
+
+        cfg = get_config()
+        cfg.sources.tasks.status_mapping.in_progress = ["open"]
+        st = resolve_statuses(cfg)
+        assert "open" in st["in_progress"]
+        assert "open" not in st["backlog"]
+
 
 class TestRework:
     def test_ayni_dosyaya_tekrar_dokunma(self, session):
@@ -154,6 +205,42 @@ class TestProcessHygiene:
         assert out.value is not None
         # bileşen1: estimate doluluk 0.25; bileşen2: transition doluluk 0.0
         assert abs(out.value - (0.25 + 0.0) / 2) < 0.01
+
+    def test_kaynakta_olmayan_alan_cezalandirilmaz(self, session):
+        """Trello'da estimate alanı YOK. Boşluğunu hijyen eksikliği saymak
+        takımı yapısal tavana çakar (İlke B: alan yoksa metrik gizlenir)."""
+        from app.metrics.engine import process_hygiene
+        from app.models import Task, TaskStatusTransition
+
+        team, repo, devs, _ = make_team(session)
+        for i in range(4):
+            t = Task(source="trello", external_id=f"T-{i}", team_id=team.id,
+                     status="DEVELOPMENT", estimate_hours=None)
+            session.add(t)
+            session.flush()
+            session.add(TaskStatusTransition(task_id=t.id, from_status=None,
+                                             to_status="DEVELOPMENT",
+                                             changed_at=days_ago(3)))
+        session.commit()
+        out = process_hygiene(_team_data(session, team), _cfg())
+        # Estimate bileşeni HİÇ sayılmaz; kalan tek bileşen (status doluluk) = 1.0
+        assert out.sample == 1
+        assert out.value == 1.0
+
+    def test_estimate_destekleyen_kaynakta_bosluk_hala_olculur(self, session):
+        """Jira/fixture'da alan VAR — doldurulmaması gerçek bir hijyen sinyalidir,
+        bu düzeltme onu susturmamalı."""
+        from app.metrics.engine import process_hygiene
+        from app.models import Task
+
+        team, repo, devs, _ = make_team(session)
+        for i in range(4):
+            session.add(Task(source="jira", external_id=f"J-{i}", team_id=team.id,
+                             status="To Do", estimate_hours=None))
+        session.commit()
+        out = process_hygiene(_team_data(session, team), _cfg())
+        assert out.sample == 2  # estimate + status bileşenleri
+        assert out.value == 0.0
 
 
 class TestConfigKapatma:

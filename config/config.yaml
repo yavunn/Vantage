@@ -1,6 +1,6 @@
 app:
   individual_view_enabled: true
-  anonymize_individuals: false
+  anonymize_individuals: true
   window_days: 30
   bucket_days: 7
 database:
@@ -13,6 +13,7 @@ sources:
     repos:
     - name: nabiz
       path: C:/Users/Asus/Documents/GitHub/Muhendislik-IK-Metrik-Sistemi
+      team: People & Engineering Intelligence Platform
     gitlab:
       base_url: ''
       token_env: GITLAB_TOKEN
@@ -27,11 +28,16 @@ sources:
       key_env: TRELLO_KEY
       token_env: TRELLO_TOKEN
       boards:
-      - UOIzVeO2
-      - rAUYPvr0
-  # Not: Dış kod-kalitesi taraması (SonarQube/linter) KALDIRILDI. Kod taraması
-  # artık kendi AI Kod Analizi modülümüzle yapılır (bkz. app/services/code_analysis.py,
-  # config'te code_analysis bölümü). 'quality' bölümü bilinçli olarak yoktur.
+      - FMm9Vuzg
+    status_mapping:
+      backlog:
+      - BACKLOG
+      - Araştırma Konuları
+      in_progress:
+      - DEVELOPMENT
+      - TEST
+      done:
+      - DONE
 metrics:
   cycle_time:
     enabled: true
@@ -62,26 +68,26 @@ metrics:
     enabled: true
 health_thresholds:
   cycle_time_days:
-    green: 3
-    red: 7
+    green: 3.0
+    red: 7.0
   pr_review_time_days:
-    green: 2
-    red: 5
+    green: 2.0
+    red: 5.0
   review_latency_days:
-    green: 1
-    red: 4
+    green: 1.0
+    red: 4.0
   deployment_frequency:
-    green: 3
-    red: 1
+    green: 3.0
+    red: 1.0
   change_failure_rate:
     green: 0.15
     red: 0.3
   mttr_hours:
-    green: 24
-    red: 72
+    green: 24.0
+    red: 72.0
   wip_per_dev:
-    green: 3
-    red: 5
+    green: 3.0
+    red: 5.0
   rework_rate:
     green: 0.15
     red: 0.35
@@ -92,17 +98,17 @@ health_thresholds:
 rules:
   review_bottleneck:
     enabled: true
-    avg_review_wait_days: 4
+    avg_review_wait_days: 4.0
   hotspot_files:
     enabled: true
-    min_fix_touches: 3
-    window_days: 30
+    min_fix_touches: 3.0
+    window_days: 30.0
   wip_overload:
     enabled: true
-    wip_per_dev: 5
+    wip_per_dev: 5.0
   low_process_hygiene:
     enabled: true
-    missing_estimate_pct: 70
+    missing_estimate_pct: 70.0
   risky_deploy_window:
     enabled: true
 llm:
@@ -124,10 +130,6 @@ code_analysis:
     security: 1.0
     code_smells: 1.0
     conventions: 1.0
-  # Hariç tutulan klasörler (node_modules, dist, build, vendor, generated,
-  # *.min.js …) artık koda gömülü: app/services/code_analysis.BUILTIN_EXCLUDES.
-  # Ayar değil, modülün doğru davranışı. Gerekirse buraya exclude_globs ile EK
-  # desen eklenebilir; temel listenin yerine geçmez.
   max_files_per_run: 40
   max_diff_lines: 400
 survey:

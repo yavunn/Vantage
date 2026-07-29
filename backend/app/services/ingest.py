@@ -7,6 +7,8 @@ Kirli veri stratejisi tek yerdedir:
 """
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -51,10 +53,14 @@ class Ingestor:
             repo = Repo(name=name, team_id=self._team(team_name).id if team_name else None)
             self.session.add(repo)
             self.session.flush()
-        elif team_name and repo.team_id is None:
-            # Daha önce takımsız oluşmuşsa (ör. fixture kalıntısı) şimdi bağla
-            repo.team_id = self._team(team_name).id
-            self.session.flush()
+        elif team_name:
+            # Config eşlemesi kaynaktır: takımsız kalmışı bağlar, YANLIŞ bağlanmışı
+            # düzeltir. (Yönetici panelinden takım değiştirilebildiği için bu şart —
+            # yalnız None'ı doldurmak, yeniden atamayı sessizce yutardı.)
+            target = self._team(team_name)
+            if repo.team_id != target.id:
+                repo.team_id = target.id
+                self.session.flush()
         self._repo_cache[name] = repo
         return repo
 
@@ -192,16 +198,24 @@ def run_ingest(
     git: GitProvider | None,
     tasks: TaskProvider | None,
     repo_team_map: dict[str, str] | None = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Tüm kaynaklardan çek + normalize et + yaz. Kaynak yoksa atlanır.
     repo_team_map: repo adı → takım adı (config'ten; commit/PR kaynağı takım
-    taşımadığında panonun dolması için)."""
+    taşımadığında panonun dolması için).
+
+    Sayılar YENİ kayıt sayısıdır (idempotent: var olan güncellenir, sayılmaz).
+    'warnings' adaptörlerin okuyamadığı kaynakları taşır — sessiz başarısızlık
+    yerine çağıran bunu kullanıcıya gösterir."""
     ing = Ingestor(session, repo_team_map=repo_team_map)
-    stats = {"commits": 0, "pull_requests": 0, "tasks": 0}
+    stats: dict[str, Any] = {"commits": 0, "pull_requests": 0, "tasks": 0}
+    warnings: list[str] = []
     if git is not None:
         stats["commits"] = ing.ingest_commits(git.fetch_commits())
         stats["pull_requests"] = ing.ingest_pull_requests(git.fetch_pull_requests())
+        warnings.extend(getattr(git, "warnings", []))
     if tasks is not None:
         stats["tasks"] = ing.ingest_tasks(tasks.fetch_tasks())
+        warnings.extend(getattr(tasks, "warnings", []))
     session.commit()
+    stats["warnings"] = warnings
     return stats

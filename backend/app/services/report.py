@@ -23,6 +23,7 @@ from app.metrics.engine import (
     METRIC_FUNCS,
     TeamData,
     _deploy_events,
+    _in,
     _is_done,
     _revert_target_sha,
     _task_done_at,
@@ -165,10 +166,10 @@ def _fmt_days(seconds: float) -> float:
 def _breakdown_cycle_time(data: TeamData) -> list[dict]:
     rows = []
     for t in data.tasks:
-        done = _task_done_at(t)
+        done = _task_done_at(t, data.statuses)
         if done is None or not (data.start <= done <= data.end):
             continue
-        started = _task_started_at(t)
+        started = _task_started_at(t, data.statuses)
         if started and done >= started:
             rows.append({
                 "label": t.title or f"Task #{t.external_id}",
@@ -227,8 +228,11 @@ def _breakdown_deploys(data: TeamData) -> list[dict]:
 def _breakdown_wip(data: TeamData) -> list[dict]:
     rows = []
     for t in data.tasks:
-        s = (t.status or "").strip().lower()
-        if t.status is None or _is_done(t.status) or s in {"to do", "todo", "backlog", "open", "yapılacak"}:
+        # Statü kategorileri data.statuses'tan (config + varsayılan) gelir —
+        # burada ikinci bir gömülü liste tutmak drilldown'ın metrikle
+        # çelişmesine yol açıyordu.
+        if t.status is None or _is_done(t.status, data.statuses) \
+                or _in(t.status, data.statuses["backlog"]):
             continue
         rows.append({
             "label": t.title or f"Task #{t.external_id}",

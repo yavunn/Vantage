@@ -18,7 +18,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.metrics.engine import TeamData, as_utc
+from app.metrics.engine import TeamData, _in, _is_done, as_utc
 from app.models import Leave, TeamMembership
 
 
@@ -84,9 +84,9 @@ def wip_concentration(data: TeamData) -> dict:
         if t.status is None:
             continue
         seen_any = True
-        s = (t.status or "").strip().lower()
-        if s in {"done", "closed", "resolved", "bitti", "tamamlandı",
-                 "to do", "todo", "backlog", "open", "yapılacak"}:
+        # Statü kategorileri config'ten çözümlenmiş eşlemeden gelir; burada
+        # gömülü liste tutmak sinyalin WIP metriğiyle çelişmesine yol açıyordu.
+        if _is_done(t.status, data.statuses) or _in(t.status, data.statuses["backlog"]):
             continue
         if t.assignee_id is not None:
             open_by_assignee[t.assignee_id] = open_by_assignee.get(t.assignee_id, 0) + 1
