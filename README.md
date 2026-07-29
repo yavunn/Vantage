@@ -143,8 +143,11 @@ Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 
 ### Giriş ve hesaplar
 - **Gerçek giriş:** e-posta + parola (bcrypt hash) → JWT (`python-jose`, HS256).
-  İmza anahtarı `EHD_SECRET` ortam değişkeninden okunur (üretimde MUTLAKA verin;
-  yoksa güvensiz geliştirme varsayılanı kullanılır). Oturum 12 saat geçerli.
+  İmza anahtarı `EHD_SECRET` ortam değişkeninden okunur. Tahmin edilebilir SABİT
+  varsayılan YOKTUR: env verilmemişse açılışta güçlü rastgele bir anahtar üretilip
+  gitignore'lu `backend/.secrets.env`'e yazılır (`ensure_jwt_secret`). Yine de
+  üretimde `EHD_SECRET`'i siz verin — anahtarın yaşam döngüsü sizde olsun.
+  Oturum 12 saat geçerli; parola değişince eski token'lar düşer (`token_version`).
 - **İlk kurulum sihirbazı:** sistemde hiç aktif yönetici yoksa açılışta ilk admin
   hesabı oluşturulur (CLI gerektirmez). Alternatif: `python -m app.cli set-password <email> <parola>`.
 - **İlk-giriş zorunlu parola:** admin geçici parola verir/sıfırlar; kullanıcı ilk
@@ -177,8 +180,11 @@ Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 | `GITHUB_TOKEN` | GitHub oran sınırını artırır / özel repo | Hayır (public repo tokensiz) |
 | `ANTHROPIC_API_KEY` | commit AI değerlendirme (provider=claude) | Yalnızca AI açıksa |
 
-> Kimlik iki katmanlıdır: auth uçları JWT (Bearer), dashboard uçları `X-Dev-Id`
-> başlığı kullanır (frontend giriş sonrası oturum sahibinin developer_id'siyle doldurur).
+> **Kimlik tek katmanlıdır: JWT (Bearer).** Dashboard uçları dahil her uç geçerli
+> token ister; tokensiz istek 401 döner (`app/api/routes.py` router bağımlılığı).
+> Eskiden dashboard tarafında kullanılan, istemcinin istediği değeri yazabildiği
+> için taklit edilebilen `X-Dev-Id` başlığı **kaldırıldı** — kişi kimliği artık
+> yalnızca token'ın sahibinden çıkarılır.
 
 ## Config referansı (`config/config.yaml`)
 
@@ -189,12 +195,18 @@ değildir** (İlke B):
 |---|---|
 | `app.anonymize_individuals` | `true` → takım-agregat mod: isimler maskeli, bireysel uçlar kapalı |
 | `app.individual_view_enabled` | bireysel görünümü tümden aç/kapat |
-| `sources.git/tasks/quality.provider` | adaptör seçimi: `git_log`/`gitlab`, `jira`/`trello`, `sonarqube`/`linter`; `fixture` = sentetik demo verisi |
+| `sources.git.provider` · `sources.tasks.provider` | adaptör seçimi: `git_log`/`gitlab`, `jira`/`trello`; `fixture` = sentetik demo verisi, `none` = kaynak yok |
+| `sources.tasks.status_mapping` | kaynaktaki serbest metinli kolon/statü adlarını `backlog`/`in_progress`/`done`'a eşler (ör. "Araştırma Konuları" → backlog) |
 | `metrics.<ad>.enabled` | metriği aç/kapat — kapalıysa hesaplanmaz, kartı bile görünmez |
 | `metrics.cycle_time.source/fallback` | veri katmanı zinciri (`jira_status` → `pr_merge`) |
 | `health_thresholds` | yeşil/kırmızı eşikleri + `data_completeness_min` (altında "veri yetersiz") |
 | `rules.<ad>` | kural motoru eşikleri; her kural tek tek kapatılabilir |
-| `llm` | opsiyonel öneri katmanı — **varsayılan kapalı**; `local` (Ollama/vLLM, veri dışarı çıkmaz) ya da bilinçli tercihle `claude` |
+| `llm` | opsiyonel öneri + kod analizi katmanı — **kod varsayılanı kapalı** (`LLMSettings.enabled = False`); `local` (Ollama/vLLM, veri dışarı çıkmaz) ya da bilinçli tercihle `claude` |
+
+> ⚠️ Depodaki `config/config.yaml` bu varsayılanı **ezer**: `llm.enabled: true`,
+> `provider: claude`. Yani depoyu olduğu gibi çalıştırırsanız kod analizi için
+> Anthropic API'sine istek gider. Veri dışarı çıkmasın istiyorsanız kurulumda
+> `llm.enabled: false` yapın ya da `provider: local` seçin.
 
 Örnek (spec'teki sözleşme):
 
@@ -232,8 +244,10 @@ tarihi bozuk kayıtlar, hotspot dosyalar, cuma-akşamı-deploy + hafta-sonu-fix
 - **CRM** — review darboğazı + hotspot + yüksek WIP + riskli deploy penceresi
 
 Veri fixture JSON'larına yazılır ve **normal ingest hattından** geçirilir —
-dayanıklılık gerçek pipeline üzerinde kanıtlanır. 28 pytest, her metriği hem tam
-hem eksik veriyle ve her kuralın tetiklenme senaryosunu test eder.
+dayanıklılık gerçek pipeline üzerinde kanıtlanır. Test paketi (133 pytest) her
+metriği hem tam hem eksik veriyle, her kuralın tetiklenme senaryosunu, etik
+kısıtları (leaderboard ucu yok, bireysel görünüm yetkisi), auth/İK izinlerini
+ve migration zincirini kapsar.
 
 ## API özeti
 
@@ -241,10 +255,11 @@ hem eksik veriyle ve her kuralın tetiklenme senaryosunu test eder.
 |---|---|
 | `GET /api/teams` · `/api/teams/{id}/summary` | takım sağlık kartları + öneriler (varsayılan görünüm) |
 | `GET /api/teams/{id}/series/{metric}` | haftalık trend |
-| `GET /api/teams/{id}/quality` | SonarQube/linter anlık görüntüsü |
-| `GET /api/developers/{id}/summary` | bireysel görünüm — yalnız kendisi + yöneticisi (`X-Dev-Id`) |
+| `GET /api/teams/{id}/code-health` | AI kod analizi özeti (dış araç yok — kendi modülümüz) |
+| `GET /api/developers/{id}/summary` | bireysel görünüm — yalnız kişinin kendisi, yöneticisi ya da admin; aksi hâlde 403 |
 | `GET /api/teams/{id}/ai-advice` | LLM önerisi — `llm.enabled: true` değilse 503 |
 | `GET /api/config/ui` | frontend'in göstereceği metrik seti |
 
-Kimlik demo amaçlı `X-Dev-Id` başlığıdır; şirket ortamında bu tek nokta
-SSO/reverse-proxy başlığıyla değiştirilir (`app/api/routes.py: current_dev`).
+Tablodaki uçların tamamı `Authorization: Bearer <token>` ister; tokensiz istek
+401 döner. Şirket ortamında SSO'ya geçilecekse değiştirilecek tek nokta
+`app/api/auth.py: current_user` bağımlılığıdır — uçların hiçbiri değişmez.
