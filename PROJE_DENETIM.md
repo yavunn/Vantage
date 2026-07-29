@@ -9,7 +9,7 @@
 > Aşağıdaki 2. bölüm denetim ANINDAKİ fotoğraftır (bilerek değiştirilmedi).
 > Bu bölüm o fotoğraftan sonra ne yapıldığını özetler.
 
-**21 maddenin 20'si uygulandı.** Üç kritik bulgunun (K1/K2/K3) hepsi kapandı.
+**21 maddenin tamamı uygulandı.** Üç kritik bulgunun (K1/K2/K3) hepsi kapandı.
 
 | Denetim anı | Şimdi |
 |---|---|
@@ -25,7 +25,7 @@
 | `styles.css` 1.684 · `App.jsx` 685 | 4 katman dosyası (çıktı **bayt bayt aynı**) · 559 + `TopBar.jsx` |
 | Giriş koruması: yalnız hesap kilidi | + IP bazlı kayan pencere sınırı |
 
-**Yapılmayan tek madde: 16 (branch silme)** — doğrulama geçmedi, gerekçe tabloda.
+**Madde 16 (branch temizliği) önce durduruldu, sonra güvenli yolla yapıldı:** doğrulama branch'lerin main'e merge EDİLMEDİĞİNİ ve aynı özelliklerin ayrı bir uygulaması olduğunu gösterdi (main'de hiç bulunmayan 27 dosya). Körlemesine silmek yerine önce `arsiv/faz-1..5` etiketleri oluşturulup **uzağa gönderildi**, etiketlerin doğru commit'leri gösterdiği `git ls-remote` ile doğrulandı, ancak ondan sonra branch'ler silindi.
 
 **Bu iş sırasında bulunan ve rapora eklenen yeni sorunlar:** madde 21 (repodaki
 `llm.enabled: true` on-prem vaadiyle çelişiyor) ve `api.js`'te gövde JSON
@@ -198,7 +198,7 @@ frontend build başarılı, config yükleniyor.**
 | ~~**13**~~ ✅ | ~~Tekrarlayan tarih yardımcılarını tek dosyaya al: `pad/ymd/monthKey` (`LeavesPanel.jsx:22-24` = `HrDashboard.jsx:9-11`, birebir aynı), `TYPE_LABEL` (iki dosya), `fmtDate` (`Settings.jsx:25`, `TrendChart.jsx:17` — farklı imzalar, aynı isim).~~ **Yapıldı** (`dcf9fdc`): `src/dates.js`. | Kod kalitesi | Ay/gün hesabında bir düzeltme iki dosyada ayrı ayrı yapılmak zorunda; TZ hatası tek yerde düzeltilirse diğerinde kalır | Orta | S | Düşük |
 | ~~**14**~~ ✅ | ~~`App.jsx` (685 satır) ve `styles.css` (1.690 satır) bölünmesi: App'ten yönlendirme/sekme mantığını, CSS'ten bileşen bloklarını ayır.~~ **Yapıldı** (`7614d5e`): `styles.css` 1.684 → 15 satır + 4 katman dosyası; **üretilen CSS bayt bayt aynı** (SHA-256 doğrulandı) — kaskad kaymadı. `App.jsx` 685 → 559; `TopBar.jsx` (119) + `nav.js` (47) çıkarıldı. | Kod kalitesi | En sık değişen iki dosya (18 ve 16 commit) — çakışma ve yanlışlıkla bozma olasılığı en yüksek noktalar | Orta | L | Orta |
 | ~~**15**~~ ✅ | ~~Yeni bir migration'la orphan `code_quality_snapshots` tablosunu düşür (`migrations/versions/18731b1ad718:94` yaratıyor, hiçbir model kullanmıyor — `models/__init__.py:221-223` durumu zaten not etmiş).~~ **Yapıldı** (`4a395d5`): `f2a3b4c5d6e7` migration'ı tabloyu düşürüyor; `downgrade` initial_schema'daki tanımla birebir geri kuruyor (boş). | Kod kalitesi | Şemada kimsenin yazmadığı/okumadığı bir tablo; yeni gelen "bu ne?" diye zaman kaybeder | Düşük | S | Düşük |
-| **16** ⛔ | **YAPILMADI — doğrulama geçmedi.** `git branch --merged main` hiçbir faz branch'ini merge edilmiş göstermiyor; her biri main'de OLMAYAN commit'ler taşıyor (faz-1: 1, faz-2: 2, faz-3: 3, faz-4: 4, faz-5: 5). main ayrı bir soy ağacı — muhtemelen yeniden kurulmuş/squash'lanmış. Silmek o geçmişi yok ederdi. `origin/feat/owner-ai-provider` ise gerçekten 0 commit ileride, o silinebilir. Güvenli yol: silmeden önce `git tag arsiv/faz-5 faz-5-izin` ile etiketle. | DX | 6 ölü branch dal listesini kirletiyor | Düşük | S | **Yüksek** (veri kaybı) |
+| ~~**16**~~ ✅ | ~~Merge edilmiş faz branch'lerini sil.~~ **Doğrulama ÖNCE durdurdu:** `git branch --merged main` hiçbirini merge edilmiş göstermedi; ortak ata en baştaki `Initial import`. Bunlar main'in ataları değil, aynı özelliklerin **ayrı bir uygulaması** (`app/api/leave.py` tekil vs main'de `leaves.py` çoğul; `AuthContext.jsx`, `AdminDashboard.jsx`, `core/crypto.py`, `adapters/sonarqube.py` — main'de **hiç bulunmayan 27 dosya**). **Yapıldı** (`9a1e5f7` etiketleri): `arsiv/faz-1..5` açıklamalı etiketleri oluşturuldu, origin'e gönderildi, `git ls-remote` ile beş etiketin de doğru commit'i gösterdiği doğrulandı; ancak ondan sonra yerel + uzak branch'ler silindi. `feat/owner-ai-provider` main'de tamamen içerildiği için etiketsiz silindi. Geri getirme provası yapıldı: `git checkout -b faz-5-izin arsiv/faz-5` → faz-5'e özgü dosyalar çalışma ağacında. | DX | 6 ölü branch dal listesini kirletiyordu | Düşük | S | Yüksek → **etiketle sıfırlandı** |
 | ~~**17**~~ ✅ | ~~`tests/test_llm_provider.py:133` — `open(cfg_path).read()` yerine `Path(...).read_text()` ya da `with`.~~ **Yapıldı** (`dcf9fdc`). | Kod kalitesi | Ruff SIM115; testte dosya tanıtıcısı sızıyor (Windows'ta sonraki temizliği kilitleyebilir) | Düşük | S | Düşük |
 | ~~**18**~~ ✅ | ~~`scripts/seed_dirty_data.py:153` — döngüde kullanılmayan `team` değişkeni (Ruff B007); ya kullanılmalı ya `_` olmalı.~~ **Yapıldı** (`dcf9fdc`). | Kod kalitesi | Muhtemel kopyala-yapıştır kalıntısı; niyetin ne olduğu belirsiz | Düşük | S | Düşük |
 | ~~**19**~~ ✅ | ~~Girişe IP bazlı hız sınırı ekle (`app/api/auth.py:223`). Hesap kilidi (5 deneme) var ama saldırgan farklı hesapları sırayla deneyebiliyor.~~ **Yapıldı** (`4a395d5`): IP bazlı kayan pencere (5 dk / 20 başarısız). Sayaç var olmayan hesapta da artar (numaralandırma yavaşlar). 2 test. Bellek içi — çoklu worker'a geçilirse Redis'e taşınmalı. | Güvenlik | Kullanıcı numaralandırma + dağıtık deneme yavaşlatılmıyor | Düşük | M | Orta |
