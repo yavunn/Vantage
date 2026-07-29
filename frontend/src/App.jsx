@@ -3,6 +3,7 @@
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setupStatus } from "./api.js";
+import { toast } from "./toast.js";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
 import SurveyBanner from "./components/SurveyBanner.jsx";
@@ -206,7 +207,10 @@ export default function App() {
         setTeams(tms);
         setTeamId((cur) => (tms.some((t) => t.id === cur) ? cur : (tms[0]?.id ?? null)));
       })
-      .catch(() => {});
+      // Bu çağrı takım ekleme/silme/yeniden adlandırma sonrası çalışır: sessizce
+      // yutulursa yönetici işlemin başarısız olduğunu değil, listenin eski
+      // kaldığını görür ve aynı takımı tekrar yaratmayı dener.
+      .catch((e) => toast(`Takım listesi yenilenemedi: ${e.message}`, "error"));
   }
 
   // Giriş sonrası çekirdek veriyi yükle (parola değiştirme beklemiyorsa).

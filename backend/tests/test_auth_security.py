@@ -81,7 +81,7 @@ def test_parola_degisince_eski_token_gecersiz(client, session):
     # Parola değiştir → yeni token döner
     r = client.post("/api/auth/change-password",
                     headers=_auth(t_old),
-                    json={"current_password": "eski123", "new_password": "yeni456"})
+                    json={"current_password": "eski123", "new_password": "yeniParola456"})
     assert r.status_code == 200, r.text
     t_new = r.json()["access_token"]
     # ESKİ token artık geçersiz (token_version arttı) → 401
@@ -97,7 +97,7 @@ def test_admin_parola_sifirlayinca_hedefin_token_dus(client, session):
     assert client.get("/api/auth/me", headers=_auth(t_target)).status_code == 200
     at = _login(client, "admin@x.com")
     r = client.post(f"/api/auth/employees/{target.id}/password",
-                    headers=_auth(at), json={"new_password": "reset789"})
+                    headers=_auth(at), json={"new_password": "resetParola789"})
     assert r.status_code == 200, r.text
     # Hedefin eski oturumu düşer.
     assert client.get("/api/auth/me", headers=_auth(t_target)).status_code == 401

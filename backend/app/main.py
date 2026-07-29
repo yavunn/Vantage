@@ -54,6 +54,43 @@ app = FastAPI(
                 "bireysel gözetim aracı DEĞİLDİR.",
     lifespan=lifespan,
 )
+@app.get("/api/health")
+def health():
+    """Kimliksiz sağlık kontrolü — izleme/otomasyon buraya bağlanır.
+
+    Bilinçli olarak DAR: yalnız "DB'ye erişebiliyor muyum" ve "en son ne zaman
+    senkron oldum". Sürüm/şema/hata detayı gibi iç bilgi sızdırmaz (bu uç
+    tokensizdir). DB erişilemiyorsa 503 döner ki yük dengeleyici düğümü
+    trafikten alsın."""
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+    from sqlalchemy import func, select
+
+    from app.core.db import get_sessionmaker
+    from app.models import MetricResult
+
+    session = get_sessionmaker()()
+    try:
+        son = session.scalar(select(func.max(MetricResult.computed_at)))
+    except Exception as e:
+        raise HTTPException(503, detail="Veritabanına erişilemiyor") from e
+    finally:
+        session.close()
+
+    yas_dk = None
+    if son is not None:
+        if son.tzinfo is None:
+            son = son.replace(tzinfo=timezone.utc)
+        yas_dk = int((datetime.now(timezone.utc) - son).total_seconds() // 60)
+    return {
+        "status": "ok",
+        "database": "ok",
+        "last_sync_at": son.isoformat() if son else None,
+        "last_sync_age_minutes": yas_dk,
+    }
+
+
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(projects_router)

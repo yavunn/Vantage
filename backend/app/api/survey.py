@@ -101,10 +101,10 @@ def submit_current(
         texts["comment"] = body.comment
     try:
         survey_svc.submit_response(session, cfg, cycle, user.id, body.answers, texts)
-    except ValueError:
-        raise HTTPException(409, detail="Bu dönem anketini zaten doldurdun")
+    except ValueError as e:
+        raise HTTPException(409, detail="Bu dönem anketini zaten doldurdun") from e
     except RuntimeError as e:
-        raise HTTPException(503, detail=str(e))
+        raise HTTPException(503, detail=str(e)) from e
     return {"ok": True}
 
 

@@ -42,7 +42,12 @@ def fresh_db_url(tmp_path, monkeypatch):
         TEST_CONFIG.format(db_path=(tmp_path / "migr.db").as_posix()), encoding="utf-8"
     )
     monkeypatch.setenv("EHD_CONFIG", str(cfg_file))
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # DATABASE_URL'i SİLMEK yetmez, açıkça test DB'sine kurmak gerekir:
+    # migrations/env.py load_secrets() çağırıyor ve .secrets.env'de bir
+    # DATABASE_URL varsa (gerçek Postgres) setdefault ile devreye girer —
+    # migration'lar üretim veritabanına uygulanırdı. Gerçek env değişkeni
+    # her zaman kazandığı için burada onu sabitliyoruz.
+    monkeypatch.setenv("DATABASE_URL", db_url)
 
     from app.core.config import get_config, reset_config_cache
     from app.core.db import reset_engine

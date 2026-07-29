@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword } from "../api.js";
+import { MIN_PASSWORD_LENGTH, changePassword } from "../api.js";
 import Modal from "./Modal.jsx";
 
 // Çalışanın kendi parolasını değiştirmesi.
@@ -13,8 +13,8 @@ export default function ChangePassword({ onClose }) {
   async function submit(e) {
     e.preventDefault();
     setError(null);
-    if (nw.length < 6) {
-      setError("Yeni parola en az 6 karakter olmalı");
+    if (nw.length < MIN_PASSWORD_LENGTH) {
+      setError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
       return;
     }
     if (nw !== nw2) {
@@ -44,11 +44,11 @@ export default function ChangePassword({ onClose }) {
           </label>
           <label>
             Yeni parola
-            <input type="password" value={nw} onChange={(e) => setNw(e.target.value)} minLength={6} required />
+            <input type="password" value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required />
           </label>
           <label>
             Yeni parola (tekrar)
-            <input type="password" value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={6} required />
+            <input type="password" value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required />
           </label>
           {error && <div className="login-error">{error}</div>}
           <div className="modal-actions">

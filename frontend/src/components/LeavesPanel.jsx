@@ -5,6 +5,7 @@ import {
   pendingLeaves,
 } from "../api.js";
 import Modal from "./Modal.jsx";
+import { monthKey, ymd } from "../dates.js";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 const ANNOT_LABEL = { holiday: "Tatil", incident: "Incident", release: "Sürüm", other: "Not" };
@@ -18,10 +19,6 @@ const ANNOT_KINDS = [
 const STATUS_LABEL = { pending: "Onay bekliyor", approved: "Onaylı", rejected: "Reddedildi" };
 const WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
-// Yerel tarih formatı (UTC'ye çevirmeden — TZ kayması olmasın).
-function pad(n) { return String(n).padStart(2, "0"); }
-function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function monthKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; }
 
 // Aylık takvim ızgarası (Pazartesi başlangıç, CSS grid — kütüphane yok).
 function buildGrid(year, month) {
@@ -70,7 +67,14 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     }
   }
   useEffect(load, [month]);
-  useEffect(() => { if (canManage) listEmployees().then(setEmployees).catch(() => {}); }, []);
+  // Çalışan listesi "Kişi" seçicisini doldurur. Sessizce boş kalırsa yönetici
+  // başkasına izin ekleyemez ve sebebini göremez — hatayı görünür kıl.
+  useEffect(() => {
+    if (!canManage) return;
+    listEmployees()
+      .then(setEmployees)
+      .catch((e) => setError(`Çalışan listesi yüklenemedi: ${e.message}`));
+  }, []);
 
   // Başka bir aya bakarken işaret eklenecekse tarih o aya düşsün — bugünün
   // tarihiyle yanlışlıkla görünmeyen bir güne işaret konmasın.

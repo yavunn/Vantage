@@ -4,7 +4,11 @@ app:
   window_days: 30
   bucket_days: 7
 database:
-  url: postgresql+psycopg://health:health@localhost:5433/eng_health
+  # BU DOSYA GIT'E GIRER — buraya kimlik bilgisi YAZMAYIN.
+  # Gerçek URL ortamdan gelir: DATABASE_URL (ya da backend/.secrets.env),
+  # config'teki değeri her zaman ezer. Aşağıdaki yalnızca kurulumsuz bir
+  # geliştirme varsayılanıdır. Örnek için .env.example'a bakın.
+  url: sqlite:///./eng_health.db
 sync:
   interval_minutes: 60
 sources:
@@ -112,8 +116,11 @@ rules:
   risky_deploy_window:
     enabled: true
 llm:
-  enabled: true
-  provider: claude
+  # On-prem kısıtı: KAPALI başlar — AI'ı açmak bilinçli bir tercih olmalı.
+  # Açmak için: Yönetici paneli → AI Kod Analizi → sağlayıcı seç (baş yönetici).
+  # 'local' (Ollama/vLLM) veri dışarı çıkarmaz; 'claude' dış servise istek atar.
+  enabled: false
+  provider: none
   local:
     base_url: http://localhost:11434
     model: llama3.1
@@ -121,7 +128,8 @@ llm:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
 code_analysis:
-  enabled: true
+  # llm ile birlikte açılır/kapanır (arayüzdeki sağlayıcı seçimi ikisini de yazar).
+  enabled: false
   weights:
     readability: 1.0
     complexity: 1.0

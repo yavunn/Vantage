@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { monthKey, pad, ymd } from "../dates.js";
 import {
   decideLeave, leaveBalances, leaveSummary, listEmployees, listLeaves, pendingLeaves,
 } from "../api.js";
@@ -6,9 +7,6 @@ import {
 // İK Panosu — kapasite + izin + rehber. Performans/metrik YOK (etik sınır).
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 
-function pad(n) { return String(n).padStart(2, "0"); }
-function ymd(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
-function monthKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; }
 
 export default function HrDashboard() {
   const today = new Date();

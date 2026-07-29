@@ -56,9 +56,25 @@ def survey_genkey() -> None:
 
 
 def serve() -> None:
+    """python -m app.cli serve [host] [port]
+
+    Varsayılan 127.0.0.1:8000 — yalnız yerel. Başka makineden erişim gerekiyorsa
+    host'u açıkça verin (ör. `serve 0.0.0.0 8000`) ya da EHD_HOST/EHD_PORT
+    ortam değişkenlerini kullanın. Varsayılanın yerel kalması bilinçlidir:
+    on-prem bir pano yanlışlıkla ağa açılmasın."""
+    import os
+
     import uvicorn
 
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000)
+    host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("EHD_HOST", "127.0.0.1")
+    port_raw = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("EHD_PORT", "8000")
+    try:
+        port = int(port_raw)
+    except ValueError:
+        print(f"Geçersiz port: {port_raw}")
+        sys.exit(1)
+    print(f"Sunucu: http://{host}:{port}")
+    uvicorn.run("app.main:app", host=host, port=port)
 
 
 def set_password() -> None:
@@ -105,4 +121,9 @@ if __name__ == "__main__":
     if cmd not in COMMANDS:
         print(__doc__)
         sys.exit(1)
+    # Kalıcı sırları (DATABASE_URL, token'lar) ortama yükle — config okunmadan
+    # ÖNCE. Aksi hâlde init-db/set-password gibi komutlar config'teki geliştirme
+    # varsayılanına (sqlite) düşer ve yanlış veritabanına yazardı.
+    from app.core.secrets import load_secrets
+    load_secrets()
     COMMANDS[cmd]()

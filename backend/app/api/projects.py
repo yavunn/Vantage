@@ -84,7 +84,7 @@ def _sync(session: Session, p: UserProject) -> int:
         p.last_detail = str(e)
         p.last_run_at = datetime.now(timezone.utc)
         session.commit()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     existing = {
         c.sha for c in session.scalars(
@@ -122,7 +122,7 @@ def create_project(
     try:
         parse_repo(body.github_url)  # erken doğrula
     except GitHubError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     now = datetime.now(timezone.utc)
     p = UserProject(
         user_id=user.id, project_name=body.name.strip(), source_type="github",

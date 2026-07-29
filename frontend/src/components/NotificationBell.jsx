@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from "../api.js";
+import { toast } from "../toast.js";
 
 // Bildirim zili: okunmamış sayacı + açılır liste. Trend alarmları burada görünür.
 // Etik: içerik takım sağlığı sinyali; kişi kıyası/ceza dili yok (backend garantiler).
@@ -9,6 +10,9 @@ export default function NotificationBell({ onNavigate }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
+  // Arka plan yoklaması BİLİNÇLİ olarak sessiz: dakikada bir çalışıyor, ağ
+  // kesintisinde kullanıcıyı toast yağmuruna tutmanın faydası yok. Kullanıcının
+  // BAŞLATTIĞI eylemler (okundu işaretleme) ise sessiz kalmamalı — aşağıda.
   function refresh() {
     listNotifications()
       .then((d) => { setItems(d.items); setUnread(d.unread); })
@@ -34,7 +38,13 @@ export default function NotificationBell({ onNavigate }) {
   // link formatı backend'den: "/?team=<id>"
   async function readOne(n) {
     if (!n.is_read) {
-      await markNotificationRead(n.id).catch(() => {});
+      // Sessizce yutulursa bildirim okunmuş görünür ama sunucuda okunmamış
+      // kalır; kullanıcı aynı alarmı tekrar tekrar görür ve sebebini bilmez.
+      try {
+        await markNotificationRead(n.id);
+      } catch (err) {
+        toast(`Bildirim okundu işaretlenemedi: ${err.message}`, "error");
+      }
       refresh();
     }
     if (!onNavigate) return;
@@ -51,7 +61,11 @@ export default function NotificationBell({ onNavigate }) {
     }
   }
   async function readAll() {
-    await markAllNotificationsRead().catch(() => {});
+    try {
+      await markAllNotificationsRead();
+    } catch (err) {
+      toast(`Bildirimler okundu işaretlenemedi: ${err.message}`, "error");
+    }
     refresh();
   }
 

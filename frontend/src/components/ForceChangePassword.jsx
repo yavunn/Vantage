@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword } from "../api.js";
+import { MIN_PASSWORD_LENGTH, changePassword } from "../api.js";
 
 // İlk giriş / admin sıfırlaması sonrası zorunlu parola değiştirme.
 // Kapatılamaz — kullanıcı yeni parola belirlemeden panoya geçemez.
@@ -13,8 +13,8 @@ export default function ForceChangePassword({ onDone, onLogout }) {
   async function submit(e) {
     e.preventDefault();
     setError(null);
-    if (nw.length < 6) {
-      setError("Yeni parola en az 6 karakter olmalı");
+    if (nw.length < MIN_PASSWORD_LENGTH) {
+      setError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
       return;
     }
     if (nw !== nw2) {
@@ -77,7 +77,7 @@ export default function ForceChangePassword({ onDone, onLogout }) {
               type="password"
               value={nw}
               onChange={(e) => setNw(e.target.value)}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               autoComplete="new-password"
               required
             />
@@ -88,7 +88,7 @@ export default function ForceChangePassword({ onDone, onLogout }) {
               type="password"
               value={nw2}
               onChange={(e) => setNw2(e.target.value)}
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
               autoComplete="new-password"
               required
             />

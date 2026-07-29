@@ -7,11 +7,16 @@ from sqlalchemy import engine_from_config, pool
 import app.models  # noqa: F401 — tablolar metadata'ya kaydolsun
 from app.core.config import get_config
 from app.core.db import Base
+from app.core.secrets import load_secrets
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# DB URL'i sır olarak tutuluyor olabilir (DATABASE_URL). Config okunmadan ÖNCE
+# yükle; yoksa `alembic upgrade head` config'teki geliştirme varsayılanına
+# (sqlite) düşer ve migration'ları YANLIŞ veritabanına uygular.
+load_secrets()
 config.set_main_option("sqlalchemy.url", get_config().database_url)
 target_metadata = Base.metadata
 

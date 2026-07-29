@@ -82,7 +82,9 @@ export default function CodeAnalysisPanel({ me }) {
       loadOverview();
       loadAudit();
       if (String(selectedId) === String(dev.id)) {
-        api(`/api/developers/${dev.id}/code-health`).then(setSelectedHealth).catch(() => {});
+        api(`/api/developers/${dev.id}/code-health`)
+          .then(setSelectedHealth)
+          .catch((err) => toast(`Kod sağlığı yenilenemedi: ${err.message}`, "error"));
       }
     } catch (e) { setError(e); toast(`Analiz hatası: ${e.message}`, "error"); } finally { setRunningDev(null); }
   }

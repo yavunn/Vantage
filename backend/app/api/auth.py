@@ -47,6 +47,11 @@ router = APIRouter(prefix="/api/auth")
 MAX_FAILED_LOGINS = 5
 LOCKOUT_MINUTES = 15
 
+# Parola taban uzunlugu. 6 karakter cevrimdisi hash saldirisina karsi
+# anlamli bir direnc vermiyor; hesap kilidi yalniz CEVRIMICI denemeyi
+# yavaslatir. Mevcut hesaplar etkilenmez — yalniz yeni/degisen parolalar.
+MIN_PASSWORD_LENGTH = 10
+
 
 # --- şemalar ------------------------------------------------------------------
 
@@ -57,13 +62,13 @@ class LoginBody(BaseModel):
 
 class ChangePasswordBody(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 class CreateEmployeeBody(BaseModel):
     display_name: str = Field(min_length=1)
     email: str
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
     role: str = "user"  # user | admin | hr
     team_id: int | None = None
     team_role: str = "member"  # member | manager
@@ -72,7 +77,7 @@ class CreateEmployeeBody(BaseModel):
 
 
 class SetPasswordBody(BaseModel):
-    new_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 class UpdateEmployeeBody(BaseModel):
@@ -96,7 +101,7 @@ class UpdateProfileBody(BaseModel):
 class SetupBody(BaseModel):
     display_name: str = Field(min_length=1)
     email: str
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 
 class MembershipBody(BaseModel):

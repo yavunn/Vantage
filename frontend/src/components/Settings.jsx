@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { changePassword, updateProfile } from "../api.js";
+import { MIN_PASSWORD_LENGTH, changePassword, updateProfile } from "../api.js";
 import { toast } from "../toast.js";
 
 // Yaygın uygulama zaman dilimleri (kısa liste; kurum içi yeterli).
@@ -83,7 +83,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
   async function submitPw(e) {
     e.preventDefault();
     setPwError(null); setPwOk(false);
-    if (nw.length < 6) { setPwError("Yeni parola en az 6 karakter olmalı"); return; }
+    if (nw.length < MIN_PASSWORD_LENGTH) { setPwError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`); return; }
     if (nw !== nw2) { setPwError("Yeni parolalar eşleşmiyor"); return; }
     setBusy(true);
     try {
@@ -160,7 +160,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
             <input type={showPw ? "text" : "password"} value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" required />
           </label>
           <label>Yeni parola
-            <input type={showPw ? "text" : "password"} value={nw} onChange={(e) => setNw(e.target.value)} minLength={6} autoComplete="new-password" required />
+            <input type={showPw ? "text" : "password"} value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           {nw && (
             <div className={`pw-strength s${strength.score}`}>
@@ -169,7 +169,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
             </div>
           )}
           <label>Yeni parola (tekrar)
-            <input type={showPw ? "text" : "password"} value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={6} autoComplete="new-password" required />
+            <input type={showPw ? "text" : "password"} value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           <label className="pw-show">
             <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> Parolaları göster

@@ -150,7 +150,7 @@ def gen_commits() -> list[dict]:
 
 def gen_prs() -> list[dict]:
     prs = []
-    for team, spec in TEAMS.items():
+    for spec in TEAMS.values():  # takım adı burada kullanılmıyor; repo yeterli
         repo = spec["repo"]
         dev_keys = [d[0] for d in spec["devs"]]
         n = rng.randint(40, 70)

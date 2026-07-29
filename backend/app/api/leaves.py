@@ -43,8 +43,8 @@ def _month_range(month: str) -> tuple[date, date]:
         y, m = map(int, month.split("-"))
         last = calendar.monthrange(y, m)[1]
         return date(y, m, 1), date(y, m, last)
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=422, detail="month biçimi YYYY-MM olmalı")
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=422, detail="month biçimi YYYY-MM olmalı") from e
 
 
 def _person_name(session: Session, user_id: int, developer_id: int | None) -> str:

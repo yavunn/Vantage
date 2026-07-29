@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  MIN_PASSWORD_LENGTH,
   createEmployee,
   deleteEmployee,
   listEmployees,
@@ -16,6 +17,7 @@ import SurveyAdminPanel from "./SurveyAdminPanel.jsx";
 import TeamEditor from "./TeamEditor.jsx";
 import TeamsPanel from "./TeamsPanel.jsx";
 import VisibilitySettings from "./VisibilitySettings.jsx";
+import { todayIso } from "../dates.js";
 import { toast } from "../toast.js";
 
 // Panoya kopyala; başarısızsa (izin yok/eski tarayıcı) sessiz düşmesin.
@@ -30,12 +32,6 @@ async function copyText(text, label) {
 
 const PAGE_SIZE = 10;
 const ROLE_LABEL = { user: "Çalışan", admin: "Yönetici", hr: "İnsan Kaynakları" };
-// Yerel bugünün tarihi (YYYY-MM-DD) — TZ kaymadan.
-function todayIso() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 // Kolay okunur, güçlü geçici parola üretir (karışan karakterler hariç).
 function randomPassword() {
@@ -105,8 +101,8 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
 
   async function doReset(userId) {
     setError(null); setMsg(null);
-    if (resetPw.length < 6) {
-      setError("Yeni parola en az 6 karakter olmalı");
+    if (resetPw.length < MIN_PASSWORD_LENGTH) {
+      setError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
       return;
     }
     try {
@@ -260,7 +256,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
               </label>
               <label>Başlangıç parolası
                 <span className="input-with-btn">
-                  <input value={form.password} onChange={(e) => upd("password", e.target.value)} placeholder="en az 6 karakter" minLength={6} required />
+                  <input value={form.password} onChange={(e) => upd("password", e.target.value)} placeholder={`en az ${MIN_PASSWORD_LENGTH} karakter`} minLength={MIN_PASSWORD_LENGTH} required />
                   <button type="button" className="mini" onClick={() => upd("password", randomPassword())} title="Rastgele güçlü parola üret">Üret</button>
                   <button type="button" className="mini ghost" disabled={!form.password} onClick={() => copyText(form.password, "Parola")} title="Parolayı kopyala">Kopyala</button>
                 </span>
@@ -377,7 +373,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                         <button className="mini ghost" title="İşe giriş tarihi + yıllık izin hakkı" onClick={() => openEmployment(u)}>İzin hakkı</button>
                         {resetFor === u.id ? (
                           <span className="reset-row">
-                            <input type="text" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="yeni parola" minLength={6} />
+                            <input type="text" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="yeni parola" minLength={MIN_PASSWORD_LENGTH} />
                             <button className="mini" title="Rastgele üret" onClick={() => setResetPw(randomPassword())}>Üret</button>
                             <button className="mini" onClick={() => doReset(u.id)}>Kaydet</button>
                             <button className="mini ghost" onClick={() => setResetFor(null)}>Vazgeç</button>

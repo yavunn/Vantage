@@ -118,7 +118,7 @@ def test_hr_bireysel_performans_403(client, actors, session):
 def test_hr_user_olusturur_201(client, actors):
     r = client.post("/api/auth/employees", headers=_auth(actors["hr_t"]),
                     json={"display_name": "Yeni", "email": "yeni@x.com",
-                          "password": "parola1", "role": "user"})
+                          "password": "parola123456", "role": "user"})
     assert r.status_code == 201
     assert r.json()["role"] == "user"
 
@@ -126,14 +126,14 @@ def test_hr_user_olusturur_201(client, actors):
 def test_hr_admin_olusturamaz_403(client, actors):
     r = client.post("/api/auth/employees", headers=_auth(actors["hr_t"]),
                     json={"display_name": "X", "email": "x@x.com",
-                          "password": "parola1", "role": "admin"})
+                          "password": "parola123456", "role": "admin"})
     assert r.status_code == 403
 
 
 def test_hr_hr_olusturamaz_403(client, actors):
     r = client.post("/api/auth/employees", headers=_auth(actors["hr_t"]),
                     json={"display_name": "X", "email": "x2@x.com",
-                          "password": "parola1", "role": "hr"})
+                          "password": "parola123456", "role": "hr"})
     assert r.status_code == 403
 
 

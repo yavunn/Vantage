@@ -127,9 +127,11 @@ def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatc
     assert "sk-test-12345" in (tmp_path / ".secrets.env").read_text(encoding="utf-8")
 
     # config.yaml'a anahtar SIZMAZ.
+    from pathlib import Path
+
     from app.core.config import DEFAULT_CONFIG_PATH
     cfg_path = os.environ.get("EHD_CONFIG") or str(DEFAULT_CONFIG_PATH)
-    assert "sk-test-12345" not in open(cfg_path, encoding="utf-8").read()
+    assert "sk-test-12345" not in Path(cfg_path).read_text(encoding="utf-8")
 
     # GET anahtarın kendisini dönmez, yalnız 'tanımlı' durumunu.
     got = client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).json()

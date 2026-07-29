@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { setup } from "../api.js";
+import { MIN_PASSWORD_LENGTH, setup } from "../api.js";
 
 // İlk kurulum: sistemde hiç aktif yönetici yoksa gösterilir. İlk admin
 // hesabını oluşturur ve doğrudan oturum açar (CLI gerektirmez).
@@ -71,11 +71,11 @@ export default function Setup({ onSuccess }) {
           </label>
           <label>
             Parola
-            <input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} minLength={6} autoComplete="new-password" required />
+            <input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           <label>
             Parola (tekrar)
-            <input type="password" value={form.password2} onChange={(e) => upd("password2", e.target.value)} minLength={6} autoComplete="new-password" required />
+            <input type="password" value={form.password2} onChange={(e) => upd("password2", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           {error && <div className="login-error">{error}</div>}
           <button type="submit" className="login-btn" disabled={busy}>

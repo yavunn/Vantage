@@ -60,7 +60,10 @@ def app_env(tmp_path, monkeypatch):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(TEST_CONFIG.format(db_path=db_path), encoding="utf-8")
     monkeypatch.setenv("EHD_CONFIG", str(cfg_file))
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # Silmek yeterli DEĞİL: .secrets.env'de bir DATABASE_URL varsa load_secrets()
+    # onu setdefault ile geri getirir ve testler gerçek veritabanına yazar.
+    # Gerçek ortam değişkeni sırları ezdiği için test DB'sini açıkça sabitliyoruz.
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
 
     import app.models  # noqa: F401 — tablolar metadata'ya kaydolsun
     from app.core.config import reset_config_cache

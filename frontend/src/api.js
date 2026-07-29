@@ -4,6 +4,11 @@
 const TOKEN_KEY = "nabiz_token";
 const USER_KEY = "nabiz_user";
 
+// Parola taban uzunluğu — backend'deki MIN_PASSWORD_LENGTH ile AYNI olmalı
+// (app/api/auth.py). İstemcide daha düşük olursa kullanıcı formu gönderir ve
+// anlamsız bir 422 ile karşılaşır; tek yerden yönetilsin diye burada.
+export const MIN_PASSWORD_LENGTH = 10;
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -58,7 +63,7 @@ function humanizeDetail(detail) {
       const label = FIELD_TR[field] || field;
       const min = e.ctx && e.ctx.min_length;
       if (e.type === "string_too_short" || (e.type && e.type.includes("min_length"))) {
-        return `${label} en az ${min ?? 6} karakter olmalı`;
+        return `${label} en az ${min ?? MIN_PASSWORD_LENGTH} karakter olmalı`;
       }
       if (e.type === "value_error.missing" || e.type === "missing") {
         return `${label} zorunlu`;
