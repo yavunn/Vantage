@@ -52,6 +52,27 @@ def test_dashboard_tokensiz_401(client, session):
     assert client.get("/api/teams", headers=_auth(t)).status_code == 200
 
 
+def test_anotasyon_okumasi_tokensiz_401(client, session):
+    """Anotasyon etiketleri ("ödeme servisi çöktü", sürüm adları) şirket içi
+    bilgidir. Bu uç bir dönem router bağımlılığı olmadan public kalmıştı."""
+    _mk_user(session, "u@x.com")
+    assert client.get("/api/annotations").status_code == 401
+    assert client.get("/api/annotations?team_id=1").status_code == 401
+    t = _login(client, "u@x.com")
+    assert client.get("/api/annotations", headers=_auth(t)).status_code == 200
+
+
+def test_anotasyon_yazma_duz_kullaniciya_kapali(client, session):
+    """Okuma herkese açıldı diye yazma da açılmasın: düz kullanıcı 403 almalı."""
+    _mk_user(session, "u@x.com")
+    t = _login(client, "u@x.com")
+    r = client.post("/api/annotations",
+                    headers=_auth(t),
+                    json={"date": "2026-01-01", "label": "Yılbaşı", "kind": "holiday"})
+    assert r.status_code == 403, r.text
+    assert client.delete("/api/annotations/1", headers=_auth(t)).status_code == 403
+
+
 def test_parola_degisince_eski_token_gecersiz(client, session):
     _mk_user(session, "u@x.com", password="eski123")
     t_old = _login(client, "u@x.com", "eski123")

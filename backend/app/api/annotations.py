@@ -1,8 +1,12 @@
 """Trend anotasyonları — tatil/incident/sürüm işaretleri.
 
-Okuma herkese açık (grafiklerde bağlam gösterilir). Yazma/silme admin + İK
-(izin takvimine tatil/olay işaretleyebilsinler). Anotasyon metrik verisini
-DEĞİŞTİRMEZ; sadece görsel bağlamdır.
+Okuma oturum açmış her kullanıcıya açık (grafiklerde ve izin takviminde bağlam
+gösterilir); yazma/silme admin + İK (izin takvimine tatil/olay işaretleyebilsinler).
+Anotasyon metrik verisini DEĞİŞTİRMEZ; sadece görsel bağlamdır.
+
+GÜVENLİK: JWT zorunluluğu ROUTER seviyesindedir — etiketler ("ödeme servisi
+çöktü", sürüm adları) şirket içi bilgidir ve tokensiz okunmamalıdır. Router'a
+sonradan eklenen her uç da otomatik olarak bu korumayı alır.
 """
 from __future__ import annotations
 
@@ -13,11 +17,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_admin_or_hr
+from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
 from app.models import TrendAnnotation, User
 
-router = APIRouter(prefix="/api/annotations")
+router = APIRouter(prefix="/api/annotations", dependencies=[Depends(current_user)])
 
 VALID_KINDS = {"holiday", "incident", "release", "other"}
 
