@@ -47,7 +47,7 @@ export default function ForceChangePassword({ onDone, onLogout }) {
               />
             </svg>
           </span>
-          <h1 className="brand-name">Nabız</h1>
+          <h1 className="brand-name">Vantage</h1>
         </div>
         <p className="brand-tagline">Güvenlik adımı</p>
         <p className="brand-copy">

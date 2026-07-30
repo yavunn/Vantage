@@ -5,9 +5,9 @@ sürüklüyordu (CVE-2024-23342, "düzeltilmeyecek" damgalı yan-kanal). Bu proj
 yalnız HS256 (HMAC) kullandığı için o kod yolu hiç çalışmıyordu — yani risk
 teoriktı; yine de gereksiz bağımlılık ve saldırı yüzeyi kaldırıldı.
 
-On-prem kısıt: JWT imza anahtarı ortam değişkeninden (EHD_SECRET) okunur.
+On-prem kısıt: JWT imza anahtarı ortam değişkeninden (VANTAGE_SECRET) okunur.
 GÜVENLİK: Tahmin edilebilir SABİT bir varsayılan YOKTUR (repo herkese açık —
-sabit anahtar = token taklidi). EHD_SECRET yoksa `ensure_jwt_secret()` başlangıçta
+sabit anahtar = token taklidi). VANTAGE_SECRET yoksa `ensure_jwt_secret()` başlangıçta
 güçlü bir anahtar üretip `.secrets.env`'e yazar; o çağrılmadıysa (ör. testte)
 süreç-içi rastgele bir anahtar kullanılır. Parolalar yalnızca bcrypt hash'i.
 """
@@ -28,12 +28,12 @@ _EPHEMERAL_SECRET: str | None = None
 
 
 def _secret() -> str:
-    s = os.environ.get("EHD_SECRET")
+    s = os.environ.get("VANTAGE_SECRET")
     if s:
         return s
     # Env yoksa SABİT/tahmin edilebilir anahtar KULLANMA — süreç-içi rastgele üret.
     # (Kalıcı anahtar ensure_jwt_secret() ile yazılır; bu yol yalnız o çalışmadıysa
-    # devreye girer. Süreç yeniden başlarsa oturumlar düşer — prod'da EHD_SECRET ver.)
+    # devreye girer. Süreç yeniden başlarsa oturumlar düşer — prod'da VANTAGE_SECRET ver.)
     global _EPHEMERAL_SECRET
     if _EPHEMERAL_SECRET is None:
         _EPHEMERAL_SECRET = _secrets_mod.token_hex(32)
@@ -41,13 +41,13 @@ def _secret() -> str:
 
 
 def ensure_jwt_secret() -> None:
-    """Başlangıçta EHD_SECRET yoksa güçlü bir anahtar üretip .secrets.env'e yazar
+    """Başlangıçta VANTAGE_SECRET yoksa güçlü bir anahtar üretip .secrets.env'e yazar
     (yeniden başlatmada oturumlar korunur). Zaten varsa DOKUNMAZ."""
-    if os.environ.get("EHD_SECRET"):
+    if os.environ.get("VANTAGE_SECRET"):
         return
     from app.core.secrets import set_secret
 
-    set_secret("EHD_SECRET", _secrets_mod.token_hex(32))
+    set_secret("VANTAGE_SECRET", _secrets_mod.token_hex(32))
 
 
 def hash_password(plain: str) -> str:

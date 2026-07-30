@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { login } from "../api.js";
 
-// Giriş ekranı. Marka: "Nabız" — süreç sağlığını nabız gibi ölçer;
+// Giriş ekranı. Marka: "Vantage" — sürece tek bir bakış noktasından bakar;
 // gözetim değil, ekibin iyiliği için. Çerçeve (İlke E) burada da görünür.
 export default function Login({ onSuccess }) {
   const [email, setEmail] = useState("");
@@ -40,11 +40,10 @@ export default function Login({ onSuccess }) {
               />
             </svg>
           </span>
-          <h1 className="brand-name">Nabız</h1>
+          <h1 className="brand-name">Vantage</h1>
         </div>
-        <p className="brand-tagline">Mühendislik Sağlığı Panosu</p>
         <p className="brand-copy">
-          Takımın süreç sağlığını nabız gibi ölçer. Kişi performans karnesi ya da
+          Takımın süreç sağlığına tek bir bakış noktasından bakar. Kişi performans karnesi ya da
           gözetim aracı değildir — kırmızı bir metrik, "ekip zorlanıyor, destek
           gerekebilir" demektir.
         </p>

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 // Aranabilir kişi seçici (combobox) + son bakılanlar.
 // İK akışında en sık işlem "kişiye bak" — düz <select> uzun listede yavaş.
 // Klavye: ok tuşları gez, Enter seç, Esc kapat.
-const RECENT_KEY = "nabiz_recent_devs";
+const RECENT_KEY = "vantage_recent_devs";
 const RECENT_MAX = 5;
 
 function readRecent() {

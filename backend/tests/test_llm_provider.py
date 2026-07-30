@@ -130,7 +130,7 @@ def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatc
     from pathlib import Path
 
     from app.core.config import DEFAULT_CONFIG_PATH
-    cfg_path = os.environ.get("EHD_CONFIG") or str(DEFAULT_CONFIG_PATH)
+    cfg_path = os.environ.get("VANTAGE_CONFIG") or str(DEFAULT_CONFIG_PATH)
     assert "sk-test-12345" not in Path(cfg_path).read_text(encoding="utf-8")
 
     # GET anahtarın kendisini dönmez, yalnız 'tanımlı' durumunu.

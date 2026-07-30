@@ -59,7 +59,7 @@ def app_env(tmp_path, monkeypatch):
     db_path = (tmp_path / "test.db").as_posix()
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(TEST_CONFIG.format(db_path=db_path), encoding="utf-8")
-    monkeypatch.setenv("EHD_CONFIG", str(cfg_file))
+    monkeypatch.setenv("VANTAGE_CONFIG", str(cfg_file))
     # Silmek yeterli DEĞİL: .secrets.env'de bir DATABASE_URL varsa load_secrets()
     # onu setdefault ile geri getirir ve testler gerçek veritabanına yazar.
     # Gerçek ortam değişkeni sırları ezdiği için test DB'sini açıkça sabitliyoruz.

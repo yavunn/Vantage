@@ -5,9 +5,9 @@
 
 export const RANGE_OPTIONS = [7, 30, 90];
 
-const TAB_KEY = "nabiz_tab";
-const TEAM_KEY = "nabiz_team";
-const RANGE_KEY = "nabiz_range";
+const TAB_KEY = "vantage_tab";
+const TEAM_KEY = "vantage_team";
+const RANGE_KEY = "vantage_range";
 
 export function applyTheme(theme) {
   const root = document.documentElement;

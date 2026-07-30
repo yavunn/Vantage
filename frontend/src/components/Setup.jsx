@@ -48,7 +48,7 @@ export default function Setup({ onSuccess }) {
               />
             </svg>
           </span>
-          <h1 className="brand-name">Nabız</h1>
+          <h1 className="brand-name">Vantage</h1>
         </div>
         <p className="brand-tagline">İlk kurulum</p>
         <p className="brand-copy">

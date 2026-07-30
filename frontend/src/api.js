@@ -1,8 +1,8 @@
 // API istemcisi + oturum yönetimi.
 // Kimlik: JWT (Bearer) — TÜM uçlar (dashboard dahil) bunu ister.
 
-const TOKEN_KEY = "nabiz_token";
-const USER_KEY = "nabiz_user";
+const TOKEN_KEY = "vantage_token";
+const USER_KEY = "vantage_user";
 
 // Parola taban uzunluğu — backend'deki MIN_PASSWORD_LENGTH ile AYNI olmalı
 // (app/api/auth.py). İstemcide daha düşük olursa kullanıcı formu gönderir ve
@@ -81,7 +81,7 @@ async function parseError(resp) {
   // App'e haber ver ki login ekranına yönlensin (sayfa kırılmasın).
   if (resp.status === 401 && getToken()) {
     logout();
-    window.dispatchEvent(new CustomEvent("nabiz:session-expired"));
+    window.dispatchEvent(new CustomEvent("vantage:session-expired"));
   }
   return err;
 }

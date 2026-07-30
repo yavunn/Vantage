@@ -136,7 +136,7 @@ def test_repo_takimi_degistirilince_db_guncellenir(session):
 
 def test_takimsiz_repo_senkronda_uyari_uretir(session, monkeypatch):
     """Bu uyarı olmadan pano 'veri yetersiz' gösterir ve sebebi görünmez."""
-    _set_git_repos([{"name": "nabiz", "path": "/tmp/yok"}])
+    _set_git_repos([{"name": "vantage", "path": "/tmp/yok"}])
     monkeypatch.setattr("app.services.pipeline.get_sessionmaker", lambda: lambda: session)
     from app.services.pipeline import run_pipeline
 
@@ -144,7 +144,7 @@ def test_takimsiz_repo_senkronda_uyari_uretir(session, monkeypatch):
     assert any("hiçbir takıma bağlı değil" in w for w in stats["warnings"])
 
     # Takım atanınca uyarı kaybolur
-    _set_git_repos([{"name": "nabiz", "path": "/tmp/yok", "team": "Takım A"}])
+    _set_git_repos([{"name": "vantage", "path": "/tmp/yok", "team": "Takım A"}])
     stats = run_pipeline()
     assert not any("hiçbir takıma bağlı değil" in w for w in stats["warnings"])
 
@@ -189,7 +189,7 @@ def test_sources_ucu_repolari_takimlariyla_dondurur(client, session):
 
     session.add(Team(name="Takım A"))
     session.commit()
-    _set_git_repos([{"name": "nabiz", "path": "/repo/nabiz"}])
+    _set_git_repos([{"name": "vantage", "path": "/repo/vantage"}])
     token = _admin_token(client, session)
 
     body = client.get("/api/admin/sources", headers={"Authorization": f"Bearer {token}"}).json()
@@ -197,7 +197,7 @@ def test_sources_ucu_repolari_takimlariyla_dondurur(client, session):
     # Panel "repo sayısı: 1" yerine hangi repo, nereye bağlı gösterebilmeli.
     # slug: github sağlayıcısının owner/repo alanı — git_log girdisinde boş.
     assert body["git"]["repos"] == [
-        {"name": "nabiz", "path": "/repo/nabiz", "slug": None,
+        {"name": "vantage", "path": "/repo/vantage", "slug": None,
          "team": None, "commit_count": 0}
     ]
     # Takım seçimi için liste aynı yanıtta gelir (ikinci istek gerekmez)
@@ -207,17 +207,17 @@ def test_sources_ucu_repolari_takimlariyla_dondurur(client, session):
 def test_repo_takim_eslemesi_config_e_yazilir(client, session):
     from app.core.config import get_config, reset_config_cache
 
-    _set_git_repos([{"name": "nabiz", "path": "/repo/nabiz"}])
+    _set_git_repos([{"name": "vantage", "path": "/repo/vantage"}])
     token = _admin_token(client, session)
     auth = {"Authorization": f"Bearer {token}"}
 
-    r = client.put("/api/admin/sources", json={"repo_teams": {"nabiz": "Takım A"}}, headers=auth)
+    r = client.put("/api/admin/sources", json={"repo_teams": {"vantage": "Takım A"}}, headers=auth)
     assert r.status_code == 200, r.text
     reset_config_cache()
     assert get_config().sources.git.repos[0]["team"] == "Takım A"
 
     # Boş değer eşlemeyi kaldırır (takım yok'a dönüş)
-    r = client.put("/api/admin/sources", json={"repo_teams": {"nabiz": ""}}, headers=auth)
+    r = client.put("/api/admin/sources", json={"repo_teams": {"vantage": ""}}, headers=auth)
     assert r.status_code == 200, r.text
     reset_config_cache()
     assert "team" not in get_config().sources.git.repos[0]

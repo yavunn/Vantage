@@ -23,7 +23,7 @@ def _alembic_cfg():
     cfg = Config(str(backend_dir / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_dir / "migrations"))
     # sqlalchemy.url'i BİLEREK vermiyoruz: migrations/env.py onu her hâlükârda
-    # get_config().database_url ile ezer. URL'i EHD_CONFIG üzerinden yönlendirmek
+    # get_config().database_url ile ezer. URL'i VANTAGE_CONFIG üzerinden yönlendirmek
     # hem tek çalışan yol hem de gerçek env.py davranışını test eder.
     return cfg
 
@@ -32,7 +32,7 @@ def _alembic_cfg():
 def fresh_db_url(tmp_path, monkeypatch):
     """Hiç dokunulmamış, boş bir SQLite DB — ve config onu göstersin.
 
-    KRİTİK: EHD_CONFIG kurulmazsa env.py gerçek (üretim/demo) Postgres'e
+    KRİTİK: VANTAGE_CONFIG kurulmazsa env.py gerçek (üretim/demo) Postgres'e
     bağlanır ve migration'ları ORAYA uygular."""
     from tests.conftest import TEST_CONFIG
 
@@ -41,7 +41,7 @@ def fresh_db_url(tmp_path, monkeypatch):
     cfg_file.write_text(
         TEST_CONFIG.format(db_path=(tmp_path / "migr.db").as_posix()), encoding="utf-8"
     )
-    monkeypatch.setenv("EHD_CONFIG", str(cfg_file))
+    monkeypatch.setenv("VANTAGE_CONFIG", str(cfg_file))
     # DATABASE_URL'i SİLMEK yetmez, açıkça test DB'sine kurmak gerekir:
     # migrations/env.py load_secrets() çağırıyor ve .secrets.env'de bir
     # DATABASE_URL varsa (gerçek Postgres) setdefault ile devreye girer —

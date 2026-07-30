@@ -15,7 +15,7 @@ function mockResponse({ ok = true, status = 200, body = {} } = {}) {
 
 describe("istek başlıkları", () => {
   beforeEach(() => {
-    localStorage.setItem("nabiz_token", "tok-123");
+    localStorage.setItem("vantage_token", "tok-123");
   });
 
   it("token varsa Authorization başlığı ekler", async () => {
@@ -55,20 +55,20 @@ describe("istek başlıkları", () => {
 
 describe("401 → oturumu temiz düşür", () => {
   it("kimlikli istekte 401 gelirse oturumu siler ve olay yayar", async () => {
-    localStorage.setItem("nabiz_token", "tok-eski");
-    localStorage.setItem("nabiz_user", JSON.stringify({ display_name: "Ali" }));
+    localStorage.setItem("vantage_token", "tok-eski");
+    localStorage.setItem("vantage_user", JSON.stringify({ display_name: "Ali" }));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       mockResponse({ ok: false, status: 401, body: { detail: "Oturum süresi doldu" } })
     ));
     const onExpired = vi.fn();
-    window.addEventListener("nabiz:session-expired", onExpired);
+    window.addEventListener("vantage:session-expired", onExpired);
 
     await expect(api("/api/teams")).rejects.toThrow("Oturum süresi doldu");
 
     expect(getToken()).toBeNull();
     expect(getStoredUser()).toBeNull();
     expect(onExpired).toHaveBeenCalledTimes(1);
-    window.removeEventListener("nabiz:session-expired", onExpired);
+    window.removeEventListener("vantage:session-expired", onExpired);
   });
 
   it("token yokken gelen 401 olay yaymaz (login ekranı zaten açık)", async () => {
@@ -76,16 +76,16 @@ describe("401 → oturumu temiz düşür", () => {
       mockResponse({ ok: false, status: 401, body: { detail: "Yetkisiz" } })
     ));
     const onExpired = vi.fn();
-    window.addEventListener("nabiz:session-expired", onExpired);
+    window.addEventListener("vantage:session-expired", onExpired);
 
     await expect(api("/api/teams")).rejects.toThrow("Yetkisiz");
 
     expect(onExpired).not.toHaveBeenCalled();
-    window.removeEventListener("nabiz:session-expired", onExpired);
+    window.removeEventListener("vantage:session-expired", onExpired);
   });
 
   it("403'te oturum DÜŞMEZ — yetki hatası oturum hatası değildir", async () => {
-    localStorage.setItem("nabiz_token", "tok-123");
+    localStorage.setItem("vantage_token", "tok-123");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       mockResponse({ ok: false, status: 403, body: { detail: "Yetkiniz yok" } })
     ));

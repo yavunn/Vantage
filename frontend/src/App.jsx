@@ -1,4 +1,4 @@
-// Nabız — Mühendislik Sağlığı Panosu.
+// Vantage — uygulama kabuğu.
 // Varsayılan görünüm TAKIM'dır (İlke E). Bireysel sekme yalnızca yetkiliye
 // içerik gösterir; leaderboard yoktur. Giriş gerçek hesapla yapılır.
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -61,12 +61,12 @@ export default function App() {
   const [survey, setSurvey] = useState(null);
   const [surveyDismissed, setSurveyDismissed] = useState(false);
   const [error, setError] = useState(null);
-  const [theme, setTheme] = useState(() => localStorage.getItem("nabiz_theme") || "auto");
+  const [theme, setTheme] = useState(() => localStorage.getItem("vantage_theme") || "auto");
 
   // Tema uygula + kalıcılaştır.
   useEffect(() => {
     applyTheme(theme);
-    localStorage.setItem("nabiz_theme", theme);
+    localStorage.setItem("vantage_theme", theme);
   }, [theme]);
 
   // Gezinme durumunu kalıcılaştır (reload'da kal, URL paylaşılabilir).
@@ -151,8 +151,8 @@ export default function App() {
       setSummary(null);
       setTab("team");
     }
-    window.addEventListener("nabiz:session-expired", onExpired);
-    return () => window.removeEventListener("nabiz:session-expired", onExpired);
+    window.addEventListener("vantage:session-expired", onExpired);
+    return () => window.removeEventListener("vantage:session-expired", onExpired);
   }, []);
 
   // Takım listesi yönetici panelinden değişebilir (ekle/sil/yeniden adlandır).
@@ -257,7 +257,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `nabiz-${teamName}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `vantage-${teamName}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

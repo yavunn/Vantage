@@ -10,7 +10,7 @@
 
 /* ---- G12: Marka rampası + efekt belirteçleri ---- */
 :root {
-  /* Nabız kimliği: crimson → magenta → mor. Yalnız kabuk aksanı. */
+  /* Vantage kimliği: crimson → magenta → mor. Yalnız kabuk aksanı. */
   --brand: #e0245e;
   --brand-2: #9333ea;
   --brand-3: #ff6b6b;
@@ -91,7 +91,7 @@ body::after {
   100% { transform: translate3d(-1.5%, 1.5%, 0) scale(1.09); }
 }
 
-/* ---- G14: Kabuk — cam topbar, gradyan marka, nabız işareti ---- */
+/* ---- G14: Kabuk — cam topbar, gradyan marka, EKG işareti ---- */
 .topbar {
   background: var(--glass);
   backdrop-filter: saturate(180%) blur(16px);
@@ -110,7 +110,7 @@ body::after {
   width: fit-content;
 }
 .topbar-mark, .login-aside .brand-mark { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--brand) 45%, transparent)); }
-/* EKG çizgisi: açılışta bir kez çizilir, marka üstüne gelince nabız atar. */
+/* EKG çizgisi: açılışta bir kez çizilir, marka üstüne gelince canlanır. */
 @keyframes ecg-draw {
   0%   { stroke-dashoffset: 240; }
   60%  { stroke-dashoffset: 0; }
@@ -174,7 +174,7 @@ body::after {
 .card[data-status="red"] { --accent-status: var(--status-critical); }
 .card[data-status="insufficient_data"] { --accent-status: var(--status-neutral); }
 
-/* Kırmızı durumda nokta nabız atar — markanın kendi metaforu, dikkat çeker. */
+/* Kırmızı durumda nokta yanıp söner — marka işaretiyle aynı dil, dikkat çeker. */
 @keyframes status-pulse {
   0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent); }
   50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--status-critical) 2%, transparent),
@@ -370,7 +370,7 @@ table.quality, .admin-table { background: var(--card-bg); }
   to { transform: none; opacity: 1; }
 }
 
-/* Aurora ve nabız hareketleri de hareket-azaltmada durur (G11 kapsar); ek
+/* Aurora ve EKG hareketleri de hareket-azaltmada durur (G11 kapsar); ek
    olarak atmosferi tamamen sabitle ki GPU'da sürekli iş kalmasın. */
 @media (prefers-reduced-motion: reduce) {
   body::before, .login-aside::before { animation: none !important; transform: none !important; }

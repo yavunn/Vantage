@@ -1,4 +1,4 @@
-# Engineering Health Dashboard
+# Vantage
 
 Şirketin **kendi verisiyle çalışan, on-prem** (dışarıya veri göndermeyen) mühendislik
 sağlığı panosu. Git ve Jira/Trello verisini ortak bir şemaya normalize eder;
@@ -137,16 +137,16 @@ cd ..\backend
 
 Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 
-## Nabız — hesap yönetimi ve ek modüller
+## Hesap yönetimi ve ek modüller
 
-Ürün arayüzü **Nabız** adıyla gerçek giriş sistemi ve İK/çalışan modülleri içerir.
+Ürün arayüzü gerçek giriş sistemi ve İK/çalışan modülleri içerir.
 
 ### Giriş ve hesaplar
 - **Gerçek giriş:** e-posta + parola (bcrypt hash) → JWT (`PyJWT`, HS256).
-  İmza anahtarı `EHD_SECRET` ortam değişkeninden okunur. Tahmin edilebilir SABİT
+  İmza anahtarı `VANTAGE_SECRET` ortam değişkeninden okunur. Tahmin edilebilir SABİT
   varsayılan YOKTUR: env verilmemişse açılışta güçlü rastgele bir anahtar üretilip
   gitignore'lu `backend/.secrets.env`'e yazılır (`ensure_jwt_secret`). Yine de
-  üretimde `EHD_SECRET`'i siz verin — anahtarın yaşam döngüsü sizde olsun.
+  üretimde `VANTAGE_SECRET`'i siz verin — anahtarın yaşam döngüsü sizde olsun.
   Oturum 12 saat geçerli; parola değişince eski token'lar düşer (`token_version`).
 - **İlk kurulum sihirbazı:** sistemde hiç aktif yönetici yoksa açılışta ilk admin
   hesabı oluşturulur (CLI gerektirmez). Alternatif: `python -m app.cli set-password <email> <parola>`.
@@ -175,7 +175,7 @@ Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 ### Ortam değişkenleri
 | Değişken | Amaç | Zorunlu |
 |----------|------|---------|
-| `EHD_SECRET` | JWT imza anahtarı | Üretimde evet |
+| `VANTAGE_SECRET` | JWT imza anahtarı | Üretimde evet |
 | `DATABASE_URL` | config'teki DB url'ini ezer | Hayır |
 | `GITHUB_TOKEN` | GitHub oran sınırını artırır / özel repo | Hayır (public repo tokensiz) |
 | `ANTHROPIC_API_KEY` | commit AI değerlendirme (provider=claude) | Yalnızca AI açıksa |

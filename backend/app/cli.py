@@ -59,15 +59,15 @@ def serve() -> None:
     """python -m app.cli serve [host] [port]
 
     Varsayılan 127.0.0.1:8000 — yalnız yerel. Başka makineden erişim gerekiyorsa
-    host'u açıkça verin (ör. `serve 0.0.0.0 8000`) ya da EHD_HOST/EHD_PORT
+    host'u açıkça verin (ör. `serve 0.0.0.0 8000`) ya da VANTAGE_HOST/VANTAGE_PORT
     ortam değişkenlerini kullanın. Varsayılanın yerel kalması bilinçlidir:
     on-prem bir pano yanlışlıkla ağa açılmasın."""
     import os
 
     import uvicorn
 
-    host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("EHD_HOST", "127.0.0.1")
-    port_raw = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("EHD_PORT", "8000")
+    host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("VANTAGE_HOST", "127.0.0.1")
+    port_raw = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("VANTAGE_PORT", "8000")
     try:
         port = int(port_raw)
     except ValueError:

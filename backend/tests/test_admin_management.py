@@ -100,7 +100,7 @@ def test_takim_adi_degisince_repo_eslemesi_de_guncellenir(client, session):
     team = Team(name="Eski Ad")
     session.add(team)
     session.commit()
-    _set_git_repos([{"name": "nabiz", "path": "/repo", "team": "Eski Ad"}])
+    _set_git_repos([{"name": "vantage", "path": "/repo", "team": "Eski Ad"}])
     auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
 
     r = client.patch(f"/api/admin/teams/{team.id}", json={"name": "Yeni Ad"}, headers=auth)

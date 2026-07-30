@@ -28,7 +28,7 @@ class AppSettings(BaseModel):
 
 
 class DatabaseSettings(BaseModel):
-    url: str = "sqlite:///./eng_health.db"
+    url: str = "sqlite:///./vantage.db"
 
 
 class SyncSettings(BaseModel):
@@ -264,8 +264,8 @@ class Config(BaseModel):
 
 def active_config_path() -> Path:
     """Yürürlükteki config dosyası yolu. Yazma uçları da BURAYA yazmalı ki
-    okuma/yazma aynı dosyada olsun (EHD_CONFIG override'ı ile de tutarlı)."""
-    return Path(os.environ.get("EHD_CONFIG", DEFAULT_CONFIG_PATH))
+    okuma/yazma aynı dosyada olsun (VANTAGE_CONFIG override'ı ile de tutarlı)."""
+    return Path(os.environ.get("VANTAGE_CONFIG", DEFAULT_CONFIG_PATH))
 
 
 def load_config(path: str | Path | None = None) -> Config:

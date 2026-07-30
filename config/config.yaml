@@ -4,17 +4,17 @@ app:
   window_days: 30
   bucket_days: 7
 database:
-  url: sqlite:///./eng_health.db
+  url: sqlite:///./vantage.db
 sync:
   interval_minutes: 60
 sources:
   git:
     provider: git_log
     repos:
-    - name: nabiz
+    - name: vantage
       path: C:/Users/Asus/Documents/GitHub/Muhendislik-IK-Metrik-Sistemi
       slug: yavunn/Muhendislik-IK-Metrik-Sistemi
-      team: People & Engineering Intelligence Platform
+      team: Vantage
     github:
       token_env: GITHUB_TOKEN
       detail_limit: 150
@@ -120,10 +120,10 @@ rules:
     enabled: true
 llm:
   enabled: true
-  provider: claude
+  provider: local
   local:
     base_url: http://localhost:11434
-    model: llama3.1
+    model: qwen2.5-coder:7b
   claude:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY

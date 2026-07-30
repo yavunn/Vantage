@@ -42,8 +42,7 @@ export default function TopBar({
         <div className="topbar-brand">
           <BrandMark />
           <div>
-            <h1>Nabız</h1>
-            <span className="topbar-suffix">Mühendislik Sağlığı Panosu</span>
+            <h1>Vantage</h1>
           </div>
         </div>
 

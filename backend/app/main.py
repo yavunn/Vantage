@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     from app.core.secrets import load_secrets
     load_secrets()  # kalıcı sırları ortama yükle (config'ten önce)
     from app.core.security import ensure_jwt_secret
-    ensure_jwt_secret()  # EHD_SECRET yoksa güçlü üret + kalıcı yaz (tahmin edilebilir sabit yok)
+    ensure_jwt_secret()  # VANTAGE_SECRET yoksa güçlü üret + kalıcı yaz (tahmin edilebilir sabit yok)
     cfg = get_config()
     Base.metadata.create_all(get_engine())  # şema garanti (alembic da mevcut)
     ensure_schema_patches()  # var olan tablolara sonradan eklenen kolonlar
@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Engineering Health Dashboard",
+    title="Vantage",
     description="On-prem mühendislik sağlığı panosu — takım/süreç odaklı, "
                 "bireysel gözetim aracı DEĞİLDİR.",
     lifespan=lifespan,

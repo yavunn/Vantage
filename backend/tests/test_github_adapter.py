@@ -79,13 +79,13 @@ def test_commitler_normalize_ediliyor(yamali):
         "/repos/o/r/commits": (200, COMMIT_LISTESI),
         "/repos/o/r/commits/abc123": (200, COMMIT_DETAY),
     })
-    p = GitHubProvider([{"name": "nabiz", "slug": "o/r"}])
+    p = GitHubProvider([{"name": "vantage", "slug": "o/r"}])
     commitler = p.fetch_commits()
 
     assert len(commitler) == 1
     c = commitler[0]
     # repo_name config'teki AD olmalı (slug değil) — repo→takım eşlemesi buna bakar.
-    assert c.repo_name == "nabiz"
+    assert c.repo_name == "vantage"
     assert c.sha == "abc123"
     assert c.author_key == "ali@x.com"
     assert c.committed_at.year == 2026
@@ -126,13 +126,13 @@ def test_detail_limit_sifirsa_detay_istegi_atilmaz(yamali):
 ])
 def test_api_hatasi_uyariya_donusur_cokmez(yamali, durum, govde, beklenen_parca):
     yamali({"/repos/o/r/commits": (durum, govde)})
-    p = GitHubProvider([{"name": "nabiz", "slug": "o/r"}])
+    p = GitHubProvider([{"name": "vantage", "slug": "o/r"}])
     commitler = p.fetch_commits()
 
     assert commitler == []                       # istisna FIRLATMAZ
     assert len(p.warnings) == 1
     assert beklenen_parca in p.warnings[0]
-    assert "nabiz" in p.warnings[0]              # hangi repo olduğu yazmalı
+    assert "vantage" in p.warnings[0]              # hangi repo olduğu yazmalı
 
 
 def test_cozulemeyen_slug_uyari_verir(yamali):
@@ -173,11 +173,11 @@ REVIEWLAR = [
 def test_pr_ve_reviewlar_cekiliyor(yamali):
     yamali({"/repos/o/r/pulls": (200, PR_LISTESI),
             "/repos/o/r/pulls/7/reviews": (200, REVIEWLAR)})
-    prler = GitHubProvider([{"name": "nabiz", "slug": "o/r"}]).fetch_pull_requests()
+    prler = GitHubProvider([{"name": "vantage", "slug": "o/r"}]).fetch_pull_requests()
 
     assert len(prler) == 1
     pr = prler[0]
-    assert pr.repo_name == "nabiz" and pr.external_id == "7"
+    assert pr.repo_name == "vantage" and pr.external_id == "7"
     assert pr.author_key == "yazar"
     assert pr.merged_at is not None          # deployment_frequency bunu sayar
     # Yazarın kendi yorumu düşmeli: 3 review'dan 2'si kalır.
@@ -223,7 +223,7 @@ def test_fabrika_github_saglayicisini_kurar(app_env, monkeypatch):
     ham = yaml.safe_load(app_env.read_text(encoding="utf-8"))
     ham["sources"]["git"] = {
         "provider": "github",
-        "repos": [{"name": "nabiz", "slug": "o/r", "team": "T"}],
+        "repos": [{"name": "vantage", "slug": "o/r", "team": "T"}],
         "github": {"token_env": "TEST_GH_TOKEN", "detail_limit": 5, "max_prs": 9},
     }
     app_env.write_text(yaml.safe_dump(ham, allow_unicode=True), encoding="utf-8")
