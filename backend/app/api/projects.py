@@ -22,14 +22,24 @@ from app.core.config import get_config
 from app.core.db import get_session
 from app.models import CommitReview, Developer, ProjectCommit, User, UserProject
 from app.services.commit_review import review_commits
-from app.services.github import GitHubError, fetch_commits, parse_repo
+from app.services.credentials import get_token
+from app.services.github import GitHubError, check_repo_access, fetch_commits, parse_repo
+from app.services.local_git import LocalRepoError, fetch_local_commits, resolve_local_repo
 
 router = APIRouter(prefix="/api/projects")
+
+SOURCE_TYPES = ("github", "local")
 
 
 class CreateProjectBody(BaseModel):
     name: str = Field(min_length=1)
-    github_url: str = Field(min_length=1)
+    # github | local. Varsayılan "github": eski istemciler yalnız github_url
+    # gönderiyordu, onlar bozulmasın.
+    source_type: str = "github"
+    github_url: str | None = None
+    # Yerel kaynak: sunucudaki klasör yolu. İzinli kökler config'te
+    # (projects.local_roots) — bkz. services/local_git.resolve_local_repo.
+    local_path: str | None = None
 
 
 def _owner_display(session: Session, project: UserProject) -> str:
@@ -53,6 +63,7 @@ def _project_out(session: Session, p: UserProject, with_owner: bool = False) -> 
     out = {
         "id": p.id,
         "name": p.project_name,
+        "source_type": p.source_type or "github",
         "url": p.source_url,
         "last_run_at": p.last_run_at.isoformat() if p.last_run_at else None,
         "last_status": p.last_status,
@@ -74,12 +85,29 @@ def _get_project(session: Session, project_id: int, user: User) -> UserProject:
     return p
 
 
+def _fetch_commits_for(session: Session, p: UserProject) -> list[dict]:
+    """Projenin kaynağına göre commitleri getirir. İki kaynak da AYNI şekilde
+    (sha/author_name/author_email/message/committed_at) döner, böylece _sync
+    kaynak ayrımı yapmak zorunda kalmaz.
+
+    GitHub'da projenin SAHİBİNİN anahtarı kullanılır — senkronu tetikleyenin
+    değil. Admin başkasının projesini senkronlarken kendi yetkisini ödünç
+    vermemeli; proje hangi erişimle eklendiyse onunla tazelenir.
+    """
+    cfg = get_config()
+    if (p.source_type or "github") == "local":
+        path = resolve_local_repo(p.source_url or "", cfg)
+        return fetch_local_commits(path, cfg.projects.max_local_commits)
+    owner, repo = parse_repo(p.source_url or "")
+    return fetch_commits(owner, repo, max_commits=100,
+                         token=get_token(session, p.user_id))
+
+
 def _sync(session: Session, p: UserProject) -> int:
-    """GitHub'dan commitleri çeker, upsert eder, durum yazar. Yeni sayı döner."""
+    """Kaynaktan commitleri çeker, upsert eder, durum yazar. Yeni sayı döner."""
     try:
-        owner, repo = parse_repo(p.source_url or "")
-        commits = fetch_commits(owner, repo, max_commits=100)
-    except GitHubError as e:
+        commits = _fetch_commits_for(session, p)
+    except (GitHubError, LocalRepoError) as e:
         p.last_status = "error"
         p.last_detail = str(e)
         p.last_run_at = datetime.now(timezone.utc)
@@ -119,14 +147,38 @@ def create_project(
     if user.role == "admin":
         raise HTTPException(status_code=403,
                             detail="Yöneticiler proje eklemez — projeleri yalnız görüntüler.")
-    try:
-        parse_repo(body.github_url)  # erken doğrula
-    except GitHubError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    kaynak = (body.source_type or "github").strip().lower()
+    if kaynak not in SOURCE_TYPES:
+        raise HTTPException(status_code=422,
+                            detail=f"source_type yalnızca {', '.join(SOURCE_TYPES)} olabilir")
+
+    # Kaynağa göre doğrula ve saklanacak referansı belirle. Yerel yol doğrulaması
+    # EKLEMEDE yapılır ki kullanıcı hatayı anında görsün; _sync her koşuda
+    # yeniden doğrular (izinli kökler sonradan daraltılmış olabilir).
+    if kaynak == "local":
+        try:
+            referans = str(resolve_local_repo(body.local_path or "", get_config()))
+        except LocalRepoError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+    else:
+        try:
+            owner, repo = parse_repo(body.github_url or "")  # biçim doğrula
+        except GitHubError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        # YETKİ DOĞRULAMASI: repo, EKLEYENİN kendi anahtarıyla görülebiliyor mu?
+        # Bu kontrol olmadan kullanıcı, sunucu token'ının eriştiği herhangi bir
+        # özel repoyu (başka bir çalışanınkini) kendi projesi diye ekleyip
+        # commit mesajlarını okuyabiliyordu.
+        try:
+            check_repo_access(owner, repo, token=get_token(session, user.id))
+        except GitHubError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        referans = (body.github_url or "").strip()
+
     now = datetime.now(timezone.utc)
     p = UserProject(
-        user_id=user.id, project_name=body.name.strip(), source_type="github",
-        source_url=body.github_url.strip(), created_at=now, updated_at=now,
+        user_id=user.id, project_name=body.name.strip(), source_type=kaynak,
+        source_url=referans, created_at=now, updated_at=now,
     )
     session.add(p)
     session.commit()

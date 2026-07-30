@@ -236,6 +236,20 @@ class SurveySettings(BaseModel):
     ])
 
 
+class ProjectsSettings(BaseModel):
+    """Kullanıcıların "Projelerim"e ekleyebildiği kaynaklar.
+
+    local_roots: yerel klasör kaynağı için İZİNLİ KÖKLER. Bu bir kolaylık ayarı
+    değil GÜVENLİK SINIRI: kullanıcı sunucudaki rastgele bir dizini (ör.
+    C:\\Users\\baskasi ya da /etc) proje diye ekleyip commit mesajlarını
+    okuyamasın. Boş liste = yerel kaynak KAPALI (varsayılan). Yani özelliği
+    açmak bilinçli bir yönetici kararıdır — kurulumda kendiliğinden açılmaz.
+    """
+
+    local_roots: list[str] = Field(default_factory=list)
+    max_local_commits: int = 100
+
+
 class Config(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -247,6 +261,7 @@ class Config(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     code_analysis: CodeAnalysisSettings = Field(default_factory=CodeAnalysisSettings)
     survey: SurveySettings = Field(default_factory=SurveySettings)
+    projects: ProjectsSettings = Field(default_factory=ProjectsSettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —

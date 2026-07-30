@@ -206,8 +206,21 @@ export async function setup(payload) {
 export function listProjects(all = false) {
   return api(`/api/projects${all ? "?all=true" : ""}`);
 }
-export function createProject(name, github_url) {
-  return apiPost("/api/projects", { name, github_url });
+/** Kendi GitHub anahtarımın DURUMU — anahtarın kendisi asla dönmez. */
+export function getGithubCredential() {
+  return api("/api/me/credentials/github");
+}
+/** Boş string gönderilirse bağlantı kaldırılır. */
+export function setGithubCredential(token) {
+  return apiPut("/api/me/credentials/github", { token });
+}
+
+/** source: {type:"github", url} ya da {type:"local", path} — yerel kaynak ağa çıkmaz. */
+export function createProject(name, source) {
+  const body = source.type === "local"
+    ? { name, source_type: "local", local_path: source.path }
+    : { name, source_type: "github", github_url: source.url };
+  return apiPost("/api/projects", body);
 }
 export function syncProject(id) {
   return apiPost(`/api/projects/${id}/sync`, {});

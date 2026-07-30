@@ -143,3 +143,7 @@ survey:
   enabled: true
   interval_days: 14
   min_responses: 4
+projects:
+  local_roots:
+  - C:/Users/Asus/Documents/GitHub
+  max_local_commits: 100

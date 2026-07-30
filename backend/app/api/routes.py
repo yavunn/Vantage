@@ -636,4 +636,7 @@ def ui_config():
         "window_days": cfg.app.window_days,
         "llm_enabled": cfg.llm.enabled,
         "metric_thresholds": thresholds,
+        # "Projelerim"de yerel klasör kaynağı seçilebilir mi. İzinli kök YOLLARI
+        # gönderilmez (sunucu dizin yapısı sızmasın), yalnız açık/kapalı bilgisi.
+        "projects_local_enabled": bool(cfg.projects.local_roots),
     }

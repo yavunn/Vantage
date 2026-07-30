@@ -275,6 +275,31 @@ class UserProject(Base):
     )
 
 
+class UserCredential(Base):
+    """Kullanıcının KENDİ dış servis erişim anahtarı (şu an: GitHub PAT).
+
+    Neden kullanıcı başına: sunucu geneli tek token, çalışanın özel reposuna
+    erişmek için yöneticinin o repoya erişmesini gerektiriyordu — bir ürün için
+    kabul edilemez. Ayrıca paylaşılan token, panele girebilen HERKESE token'ın
+    ulaştığı tüm repoları açıyordu. Kendi anahtarıyla herkes yalnız kendi
+    erişebildiğini görür.
+
+    Değer at-rest şifrelenir (core.credential_crypto, Fernet). Düz metin
+    hiçbir uçtan geri DÖNMEZ; yalnız `hint` (son 4 karakter) gösterilir.
+    """
+
+    __tablename__ = "user_credentials"
+    __table_args__ = (UniqueConstraint("user_id", "provider"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    provider: Mapped[str] = mapped_column(String(50))  # github
+    encrypted_value: Mapped[str] = mapped_column(Text)
+    hint: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ProjectCommit(Base):
     """Dış projeden çekilen ham commit. Metrik motoruna girmez."""
 

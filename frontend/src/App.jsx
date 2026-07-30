@@ -334,7 +334,9 @@ export default function App() {
           />
         )}
 
-        {tab === "projects" && !isHr && <ProjectsPanel isAdmin={isAdmin} />}
+        {tab === "projects" && !isHr && (
+          <ProjectsPanel isAdmin={isAdmin} localEnabled={uiConfig.projects_local_enabled} />
+        )}
 
         {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} teams={teams} />}
 

@@ -200,3 +200,136 @@ def test_claude_repo_path_yoksa_arac_yok(tmp_path):
     assert res.extra_reads == 0
     assert "tools" not in calls[0]
     assert "BAĞLAM KURALI" not in calls[0]["system"]
+
+
+# --- Yerel/OpenAI-uyumlu uç: şema garantisi olmayan çıktıyı ayrıştırma --------
+# Claude'da structured output var, yerel uçta YOK. Gözlenen bozukluklar:
+# kod bloğuna sarma, nesneden sonra açıklama metni, süslü parantez düşürme,
+# ondalık puanı metin olarak verme ve suggestions'ı string yerine nesne yapma.
+
+def _tam_json(**degisiklik) -> str:
+    from app.services.code_analysis import DIMENSIONS
+
+    alanlar = {d: 80 for d in DIMENSIONS}
+    alanlar.update(summary="özet", suggestions=["a"])
+    alanlar.update(degisiklik)
+    import json
+
+    return json.dumps(alanlar, ensure_ascii=False)
+
+
+def test_extract_json_object_dengeli_kapanista_durur():
+    """Eski regex açgözlüydü: nesneden sonraki metni de yutup json.loads'u
+    patlatıyordu. İç içe süslü parantez ve string içindeki '}' de yanıltmamalı."""
+    from app.services.code_analysis import extract_json_object
+
+    metin = '{"a": {"b": "}"}, "c": 1} BU METIN DISARIDA {bozuk}'
+    assert extract_json_object(metin) == '{"a": {"b": "}"}, "c": 1}'
+    assert extract_json_object("hic suslu parantez yok") == ""
+    assert extract_json_object('{"kesilmis": ') == ""  # açık kaldı
+
+
+def test_parse_local_analysis_kod_blogunu_ve_arti_metni_tolere_eder():
+    from app.services.code_analysis import parse_local_analysis
+
+    icerik = _tam_json()
+    assert parse_local_analysis(f"Analiz:\n```json\n{icerik}\n```\nUmarım yardımcı olur.")
+    assert parse_local_analysis(icerik + "\n\nAyrıca: {bozuk}")
+
+
+def test_parse_local_analysis_json_yoksa_net_hata_verir():
+    """Eski kod burada `None.group()` ile AttributeError atıyordu; kullanıcıya
+    'AI çağrısı başarısız: AttributeError' diye anlamsız bir sebep düşüyordu."""
+    import pytest
+
+    from app.services.code_analysis import LocalOutputError, classify_error, parse_local_analysis
+
+    with pytest.raises(LocalOutputError) as ei:
+        parse_local_analysis("Bu diff iyi görünüyor, puan vermeye gerek yok.")
+    mesaj = classify_error(ei.value)
+    assert "json" in mesaj.lower()
+    # 'model' kelimesi geçiyor diye "AI modeli bulunamadı" dalına DÜŞMEMELİ
+    assert "bulunamadı" not in mesaj
+
+
+def test_coerce_scores_ondalik_metni_ve_tasan_degeri_toparlar():
+    from app.services.code_analysis import DIMENSIONS, coerce_scores
+
+    ham = {d: 80 for d in DIMENSIONS}
+    ham["readability"] = "85.6"
+    ham["security"] = 140      # 0-100 dışı
+    ham["complexity"] = -5
+    puan = coerce_scores(ham)
+    assert puan["readability"] == 86
+    assert puan["security"] == 100
+    assert puan["complexity"] == 0
+
+
+def test_coerce_scores_eksik_boyutta_puan_uydurmaz():
+    import pytest
+
+    from app.services.code_analysis import DIMENSIONS, LocalOutputError, coerce_scores
+
+    ham = {d: 80 for d in DIMENSIONS if d != "conventions"}
+    with pytest.raises(LocalOutputError, match="conventions"):
+        coerce_scores(ham)
+
+
+def test_coerce_suggestions_nesneyi_python_repr_olarak_yazmaz():
+    """Yerel modeller {'description':..., 'implementation':...} döndürüyor;
+    eski str(s) bunu panoya "{'description': ...}" diye basıyordu."""
+    from app.services.code_analysis import coerce_suggestions
+
+    out = coerce_suggestions([
+        {"description": "sum kullan", "implementation": "return sum(...)"},
+        {"description": "adlandırmayı netleştir"},
+        "düz string öneri",
+        {"tanimsiz": "şekil"},
+    ])
+    assert out[0] == "sum kullan — return sum(...)"
+    assert out[1] == "adlandırmayı netleştir"
+    assert out[2] == "düz string öneri"
+    assert len(out) == 3  # en fazla 3
+    assert not any("{" in s or "'description'" in s for s in out)
+    assert coerce_suggestions(None) == []
+    assert coerce_suggestions("tek öneri") == ["tek öneri"]
+
+
+def test_local_analyzer_bozuk_yaniti_net_hataya_cevirir():
+    """LocalAnalyzer.analyze uçtan uca: HTTP 200 ama içerik şemaya uymuyor."""
+    import pytest
+
+    from app.services.code_analysis import LocalAnalyzer, LocalOutputError
+
+    class FakeResp:
+        def __init__(self, icerik):
+            self._i = icerik
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._i}}]}
+
+    class FakeHttpx:
+        def __init__(self, icerik):
+            self._i = icerik
+
+        def post(self, *a, **kw):
+            return FakeResp(self._i)
+
+    az = LocalAnalyzer.__new__(LocalAnalyzer)
+    az.base_url = "http://localhost:11434"
+    az.model = "m"
+    az._api_key = None
+    az.system = "S"
+
+    az._httpx = FakeHttpx('```json\n"ping": "pong"\n```')
+    with pytest.raises(LocalOutputError):
+        az.analyze("a.py", "@@ diff @@")
+
+    az._httpx = FakeHttpx(f"Iste sonuc:\n```json\n{_tam_json(suggestions=[{'description': 'x', 'implementation': 'y'}])}\n```")
+    res = az.analyze("a.py", "@@ diff @@")
+    assert res.provider == "local"
+    assert res.scores["readability"] == 80
+    assert res.suggestions == ["x — y"]

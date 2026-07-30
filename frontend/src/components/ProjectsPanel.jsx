@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  createProject, deleteProject, getProjectCommits, getProjectReviews,
-  listProjects, reviewProject, syncProject,
+  createProject, deleteProject, getGithubCredential, getProjectCommits,
+  getProjectReviews, listProjects, reviewProject, setGithubCredential, syncProject,
 } from "../api.js";
 
 function scoreClass(s) {
@@ -18,10 +18,19 @@ function ScoreBadge({ score }) {
 
 // Projelerim: GitHub projesi ekle, commitleri gör, commit pratiği için
 // AI/kural-tabanlı değerlendirme al. Admin "Tüm projeler" ile herkesinkini görür.
-export default function ProjectsPanel({ isAdmin }) {
+export default function ProjectsPanel({ isAdmin, localEnabled }) {
   const [projects, setProjects] = useState([]);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  // github | local. Yerel kaynak ağa çıkmaz — gizli/bitmemiş repo için doğru
+  // seçim. Yönetici izinli kök tanımlamadıysa seçenek hiç gösterilmez.
+  const [sourceType, setSourceType] = useState("github");
+  const [localPath, setLocalPath] = useState("");
+  // Kendi GitHub anahtarım: özel repo eklemenin yolu. Anahtarın kendisi
+  // sunucudan hiç dönmez, yalnız "tanımlı mı" + son 4 karakter.
+  const [cred, setCred] = useState(null);
+  const [tokenInput, setTokenInput] = useState("");
+  const [credBusy, setCredBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -35,14 +44,37 @@ export default function ProjectsPanel({ isAdmin }) {
     listProjects(isAdmin).then(setProjects).catch((e) => setError(e.message));
   }
   useEffect(load, []);
+  // Admin proje eklemediği için anahtar bölümü de ona gösterilmez.
+  useEffect(() => {
+    if (isAdmin) return;
+    getGithubCredential().then(setCred).catch(() => setCred(null));
+  }, [isAdmin]);
+
+  async function saveToken(deger) {
+    setError(null); setMsg(null); setCredBusy(true);
+    try {
+      setCred(await setGithubCredential(deger));
+      setTokenInput("");
+      setMsg(deger ? "GitHub anahtarın kaydedildi." : "GitHub bağlantın kaldırıldı.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCredBusy(false);
+    }
+  }
 
   async function add(e) {
     e.preventDefault();
     setError(null); setMsg(null); setBusy(true);
     try {
-      await createProject(name.trim(), url.trim());
+      await createProject(
+        name.trim(),
+        sourceType === "local"
+          ? { type: "local", path: localPath.trim() }
+          : { type: "github", url: url.trim() },
+      );
       setMsg("Proje eklendi ve senkronize edildi.");
-      setName(""); setUrl("");
+      setName(""); setUrl(""); setLocalPath("");
       load();
     } catch (err) {
       setError(err.message);
@@ -116,23 +148,78 @@ export default function ProjectsPanel({ isAdmin }) {
           {error && <div className="login-error">{error}</div>}
         </section>
       ) : (
+        <>
+        <section className="section">
+          <h2>GitHub bağlantım</h2>
+          <p className="desc">
+            Özel (private) repolarını ekleyebilmek için <b>kendi</b> GitHub
+            anahtarını gir. Anahtar şifreli saklanır, kimse (yönetici dahil)
+            göremez ve yalnız senin projelerini çekmekte kullanılır. Fine-grained
+            token yeter — <b>Contents: Read-only</b>, ve eklemek istediğin repolar
+            "Repository access" listesinde olsun.
+          </p>
+          <div className="cred-row">
+            <span className={cred?.configured ? "st-ok" : "st-err"}>
+              {cred?.configured ? `bağlı ${cred.hint || ""}` : "bağlı değil"}
+            </span>
+            <input type="password" autoComplete="off" value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder={cred?.configured ? "•••• (değiştirmek için yaz)" : "github_pat_…"} />
+            <button className="mini" disabled={credBusy || !tokenInput.trim()}
+              onClick={() => saveToken(tokenInput.trim())}>
+              {credBusy ? "…" : "Kaydet"}
+            </button>
+            {cred?.configured && (
+              <button className="mini ghost" disabled={credBusy}
+                onClick={() => saveToken("")}>Bağlantıyı kaldır</button>
+            )}
+          </div>
+        </section>
+
         <section className="section">
           <h2>Proje ekle</h2>
           <form className="admin-form" onSubmit={add}>
             <label>Proje adı
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Örn. Kişisel API" required />
             </label>
-            <label>GitHub adresi
-              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/kullanici/repo" required />
-            </label>
+            {localEnabled && (
+              <label>Kaynak
+                <select value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
+                  <option value="github">GitHub reposu</option>
+                  <option value="local">Yerel klasör (ağa çıkmaz)</option>
+                </select>
+              </label>
+            )}
+            {sourceType === "local" ? (
+              <label>Klasör yolu
+                <input value={localPath} onChange={(e) => setLocalPath(e.target.value)}
+                  placeholder="Örn. C:\Users\ad\Documents\GitHub\projem" required />
+              </label>
+            ) : (
+              <label>GitHub adresi
+                <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/kullanici/repo" required />
+              </label>
+            )}
             <button type="submit" className="login-btn" disabled={busy}>
               {busy ? "Ekleniyor…" : "Ekle ve senkronize et"}
             </button>
           </form>
-          <p className="desc">Public repo tokensiz çalışır. Özel repo için sunucuda GITHUB_TOKEN gerekir.</p>
+          {sourceType === "local" ? (
+            <p className="desc">
+              Yerel klasör doğrudan diskten okunur — token gerekmez, kod makineden
+              çıkmaz. Yalnız yöneticinin izin verdiği kök klasörler altındaki git
+              depoları eklenebilir. <b>Gizli repolar için önerilen yol budur.</b>
+            </p>
+          ) : (
+            <p className="desc">
+              Public repo tokensiz çalışır. Özel repo için sunucuda GITHUB_TOKEN gerekir
+              {localEnabled && <> — ya da yukarıdan <b>Yerel klasör</b> seçin, token gerekmez</>}.
+            </p>
+          )}
           {msg && <div className="admin-ok">{msg}</div>}
           {error && <div className="login-error">{error}</div>}
         </section>
+        </>
       )}
 
       <section className="section">
@@ -145,7 +232,13 @@ export default function ProjectsPanel({ isAdmin }) {
                 <div>
                   <div className="pc-name">{p.name}</div>
                   {p.owner && <div className="pc-owner">{p.owner}</div>}
-                  <a className="pc-url" href={p.url} target="_blank" rel="noreferrer">{p.url}</a>
+                  {/* Yerel kaynak bir URL değil, disk yolu — link yapmak kırık
+                      bağlantı üretirdi. Rozetle kaynağı da görünür kılıyoruz. */}
+                  {p.source_type === "local" ? (
+                    <div className="pc-url"><span className="pc-src">yerel</span> {p.url}</div>
+                  ) : (
+                    <a className="pc-url" href={p.url} target="_blank" rel="noreferrer">{p.url}</a>
+                  )}
                 </div>
                 <ScoreBadge score={p.latest_score} />
               </div>

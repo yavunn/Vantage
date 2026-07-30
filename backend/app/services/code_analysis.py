@@ -190,6 +190,124 @@ MAX_EXTRA_READS = 3
 MAX_READ_LINES = 300
 
 
+class LocalOutputError(ValueError):
+    """Yerel/OpenAI-uyumlu uç şemaya uymayan bir yanıt döndürdü. Claude'da
+    structured output garantisi var, burada yok — bu yüzden ayrı hata tipi:
+    çağıran 'AI çağrısı başarısız' yerine NET sebebi gösterebilsin."""
+
+
+def extract_json_object(text: str) -> str:
+    """Metinden ilk DENGELİ JSON nesnesini çıkarır; bulamazsa "" döner.
+
+    Neden regex değil: `re.search(r"\\{.*\\}", ..., DOTALL)` açgözlüdür, nesneden
+    sonra gelen metni (ikinci bir kod bloğu, açıklama) içine alır ve json.loads
+    patlar. Ayrıca hiç `{` yoksa None döner — eski kod bunu kontrol etmediği için
+    `None.group()` ile AttributeError'a düşüyordu.
+    """
+    start = text.find("{")
+    if start == -1:
+        return ""
+    depth = 0
+    in_str = esc = False
+    for i, ch in enumerate(text[start:], start):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return ""  # açık kaldı (yanıt kesilmiş)
+
+
+def parse_local_analysis(text: str) -> dict:
+    """Yerel modelin serbest metnini analiz sözlüğüne çevirir.
+
+    Küçük modeller JSON'u kod bloğu içinde, açıklama cümlesiyle sarılı ya da
+    süslü parantezleri düşürerek döndürebiliyor (gözlendi: ```json "ping":
+    "pong" ```). Ayrıştırma sırası: dengeli nesne → süssüz anahtar/değer
+    gövdesini parantezle. Hiçbiri tutmazsa LocalOutputError.
+    """
+    body = extract_json_object(text)
+    if not body:
+        # Süslü parantezsiz gövde: kod bloğu içeriğini alıp kendimiz sarıyoruz.
+        fenced = re.search(r"```(?:json)?\s*(.+?)```", text, re.DOTALL)
+        candidate = (fenced.group(1) if fenced else text).strip().strip(",")
+        if re.match(r'^"[^"]+"\s*:', candidate):
+            body = "{" + candidate + "}"
+    if not body:
+        raise LocalOutputError(
+            "Yerel model JSON döndürmedi. Yanıtın başı: " + text.strip()[:200]
+        )
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as e:
+        raise LocalOutputError(f"Yerel modelin JSON'u bozuk ({e.msg}). Gövde: {body[:200]}") from e
+    if not isinstance(data, dict):
+        raise LocalOutputError(f"Yerel model nesne değil {type(data).__name__} döndürdü.")
+    return data
+
+
+def coerce_scores(data: dict) -> dict[str, int]:
+    """Puanları 0-100 aralığında tam sayıya çevirir.
+
+    `int(data[d])` üç yerde kırılıyordu: eksik boyut (KeyError), "85" yerine
+    "85.5" gibi ondalık metin (ValueError) ve 0-100 dışı değer. Eksik boyutta
+    puan UYDURMUYORUZ — hata veriyoruz ki dosya 'analiz bekliyor' kalsın.
+    """
+    missing = [d for d in DIMENSIONS if data.get(d) is None]
+    if missing:
+        raise LocalOutputError("Yerel modelin yanıtında eksik boyut: " + ", ".join(missing))
+    scores = {}
+    for d in DIMENSIONS:
+        try:
+            val = float(data[d])
+        except (TypeError, ValueError) as e:
+            raise LocalOutputError(f"'{d}' boyutu sayı değil: {data[d]!r}") from e
+        scores[d] = int(round(min(100.0, max(0.0, val))))
+    return scores
+
+
+def coerce_suggestions(raw) -> list[str]:
+    """Önerileri en fazla 3 düz metne indirger.
+
+    Şema string listesi istiyor ama yerel modeller sık sık
+    {"description": ..., "implementation": ...} nesneleri döndürüyor. Eski
+    `str(s)` bunu Python repr'ine çeviriyordu, panoya `{'description': ...}`
+    diye düşüyordu. Burada anlamlı alanı seçip birleştiriyoruz.
+    """
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if isinstance(item, dict):
+            head = next((str(item[k]) for k in ("description", "suggestion", "text", "title")
+                         if item.get(k)), "")
+            tail = next((str(item[k]) for k in ("implementation", "example", "code")
+                         if item.get(k)), "")
+            text = f"{head} — {tail}" if head and tail else (head or tail)
+            if not text:
+                # Tanımadığımız şekil: repr yerine alanları okunur biçimde ser.
+                text = "; ".join(f"{k}: {v}" for k, v in item.items())
+        else:
+            text = str(item)
+        text = " ".join(text.split())
+        if text:
+            out.append(text)
+    return out[:3]
+
+
 def format_commit_message(msg: str | None) -> str | None:
     """Commit mesajını prompt'a uygun kırpar (konu + gövde, ~20 satır)."""
     if not msg or not msg.strip():
@@ -419,12 +537,11 @@ class LocalAnalyzer:
         )
         resp.raise_for_status()
         text = resp.json()["choices"][0]["message"]["content"]
-        m = re.search(r"\{.*\}", text, re.DOTALL)
-        data = json.loads(m.group(0))
+        data = parse_local_analysis(text)
         return AnalyzerResult(
-            scores={d: int(data[d]) for d in DIMENSIONS},
-            summary=str(data.get("summary", "")).strip(),
-            suggestions=[str(s) for s in data.get("suggestions", [])][:3],
+            scores=coerce_scores(data),
+            summary=" ".join(str(data.get("summary", "")).split()),
+            suggestions=coerce_suggestions(data.get("suggestions")),
             provider="local",
             model=self.model,
         )
@@ -459,6 +576,12 @@ def _composite(scores: dict[str, int], weights: dict[str, float]) -> float:
 def classify_error(e: Exception) -> str:
     """LLM çağrısı hatasını kullanıcıya gösterilecek NET Türkçe sebebe çevirir.
     'analiz 0 yeni' gibi sessiz başarısızlık yerine gerçek neden görünsün."""
+    # Yerel uçta şema garantisi yok: modelin biçim hatası, "model bulunamadı"
+    # gibi bir altyapı hatasıyla karışmasın diye EN BAŞTA ve tipe göre eşlenir
+    # (metin eşleşmesi 'model' kelimesine takılıyordu).
+    if isinstance(e, LocalOutputError):
+        return (f"Yerel model istenen JSON biçimini vermedi ({e}). Daha büyük ya da "
+                "talimat uyumu iyi bir model dene (ör. qwen2.5-coder:14b).")
     msg = str(e).lower()
     if "credit balance" in msg or "billing" in msg or "insufficient" in msg:
         return ("AI sağlayıcı bakiyesi yetersiz — Anthropic Plans & Billing'den "
