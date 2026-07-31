@@ -18,6 +18,7 @@ from app.adapters.base import (
     NormalizedPR,
     NormalizedReview,
     NormalizedTask,
+    NormalizedTeamMember,
     NormalizedTransition,
 )
 
@@ -105,4 +106,18 @@ class FixtureTaskProvider:
                 ],
             )
             for t in _load(self.dir / "tasks.json")
+        ]
+
+    def fetch_team_members(self) -> list[NormalizedTeamMember]:
+        """team_members.json varsa kadro oradan gelir; dosya yoksa boş liste
+        (sentetik veri kadro tanımlamak zorunda değil)."""
+        return [
+            NormalizedTeamMember(
+                team_name=m["team_name"],
+                source=m.get("source", "fixture"),
+                member_key=str(m["member_key"]),
+                member_name=m.get("member_name"),
+            )
+            for m in _load(self.dir / "team_members.json")
+            if m.get("team_name") and m.get("member_key")
         ]

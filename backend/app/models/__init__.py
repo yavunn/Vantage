@@ -526,6 +526,63 @@ class SurveyParticipation(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
 
+class DocChunk(Base):
+    """RAG indeksinin birimi: normalize bir kaydın metinleşmiş hâli + vektörü.
+
+    Kaynak DAİMA normalize şemadır (commits/pull_requests/tasks) — GitLab ya da
+    Trello'ya doğrudan istek atılmaz. Böylece yeni bir kaynak adaptörü eklendiğinde
+    RAG katmanı hiç değişmez.
+
+    Metin KİŞİ ADI TAŞIMAZ (İlke E). Yazar/atanan bilgisi buraya hiç girmez;
+    chunk "kim yaptı"yı değil "ne oldu"yu anlatır.
+
+    content_hash: kayıt değişmediyse yeniden gömme (embedding çağrısı) yapılmaz.
+    model: hangi embedding modeliyle gömüldüğü — model değişirse chunk yeniden gömülür,
+    çünkü farklı modellerin vektörleri aynı uzayda DEĞİLDİR ve sessizce
+    karşılaştırılırsa retrieval saçmalar.
+    """
+
+    __tablename__ = "doc_chunks"
+    __table_args__ = (UniqueConstraint("source_kind", "source_id", "chunk_index"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_kind: Mapped[str] = mapped_column(String(20))  # commit | pr | task
+    source_id: Mapped[int] = mapped_column(Integer)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    # Vektör JSON listesi olarak durur: hem PostgreSQL hem SQLite'ta taşınabilir.
+    # pgvector kurulduğunda arama katmanı değişir, şema değişmez (bkz. rag/index.py).
+    embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    embedded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class RagQueryAudit(Base):
+    """RAG sorgusunda LLM'e NE gittiğinin denetim kaydı (gizlilik şeffaflığı).
+
+    İçerik saklanmaz — yalnızca meta: kaç chunk, kaç karakter, kaç secret
+    maskelendi, sonuç ne oldu. Soru metni de saklanmaz (hash'i saklanır):
+    soru başlı başına kişisel veri taşıyabilir."""
+
+    __tablename__ = "rag_query_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    question_hash: Mapped[str] = mapped_column(String(64))
+    chunks_sent: Mapped[int] = mapped_column(Integer, default=0)
+    chars_sent: Mapped[int] = mapped_column(Integer, default=0)
+    masked_secrets: Mapped[int] = mapped_column(Integer, default=0)
+    provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # ok | insufficient_context | disabled | error
+    outcome: Mapped[str] = mapped_column(String(30))
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Notification(Base):
     """Kullanıcıya gösterilecek bildirim (trend alarmı, sistem olayı).
     Etik: bildirim de gözetim aracı değil — takım sağlığı sinyali ("kırmızıya

@@ -58,6 +58,21 @@ class NormalizedTransition:
 
 
 @dataclass
+class NormalizedTeamMember:
+    """Kaynaktaki takım kadrosu (Trello board üyesi, Jira proje üyesi).
+
+    Kadro bir metrik değildir ama WIP'in PAYDASIDIR: kişi başı açık iş sayısı
+    üye sayısına bölünür. Eksik kadro metriği olduğundan yüklü gösterir, fazla
+    kadro hafif — bu yüzden kaynaktan okunabildiğinde okunur.
+    """
+
+    team_name: str
+    source: str                             # jira | trello | fixture
+    member_key: str                         # kaynak-içi kimlik
+    member_name: str | None = None
+
+
+@dataclass
 class NormalizedTask:
     source: str                             # jira | trello | fixture
     external_id: str
@@ -90,3 +105,7 @@ class TaskProvider(Protocol):
     """Katman 1+2 — Jira ve Trello bu tek arayüzün arkasındadır."""
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]: ...
+
+    # Kadro okunamayan kaynak boş liste döner — ingest o zaman elle atanmış
+    # üyeliğe dokunmaz. Arayüz zorunlu, dolu dönmesi değil.
+    def fetch_team_members(self) -> list[NormalizedTeamMember]: ...

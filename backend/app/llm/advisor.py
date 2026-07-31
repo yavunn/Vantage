@@ -33,6 +33,11 @@ Metrikler:
 class LLMAdvisor(Protocol):
     def advise(self, team_name: str, metrics_block: str) -> str: ...
 
+    # Serbest sistem+kullanıcı mesajı — RAG gibi kendi prompt'unu kuran
+    # katmanlar için. Sağlayıcı seçimi (yerel/claude) tek yerde kalsın diye
+    # ayrı bir istemci yazmak yerine arayüz buradan genişletildi.
+    def chat(self, system: str, user: str) -> str: ...
+
 
 class LocalAdvisor:
     """Self-hosted, OpenAI-uyumlu uca (Ollama/vLLM) bağlanır — veri dışarı çıkmaz."""
@@ -43,9 +48,16 @@ class LocalAdvisor:
 
     def advise(self, team_name: str, metrics_block: str) -> str:
         prompt = PROMPT_TEMPLATE.format(team_name=team_name, metrics_block=metrics_block)
+        return self.chat("", prompt)
+
+    def chat(self, system: str, user: str) -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
         resp = httpx.post(
             f"{self.base_url}/v1/chat/completions",
-            json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+            json={"model": self.model, "messages": messages},
             timeout=120,
         )
         resp.raise_for_status()
@@ -61,17 +73,25 @@ class ClaudeAdvisor:
 
     def advise(self, team_name: str, metrics_block: str) -> str:
         prompt = PROMPT_TEMPLATE.format(team_name=team_name, metrics_block=metrics_block)
+        return self.chat("", prompt)
+
+    def chat(self, system: str, user: str) -> str:
+        payload: dict = {
+            "model": self.model,
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": user}],
+        }
+        if system:
+            # Sistem talimatı ayrı alanda: sabit kaldığı sürece prompt cache
+            # önekini korur. Bağlam kullanıcı mesajının sonunda taşınır.
+            payload["system"] = system
         resp = httpx.post(
             "https://api.anthropic.com/v1/messages",
             headers={
                 "x-api-key": self.api_key,
                 "anthropic-version": "2023-06-01",
             },
-            json={
-                "model": self.model,
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+            json=payload,
             timeout=120,
         )
         resp.raise_for_status()

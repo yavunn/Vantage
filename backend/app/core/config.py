@@ -165,7 +165,9 @@ class LLMLocal(BaseModel):
     # opsiyonel: anahtar isteyen uçlar için Authorization başlığı gönderilir
     # (Ollama gibi anahtarsız uçlar için boş bırakılır).
     base_url: str = "http://localhost:11434"
-    model: str = "llama3.1"
+    # Genel amaçlı sohbet modeli olmalı. Kod modelleri (…-coder) bu işte
+    # bağlamı özetlemek yerine kod üretmeye eğilimli ve Türkçe'de zayıf.
+    model: str = "qwen2.5:7b"
     api_key_env: str = "LOCAL_LLM_API_KEY"
 
 
@@ -205,6 +207,45 @@ class CodeAnalysisSettings(BaseModel):
     max_files_per_run: int = 40
     # Diff'te bu satır sayısını aşan dosyalar kırpılır (token freni)
     max_diff_lines: int = 400
+
+
+class RagEmbeddingSettings(BaseModel):
+    """Embedding sağlayıcısı — SOHBET sağlayıcısından AYRIDIR.
+
+    Bu ayrım şart: Anthropic'in embedding ucu yoktur. `llm.provider: claude`
+    seçili olsa bile vektörler yerelden (Ollama vb.) gelir. İkisini tek ayara
+    bağlamak, Claude seçildiğinde RAG'ı sessizce çalışmaz hâle getirirdi.
+    """
+
+    provider: str = "local"  # local | hash
+    base_url: str = "http://localhost:11434"
+    # Çok dilli olmalı: chunk'lar Türkçe. İngilizce ağırlıklı modeller bu
+    # veride ilgili/ilgisiz ayrımını yapamıyor (bkz. scripts/rag_eval.py).
+    model: str = "bge-m3"
+
+
+class RagChunkSettings(BaseModel):
+    words: int = 400
+    overlap: int = 60
+
+
+class RagRetrievalSettings(BaseModel):
+    top_k: int = 3
+    # Bu skorun altındaki isabet atılır. Hepsi atılırsa cevap üretilmez —
+    # zayıf eşleşmeyle konuşmak, bilmemekten kötüdür (halüsinasyon kaynağı).
+    # Değer EMBEDDING MODELİNE bağlıdır (bge-m3 için ölçüldü); model
+    # değişirse scripts/rag_eval.py ile yeniden belirlenmelidir.
+    min_score: float = 0.49
+
+
+class RagSettings(BaseModel):
+    """RAG asistanı. Varsayılan KAPALI — açmak bilinçli bir karardır."""
+
+    enabled: bool = False
+    embedding: RagEmbeddingSettings = Field(default_factory=RagEmbeddingSettings)
+    chunk: RagChunkSettings = Field(default_factory=RagChunkSettings)
+    retrieval: RagRetrievalSettings = Field(default_factory=RagRetrievalSettings)
+    index: str = "auto"  # auto | pgvector | memory
 
 
 class SurveyQuestion(BaseModel):
@@ -262,6 +303,7 @@ class Config(BaseModel):
     code_analysis: CodeAnalysisSettings = Field(default_factory=CodeAnalysisSettings)
     survey: SurveySettings = Field(default_factory=SurveySettings)
     projects: ProjectsSettings = Field(default_factory=ProjectsSettings)
+    rag: RagSettings = Field(default_factory=RagSettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —

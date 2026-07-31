@@ -429,6 +429,119 @@ def set_developer_git_email(
     return {"ok": True, "git_email": ext.get("git")}
 
 
+@router.get("/identities")
+def identities(session: Session = Depends(get_session), _: User = Depends(require_admin)):
+    """Kimlik eşleme tablosu: her kişi hangi kaynakta hangi anahtarla görünüyor.
+
+    Aynı insan git'te e-posta, Trello'da üye id'siyle gelir; ingest bunları
+    eşleştiremez. Bu uç, eşlenmemiş kayıtları görünür kılar ki admin birleştirsin.
+    """
+    from app.models import Developer, Task, TeamMembership
+
+    out = []
+    for dev in session.scalars(select(Developer).order_by(Developer.display_name)):
+        ids = dict(dev.external_ids or {})
+        task_sources = {k: v for k, v in ids.items() if k != "git"}
+        out.append({
+            "id": dev.id,
+            "display_name": dev.display_name,
+            "git_email": ids.get("git"),
+            "task_identities": task_sources,
+            "team_count": session.scalar(
+                select(func.count()).select_from(TeamMembership)
+                .where(TeamMembership.developer_id == dev.id)
+            ) or 0,
+            "task_count": session.scalar(
+                select(func.count()).select_from(Task).where(Task.assignee_id == dev.id)
+            ) or 0,
+            # Bağlı giriş hesabı: eşleme yaparken hangi kaydın "gerçek" kişi
+            # olduğunu ayırt etmeyi sağlar (hesabı olan taraf hedef seçilmeli).
+            "user_email": session.scalar(
+                select(User.email).where(User.developer_id == dev.id)
+            ),
+            # Ne git ne hesap: büyük olasılıkla bir kaynak kaydının kopyası
+            "unlinked": not ids.get("git") and bool(task_sources),
+        })
+    return out
+
+
+class TaskIdentityUpdate(BaseModel):
+    source: str = Field(min_length=1, max_length=50)   # trello | jira | ...
+    key: str | None = None                             # boş → bağ kaldırılır
+
+
+@router.patch("/developers/{dev_id}/task-identity")
+def set_developer_task_identity(
+    dev_id: int,
+    body: TaskIdentityUpdate,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """Kişiye görev kaynağı kimliği bağlar (Trello üye id'si vb.) ve varsa aynı
+    kimliği taşıyan KOPYA kişi kaydını hedefe birleştirir.
+
+    Birleştirme şart: kopya kaydı öylece bırakmak takım kadrosunu şişirir, WIP
+    kişi başına bölündüğü için metrik olduğundan iyi görünür. Kopyanın task'ları
+    ve takım üyelikleri hedefe taşınır, sonra kopya silinir.
+    """
+    from app.models import Developer, Task, TeamMembership
+
+    dev = session.get(Developer, dev_id)
+    if dev is None:
+        raise HTTPException(404, "Kişi bulunamadı")
+    source = body.source.strip().lower()
+    key = (body.key or "").strip()
+    ext = dict(dev.external_ids or {})
+
+    if not key:
+        ext.pop(source, None)
+        dev.external_ids = ext
+        session.commit()
+        return {"ok": True, "task_identities": {k: v for k, v in ext.items() if k != "git"},
+                "merged_developer_id": None}
+
+    merged_id = None
+    duplicate = next(
+        (
+            d for d in session.scalars(select(Developer).where(Developer.id != dev.id))
+            if (d.external_ids or {}).get(source) == key
+        ),
+        None,
+    )
+    if duplicate is not None:
+        for t in session.scalars(select(Task).where(Task.assignee_id == duplicate.id)):
+            t.assignee_id = dev.id
+        target_teams = {
+            m.team_id for m in session.scalars(
+                select(TeamMembership).where(TeamMembership.developer_id == dev.id)
+            )
+        }
+        for m in session.scalars(
+            select(TeamMembership).where(TeamMembership.developer_id == duplicate.id)
+        ):
+            # Hedef zaten o takımdaysa üyelik taşınmaz, silinir (unique kısıtı)
+            if m.team_id in target_teams:
+                session.delete(m)
+            else:
+                m.developer_id = dev.id
+        session.flush()
+        merged_id = duplicate.id
+        # Kopyanın taşıdığı DİĞER kaynak kimlikleri de hedefe geçsin ki bir
+        # sonraki senkron aynı kopyayı yeniden açmasın.
+        for k, v in (duplicate.external_ids or {}).items():
+            ext.setdefault(k, v)
+        session.delete(duplicate)
+
+    ext[source] = key
+    dev.external_ids = ext
+    session.commit()
+    return {
+        "ok": True,
+        "task_identities": {k: v for k, v in ext.items() if k != "git"},
+        "merged_developer_id": merged_id,
+    }
+
+
 @router.get("/code-analysis/audit")
 def code_analysis_audit(
     limit: int = 100,

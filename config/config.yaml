@@ -14,7 +14,7 @@ sources:
     - name: vantage
       path: C:/Users/Asus/Documents/GitHub/Muhendislik-IK-Metrik-Sistemi
       slug: yavunn/Muhendislik-IK-Metrik-Sistemi
-      team: Vantage
+      team: People & Engineering Intelligence Platform
     github:
       token_env: GITHUB_TOKEN
       detail_limit: 150
@@ -123,7 +123,9 @@ llm:
   provider: local
   local:
     base_url: http://localhost:11434
-    model: qwen2.5-coder:7b
+    # Genel amaçlı model — coder DEĞİL. qwen2.5-coder:7b bir kod modeli;
+    # Türkçe bağlamı özetlemede kendi içinde çelişen cevaplar üretiyordu.
+    model: qwen2.5:7b
   claude:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY
@@ -147,3 +149,26 @@ projects:
   local_roots:
   - C:/Users/Asus/Documents/GitHub
   max_local_commits: 100
+rag:
+  # Açmadan önce: embedding sağlayıcısı ayakta olmalı (Ollama + bge-m3).
+  # Kapalıyken /api/teams/{id}/ask ucu 503 döner, senkron indeksleme atlar.
+  enabled: true
+  embedding:
+    provider: local          # local | hash (hash yalnız test içindir)
+    base_url: http://localhost:11434
+    # bge-m3: çok dilli. Kayıtlar Türkçe; İngilizce ağırlıklı bir model
+    # (nomic-embed-text) burada ilgiliyi ilgisizden ayıramıyordu — ölçüldü:
+    # ilgili kayıt skorları 0.598-0.751, ilgisizler 0.590-0.653 (çakışıyor).
+    model: bge-m3
+  chunk:
+    words: 400
+    overlap: 60
+  retrieval:
+    # Ölçüm (scripts/rag_eval.py, bge-m3): ilgili kayıt 8 sorunun 8'inde de
+    # 1. sırada. 3 = cevabın kendisi + 2 destekleyici kayıt.
+    top_k: 3
+    # Alakasız soruların aldığı en yüksek skor 0.4681, ilgili kayıtların en
+    # düşüğü 0.5134. Eşik bu boşluğun ortasında: ilgiliyi kesmiyor, alakasızı
+    # geçirmiyor. Modeli değiştirirsen bu sayı GEÇERSİZDİR — yeniden ölç.
+    min_score: 0.49
+  index: auto                # auto | memory (pgvector bu kurulumda yok)

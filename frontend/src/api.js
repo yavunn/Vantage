@@ -355,6 +355,18 @@ export function deleteTeam(id) {
   return apiDelete(`/api/admin/teams/${id}`);
 }
 
+// --- yönetici: kimlik eşleme (git ↔ görev kaynağı) --------------------------
+
+export function listIdentities() {
+  return api("/api/admin/identities");
+}
+
+// key boş/null → bağ kaldırılır. Aynı kimliği taşıyan kopya kişi kaydı varsa
+// sunucu onu hedefe birleştirir (task + üyelik taşınır, kopya silinir).
+export function setTaskIdentity(devId, source, key) {
+  return apiPatch(`/api/admin/developers/${devId}/task-identity`, { source, key });
+}
+
 // --- yönetici: genel ayarlar (metrik/eşik/kural/anket/gizlilik) --------------
 
 export function getSettings() {

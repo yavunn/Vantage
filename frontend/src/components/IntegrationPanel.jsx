@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { getSources, testSources, triggerSync, updateSources } from "../api.js";
+import {
+  getSources,
+  listIdentities,
+  setTaskIdentity,
+  testSources,
+  triggerSync,
+  updateSources,
+} from "../api.js";
 
 const GIT_PROVIDERS = ["fixture", "git_log", "github", "gitlab"];
 const TASK_PROVIDERS = ["fixture", "jira", "trello", "none"];
@@ -24,6 +31,122 @@ function WarnBox({ items, tone = "warn", title }) {
         {items.map((w, i) => <li key={i}>{w}</li>)}
       </ul>
     </div>
+  );
+}
+
+// Kimlik eşleme: aynı insan git'te e-postasıyla, Trello'da üye id'siyle gelir.
+// İki ayrı kayıt kalırsa takım kadrosu şişer ve WIP kişi başına bölündüğü için
+// metrik olduğundan İYİ görünür — o yüzden eşleme burada görünür kılınır.
+function IdentitySection({ nonce }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [target, setTarget] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  function load() {
+    listIdentities().then(setRows).catch((e) => setError(e.message));
+  }
+  useEffect(load, [nonce]);
+
+  async function merge(row) {
+    const targetId = target[row.id];
+    if (!targetId) return;
+    const [source, key] = Object.entries(row.task_identities)[0] || [];
+    if (!source) return;
+    setError(null);
+    setMsg(null);
+    setBusy(row.id);
+    try {
+      const res = await setTaskIdentity(Number(targetId), source, key);
+      setMsg(
+        res.merged_developer_id
+          ? `Eşlendi — kopya kayıt birleştirildi (görevler ve takım üyelikleri taşındı).`
+          : `Eşlendi.`
+      );
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error && !rows) return <div className="login-error">{error}</div>;
+  if (!rows) return <p className="desc">Yükleniyor…</p>;
+
+  const unlinked = rows.filter((r) => r.unlinked);
+  // Hedef yalnızca "gerçek" kişi olabilir: giriş hesabı ya da git kimliği olan.
+  const anchors = rows.filter((r) => r.user_email || r.git_email);
+
+  return (
+    <section className="section">
+      <h2>Kimlik eşleme</h2>
+      <p className="desc">
+        Bir kişi git'te e-postasıyla, Trello'da üye id'siyle görünür. Eşlenmezse
+        aynı insan iki kez sayılır; takım kadrosu şişer ve <strong>WIP kişi
+        başına bölündüğü için metrik olduğundan iyi görünür</strong>.
+      </p>
+
+      {unlinked.length === 0 ? (
+        <p className="desc">Eşlenmemiş kayıt yok.</p>
+      ) : (
+        <ul className="team-list">
+          {unlinked.map((r) => (
+            <li key={r.id}>
+              <span>
+                {r.display_name}
+                <span className="role-tag">
+                  {Object.entries(r.task_identities).map(([s]) => s).join(", ")}
+                </span>
+                <span className="desc"> · {r.task_count} görev · {r.team_count} takım</span>
+              </span>
+              <span>
+                <select
+                  value={target[r.id] ?? ""}
+                  onChange={(e) => setTarget((t) => ({ ...t, [r.id]: e.target.value }))}
+                >
+                  <option value="">Şu kişiyle birleştir…</option>
+                  {anchors.filter((a) => a.id !== r.id).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.display_name}{a.user_email ? ` (${a.user_email})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="mini"
+                  onClick={() => merge(r)}
+                  disabled={!target[r.id] || busy === r.id}
+                >
+                  {busy === r.id ? "Birleştiriliyor…" : "Birleştir"}
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <details className="identity-all">
+        <summary>Tüm kimlikler ({rows.length})</summary>
+        <ul className="team-list">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <span>
+                {r.display_name}
+                {r.user_email && <span className="role-tag">hesap</span>}
+              </span>
+              <span className="desc">
+                {r.git_email || "git yok"} ·{" "}
+                {Object.entries(r.task_identities).map(([s, k]) => `${s}:${k.slice(0, 8)}…`).join(" ") || "görev kimliği yok"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
+
+      {msg && <div className="admin-ok">{msg}</div>}
+      {error && <div className="login-error">{error}</div>}
+    </section>
   );
 }
 
@@ -121,6 +244,8 @@ export default function IntegrationPanel() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
+  // Senkron yeni kadro üyesi getirebilir → kimlik listesi tazelensin
+  const [identityNonce, setIdentityNonce] = useState(0);
 
   function load() {
     getSources()
@@ -222,10 +347,12 @@ export default function IntegrationPanel() {
       // çalıştığını sanmaya yol açıyordu — asıl bilgi kaç YENİ kayıt geldiği.
       setMsg(
         `Senkron tamam · ${s.commits ?? 0} yeni commit · ${s.pull_requests ?? 0} yeni PR · ` +
-        `${s.tasks ?? 0} yeni görev · metrik: ${s.metric_results ?? 0} · öneri: ${s.recommendations ?? 0}`
+        `${s.tasks ?? 0} yeni görev · ${s.team_members ?? 0} yeni kadro üyesi · ` +
+        `metrik: ${s.metric_results ?? 0} · öneri: ${s.recommendations ?? 0}`
       );
       setWarnings(s.warnings || []);
       load();
+      setIdentityNonce((n) => n + 1);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -412,6 +539,8 @@ export default function IntegrationPanel() {
         {msg && <div className="admin-ok">{msg}</div>}
         {error && <div className="login-error">{error}</div>}
       </section>
+
+      <IdentitySection nonce={identityNonce} />
     </div>
   );
 }

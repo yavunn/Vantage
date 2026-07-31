@@ -43,6 +43,15 @@ def run_pipeline() -> dict:
                 if isinstance(r, dict) and r.get("name") and not r.get("team")
             ),
         ]
+        # RAG indeksi ingest'ten SONRA, metrikten ÖNCE tazelenir: indeks kaynağı
+        # normalize şemadır, metrik hesabı değil. Kapalıysa hiç çalışmaz.
+        from app.services.rag.embedding import build_embedding_provider
+        from app.services.rag.indexer import reindex
+
+        rag_stats = reindex(session, cfg, build_embedding_provider(cfg))
+        stats["rag_chunks"] = rag_stats.get("embedded", 0)
+        stats["warnings"] = [*stats.get("warnings", []), *rag_stats.get("warnings", [])]
+
         metrics_written = compute_all(session, cfg)
         recs_written = run_rules(session, cfg)
         # Metrik kırmızıya döndüyse ilgili yönetici/adminlere trend alarmı üret.

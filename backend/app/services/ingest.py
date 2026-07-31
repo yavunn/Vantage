@@ -17,6 +17,7 @@ from app.adapters.base import (
     NormalizedCommit,
     NormalizedPR,
     NormalizedTask,
+    NormalizedTeamMember,
     TaskProvider,
 )
 from app.models import (
@@ -28,6 +29,7 @@ from app.models import (
     Task,
     TaskStatusTransition,
     Team,
+    TeamMembership,
 )
 
 
@@ -156,6 +158,37 @@ class Ingestor:
         self.session.flush()
         return count
 
+    def ingest_team_members(self, members: list[NormalizedTeamMember]) -> int:
+        """Kaynaktaki kadroyu takım üyeliğine yazar — YALNIZCA EKLER.
+
+        Repo→takım eşlemesinin aksine burada 'kaynak haklıdır' demiyoruz: board
+        üyeliği ile ölçüm kadrosu aynı şey değildir (izleyici, stajyer, eski üye
+        board'da durur). Kaynakta olmayan üyeliği silmek, panelden yapılmış
+        bilinçli bir atamayı sessizce geri alırdı — o yüzden silme yok, çıkarma
+        panelden yapılır.
+        """
+        count = 0
+        for m in members:
+            if not m.team_name or not m.member_key:
+                continue
+            team = self._team(m.team_name)
+            dev = self._developer(m.source, m.member_key, m.member_name)
+            if dev is None:
+                continue
+            exists = self.session.scalar(
+                select(TeamMembership).where(
+                    TeamMembership.team_id == team.id,
+                    TeamMembership.developer_id == dev.id,
+                )
+            )
+            if exists is None:
+                self.session.add(
+                    TeamMembership(team_id=team.id, developer_id=dev.id, role="member")
+                )
+                count += 1
+        self.session.flush()
+        return count
+
     def ingest_tasks(self, tasks: list[NormalizedTask]) -> int:
         count = 0
         for t in tasks:
@@ -207,15 +240,46 @@ def run_ingest(
     'warnings' adaptörlerin okuyamadığı kaynakları taşır — sessiz başarısızlık
     yerine çağıran bunu kullanıcıya gösterir."""
     ing = Ingestor(session, repo_team_map=repo_team_map)
-    stats: dict[str, Any] = {"commits": 0, "pull_requests": 0, "tasks": 0}
+    stats: dict[str, Any] = {"commits": 0, "pull_requests": 0, "tasks": 0, "team_members": 0}
     warnings: list[str] = []
     if git is not None:
         stats["commits"] = ing.ingest_commits(git.fetch_commits())
         stats["pull_requests"] = ing.ingest_pull_requests(git.fetch_pull_requests())
         warnings.extend(getattr(git, "warnings", []))
     if tasks is not None:
+        # Kadro ÖNCE: board üye listesi görünen adı taşır, kart ataması taşımaz.
+        # Bu sırayla kişi "Ayşe Yılmaz" olarak açılır, ham kaynak id'siyle değil.
+        # Uyarılar her çağrıdan sonra toplanır — adaptör her fetch'te sıfırlar.
+        members = tasks.fetch_team_members() if hasattr(tasks, "fetch_team_members") else []
+        stats["team_members"] = ing.ingest_team_members(members)
+        warnings.extend(getattr(tasks, "warnings", []))
         stats["tasks"] = ing.ingest_tasks(tasks.fetch_tasks())
         warnings.extend(getattr(tasks, "warnings", []))
+        warnings.extend(_unlinked_identity_warnings(session))
     session.commit()
-    stats["warnings"] = warnings
+    # Aynı uyarı iki kez toplanabilir (kadro ve görev çekimi aynı board'a bakar);
+    # tekrarı göstermek gürültü, sırayı bozmak bilgi kaybı — sırayı koruyup tekille.
+    stats["warnings"] = list(dict.fromkeys(warnings))
     return stats
+
+
+def _unlinked_identity_warnings(session: Session) -> list[str]:
+    """Görev kaynağından gelen ama git kimliği bağlanmamış kişileri bildirir.
+
+    Aynı insan git'te e-postasıyla, Trello'da üye id'siyle görünür; ingest bunları
+    eşleştiremez (farklı kaynak, farklı anahtar) ve İKİ ayrı kişi kaydı açar. Bu
+    sessiz kalırsa takım kadrosu şişer ve WIP paydası bölündüğü için metrik
+    olduğundan İYİ görünür. Eşleme Entegrasyon panelinden yapılır.
+    """
+    unlinked = [
+        dev.display_name
+        for dev in session.scalars(select(Developer))
+        if (ids := dev.external_ids or {}) and not ids.get("git") and (ids.keys() - {"git"})
+    ]
+    if not unlinked:
+        return []
+    return [
+        f"{len(unlinked)} kişinin git kimliği bağlı değil ({', '.join(sorted(unlinked)[:5])}"
+        f"{'…' if len(unlinked) > 5 else ''}) — aynı kişi commit'lerde ayrı sayılıyor olabilir. "
+        "Entegrasyon → Kimlik eşleme bölümünden bağlayın."
+    ]

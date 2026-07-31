@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -616,6 +617,64 @@ def ai_advice(team_id: int, session: Session = Depends(get_session)):
         if m["value"] is not None
     )
     return {"team": team.name, "advice": advisor.advise(team.name, block)}
+
+
+# --- RAG asistanı --------------------------------------------------------------
+
+class AskBody(BaseModel):
+    question: str = Field(min_length=3, max_length=1000)
+
+
+def _can_access_team(session: Session, user: User, team_id: int) -> bool:
+    """Takım verisi takım üyesine ve admin'e açıktır. Başka takımın kaydını
+    sormak 403'tür — RAG bağlamı ham kayıt taşıdığı için bu sınır özet
+    uçlarından daha katı tutulur."""
+    if user.role in ("admin", "hr") or user.is_owner:
+        return True
+    if user.developer_id is None:
+        return False
+    dev = session.get(Developer, user.developer_id)
+    return dev is not None and any(m.team_id == team_id for m in dev.memberships)
+
+
+@router.post("/teams/{team_id}/ask")
+def ask_team(
+    team_id: int,
+    body: AskBody,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Takımın kendi kayıtlarına dayanan soru-cevap (RAG).
+
+    Cevap YALNIZCA getirilen kayıtlardan çıkar; ilgili kayıt yoksa cevap
+    üretilmez (hata değil, dürüst boşluk)."""
+    cfg = get_config()
+    if not cfg.rag.enabled:
+        raise HTTPException(
+            503, "RAG asistanı kapalı (config: rag.enabled). On-prem kısıtı gereği "
+                 "varsayılan olarak kapalıdır."
+        )
+    team = session.get(Team, team_id)
+    if team is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    if not _can_access_team(session, user, team_id):
+        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+
+    from app.services.rag.query import answer as rag_answer
+
+    result = rag_answer(session, cfg, body.question, team_id)
+    if result.status == "error":
+        raise HTTPException(503, result.reason or "RAG cevabı üretilemedi")
+    return {
+        "team": team.name,
+        "status": result.status,
+        "answer": result.answer,
+        "reason": result.reason,
+        "sources": [
+            {"n": s.n, "kind": s.source_kind, "id": s.source_id, "score": s.score}
+            for s in result.sources
+        ],
+    }
 
 
 @router.get("/config/ui")

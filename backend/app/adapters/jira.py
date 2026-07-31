@@ -11,7 +11,7 @@ from datetime import datetime
 
 import httpx
 
-from app.adapters.base import NormalizedTask, NormalizedTransition
+from app.adapters.base import NormalizedTask, NormalizedTeamMember, NormalizedTransition
 
 # Jira issue type → normalize tip
 TYPE_MAP = {"bug": "bug", "story": "story", "task": "task"}
@@ -38,6 +38,12 @@ class JiraProvider:
             headers={"Authorization": f"Bearer {self.token}"},
             timeout=30,
         )
+
+    def fetch_team_members(self) -> list[NormalizedTeamMember]:
+        """Jira proje rolleri kurulumdan kuruluma değiştiği için kadro burada
+        okunmaz: boş liste = 'kaynak bilmiyor', ingest elle atanmış üyeliğe
+        dokunmaz. Uydurulmuş kadro WIP paydasını sessizce bozardı."""
+        return []
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]:
         out: list[NormalizedTask] = []
