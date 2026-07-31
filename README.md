@@ -135,6 +135,20 @@ cd ..\backend
 > Bu repo, demo için `.pgsql/` altında taşınabilir bir PostgreSQL ile geliştirildi
 > (kurulum gerektirmez): `.pgsql\pgsql\bin\pg_ctl -D .pgsql\data -o "-p 5433" start`
 
+### Yerel modeller (LLM + RAG kullanacaksanız)
+
+`config/config.yaml` deposu `llm.provider: local` ve `rag.enabled: true` ile gelir;
+ikisi de [Ollama](https://ollama.com) üzerinden **iki modele** ihtiyaç duyar:
+
+```powershell
+ollama pull bge-m3        # embedding (RAG) — ~1.2 GB, çok dilli
+ollama pull qwen2.5:7b    # sohbet/öneri   — ~4.7 GB, genel amaçlı
+```
+
+Modeller yoksa senkron çökmez ama indeksleme atlanır ve şu uyarıyı verir:
+"Embedding sağlayıcısına ulaşılamadı … chunk gömülmeden kaldı". `/api/teams/{id}/ask`
+ucu da cevap üretemez. Veri dışarı çıkmaz — her iki model de yereldir.
+
 Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 
 ## Hesap yönetimi ve ek modüller
@@ -202,11 +216,21 @@ değildir** (İlke B):
 | `health_thresholds` | yeşil/kırmızı eşikleri + `data_completeness_min` (altında "veri yetersiz") |
 | `rules.<ad>` | kural motoru eşikleri; her kural tek tek kapatılabilir |
 | `llm` | opsiyonel öneri + kod analizi katmanı — **kod varsayılanı kapalı** (`LLMSettings.enabled = False`); `local` (Ollama/vLLM, veri dışarı çıkmaz) ya da bilinçli tercihle `claude` |
+| `rag` | takım kayıtları üzerinde soru-cevap asistanı — **kod varsayılanı kapalı**. `embedding` (vektör modeli, sohbet modelinden AYRI), `chunk` (parça boyutu), `retrieval.top_k`/`min_score` (kaç kayıt + eşik) |
 
-> ⚠️ Depodaki `config/config.yaml` bu varsayılanı **ezer**: `llm.enabled: true`,
-> `provider: claude`. Yani depoyu olduğu gibi çalıştırırsanız kod analizi için
-> Anthropic API'sine istek gider. Veri dışarı çıkmasın istiyorsanız kurulumda
-> `llm.enabled: false` yapın ya da `provider: local` seçin.
+> ⚠️ Depodaki `config/config.yaml` bu varsayılanları **ezer**: `llm.enabled: true`
+> ve `rag.enabled: true`. Sağlayıcı `local` olduğu için veri dışarı çıkmaz, ama
+> ikisi de yerel modellerin kurulu olmasını bekler (bkz. "Yerel modeller").
+> `provider: claude` seçerseniz kod analizi ve öneri metinleri Anthropic API'sine
+> gider; RAG'ın **vektörleri** yine yerelde kalır (Anthropic'in embedding ucu yoktur).
+
+> 📏 `rag.retrieval.min_score` embedding modeline **ve** korpus büyüklüğüne bağlı
+> ampirik bir sayıdır — kopyalanmaz, ölçülür. Model değiştirdiğinizde ya da veri
+> belirgin büyüdüğünde yeniden belirleyin:
+> `python scripts\rag_eval.py --model <model> --json sonuc.json`
+> Script ilgili kayıtların en düşük skorunu ve alakasız sorulardan gelen en yüksek
+> skoru basar; eşik bu ikisinin arasına konur. İkisi çakışıyorsa sorun eşikte
+> değil embedding modelindedir.
 
 Örnek (spec'teki sözleşme):
 

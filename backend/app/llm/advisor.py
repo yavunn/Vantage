@@ -40,11 +40,20 @@ class LLMAdvisor(Protocol):
 
 
 class LocalAdvisor:
-    """Self-hosted, OpenAI-uyumlu uca (Ollama/vLLM) bağlanır — veri dışarı çıkmaz."""
+    """Self-hosted, OpenAI-uyumlu uca (Ollama/vLLM) bağlanır — veri dışarı çıkmaz.
 
-    def __init__(self, base_url: str, model: str):
+    api_key verilirse `Authorization: Bearer` gönderilir (anahtar isteyen uçlar:
+    OpenAI, OpenRouter, korumalı vLLM); Ollama gibi anahtarsız uçlarda boş
+    bırakılır. Bu, LocalAnalyzer ile AYNI davranıştır — ikisi aynı `llm.local`
+    ayarını okuduğu için farklı davranmaları, uç değiştiren kullanıcıya "kod
+    analizi çalışıyor ama asistan 401 veriyor" gibi açıklanamaz bir durum
+    yaşatırdı.
+    """
+
+    def __init__(self, base_url: str, model: str, api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self._api_key = api_key or None
 
     def advise(self, team_name: str, metrics_block: str) -> str:
         prompt = PROMPT_TEMPLATE.format(team_name=team_name, metrics_block=metrics_block)
@@ -55,9 +64,11 @@ class LocalAdvisor:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         resp = httpx.post(
             f"{self.base_url}/v1/chat/completions",
             json={"model": self.model, "messages": messages},
+            headers=headers,
             timeout=120,
         )
         resp.raise_for_status()
@@ -104,7 +115,11 @@ def build_advisor(cfg: Config) -> LLMAdvisor | None:
     if not cfg.llm.enabled:
         return None
     if cfg.llm.provider == "local":
-        return LocalAdvisor(cfg.llm.local.base_url, cfg.llm.local.model)
+        return LocalAdvisor(
+            cfg.llm.local.base_url,
+            cfg.llm.local.model,
+            os.environ.get(cfg.llm.local.api_key_env),
+        )
     if cfg.llm.provider == "claude":
         return ClaudeAdvisor(cfg.llm.claude.model, cfg.llm.claude.api_key_env)
     return None

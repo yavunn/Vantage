@@ -137,3 +137,82 @@ def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatc
     got = client.get("/api/admin/llm-provider", headers=_auth(actors["owner_t"])).json()
     assert got["claude"]["api_key"]["configured"] is True
     assert "sk-test-12345" not in str(got)
+
+
+# --- yerel uçta kimlik doğrulama ----------------------------------------------
+# REGRESYON: LocalAdvisor bu başlığı hiç göndermiyordu. Arayüz yerel API anahtarı
+# kaydetmeye izin verdiği ve LocalAnalyzer anahtarı KULLANDIĞI için, base_url
+# anahtar isteyen bir uca (OpenAI/OpenRouter) çevrildiğinde kod analizi çalışıp
+# öneri/RAG'ın 401 alması gibi açıklanamaz bir bölünme oluşuyordu.
+
+
+class _CapturingPost:
+    """httpx.post yerine geçer; gönderilen başlıkları saklar, ağa çıkmaz."""
+
+    def __init__(self):
+        self.headers: dict | None = None
+
+    def __call__(self, url, **kwargs):
+        self.headers = kwargs.get("headers")
+
+        class _Resp:
+            @staticmethod
+            def raise_for_status():
+                return None
+
+            @staticmethod
+            def json():
+                return {"choices": [{"message": {"content": "cevap"}}]}
+
+        return _Resp()
+
+
+def _local_cfg(api_key_env: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(llm=SimpleNamespace(
+        enabled=True, provider="local",
+        local=SimpleNamespace(
+            base_url="http://uc.local", model="m", api_key_env=api_key_env,
+        ),
+    ))
+
+
+def test_yerel_advisor_anahtar_varsa_authorization_gonderir(monkeypatch):
+    from app.llm import advisor as advisor_mod
+
+    post = _CapturingPost()
+    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    advisor_mod.LocalAdvisor("http://uc.local", "m", "sk-yerel").chat("sistem", "soru")
+    assert post.headers == {"Authorization": "Bearer sk-yerel"}
+
+
+def test_yerel_advisor_anahtarsiz_ucta_baslik_gondermez(monkeypatch):
+    from app.llm import advisor as advisor_mod
+
+    post = _CapturingPost()
+    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    advisor_mod.LocalAdvisor("http://uc.local", "m").chat("sistem", "soru")
+    # Ollama anahtar istemez; boş Bearer göndermek bazı uçlarda 401 sebebidir.
+    assert post.headers == {}
+
+
+def test_build_advisor_yerel_anahtari_ortamdan_okur(monkeypatch):
+    from app.llm import advisor as advisor_mod
+
+    monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
+    post = _CapturingPost()
+    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    advisor_mod.build_advisor(_local_cfg("TEST_LOCAL_LLM_KEY")).chat("", "soru")
+    assert post.headers == {"Authorization": "Bearer sk-ortam"}
+
+
+def test_yerel_advisor_rag_sohbetiyle_ayni_yolu_kullanir(monkeypatch):
+    """advise() de chat() üzerinden geçer — anahtar iki yolda da gider."""
+    from app.llm import advisor as advisor_mod
+
+    monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
+    post = _CapturingPost()
+    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    advisor_mod.build_advisor(_local_cfg("TEST_LOCAL_LLM_KEY")).advise("Takım", "metrik")
+    assert post.headers == {"Authorization": "Bearer sk-ortam"}
