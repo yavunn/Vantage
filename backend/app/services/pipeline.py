@@ -52,6 +52,20 @@ def run_pipeline() -> dict:
         stats["rag_chunks"] = rag_stats.get("embedded", 0)
         stats["warnings"] = [*stats.get("warnings", []), *rag_stats.get("warnings", [])]
 
+        # Task↔commit önerilerini tazele. İnsan kararlarına DOKUNMAZ — onaylanmış
+        # ya da reddedilmiş bağlar olduğu gibi kalır (bkz. task_link.refresh_suggestions).
+        # Embedding ucu erişilemezse senkron çökmez, uyarıyla devam eder.
+        if cfg.rag.enabled:
+            from app.services.task_link import refresh_suggestions
+            try:
+                link_stats = refresh_suggestions(session, cfg)
+                stats["task_links_suggested"] = link_stats["suggested"]
+            except Exception as e:  # noqa: BLE001 — öneri üretimi senkronu düşürmesin
+                stats["warnings"].append(
+                    f"Task↔commit önerileri üretilemedi ({type(e).__name__}) — "
+                    "embedding sağlayıcısı erişilebilir mi?"
+                )
+
         metrics_written = compute_all(session, cfg)
         recs_written = run_rules(session, cfg)
         # Metrik kırmızıya döndüyse ilgili yönetici/adminlere trend alarmı üret.

@@ -28,6 +28,7 @@ from app.models import (
     Developer,
     MetricResult,
     Recommendation,
+    Task,
     Team,
     User,
 )
@@ -674,6 +675,74 @@ def ask_team(
             {"n": s.n, "kind": s.source_kind, "id": s.source_id, "score": s.score}
             for s in result.sources
         ],
+    }
+
+
+class LinkDecisionBody(BaseModel):
+    status: str = Field(pattern="^(confirmed|rejected)$")
+
+
+def _task_of_team(session: Session, user: User, team_id: int, task_id: int) -> Task:
+    """Takım erişimi + task'ın gerçekten O TAKIMA ait olduğu doğrulanır.
+
+    İkinci kontrol şart: yalnız takım erişimine bakılsaydı, erişimi olan bir
+    kullanıcı URL'deki task_id'yi değiştirerek BAŞKA takımın işini okuyabilirdi."""
+    if session.get(Team, team_id) is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    if not _can_access_team(session, user, team_id):
+        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+    task = session.get(Task, task_id)
+    if task is None or task.team_id != team_id:
+        raise HTTPException(404, "İş bulunamadı")
+    return task
+
+
+@router.get("/teams/{team_id}/tasks/{task_id}/links")
+def task_links(team_id: int, task_id: int,
+               session: Session = Depends(get_session),
+               user: User = Depends(current_user)):
+    """Bir işin commit bağları: motorun önerileri + insan kararları.
+
+    KAYITLI veriyi okur, eşleştirmeyi yeniden hesaplamaz (bkz. task_link.list_links)."""
+    from app.services.task_link import list_links
+
+    task = _task_of_team(session, user, team_id, task_id)
+    return {"task_id": task.id, "title": task.title, "links": list_links(session, task_id)}
+
+
+@router.post("/teams/{team_id}/tasks/{task_id}/links/{commit_id}")
+def decide_task_link(team_id: int, task_id: int, commit_id: int,
+                     body: LinkDecisionBody,
+                     session: Session = Depends(get_session),
+                     user: User = Depends(require_admin)):
+    """Bir bağı onaylar/reddeder. Karar kalıcıdır; senkron bunu EZMEZ."""
+    from app.services.task_link import decide
+
+    _task_of_team(session, user, team_id, task_id)
+    if session.get(Commit, commit_id) is None:
+        raise HTTPException(404, "Commit bulunamadı")
+    row = decide(session, task_id, commit_id, body.status, user_id=user.id)
+    return {"task_id": task_id, "commit_id": commit_id, "status": row.status}
+
+
+@router.post("/teams/{team_id}/tasks/{task_id}/analysis")
+def task_analysis(team_id: int, task_id: int,
+                  session: Session = Depends(get_session),
+                  user: User = Depends(current_user)):
+    """İşin süreç analizi — YALNIZ onaylanmış commit bağlarına dayanır.
+
+    Onaylı bağ yoksa LLM çağrılmaz; 200 ile 'no_confirmed_links' döner
+    (hata değil: analiz edilecek doğrulanmış veri yok)."""
+    from app.services.task_analysis import analyze_task
+
+    _task_of_team(session, user, team_id, task_id)
+    result = analyze_task(session, get_config(), task_id)
+    if result.status == "error":
+        raise HTTPException(503, result.reason or "Analiz üretilemedi")
+    return {
+        "task_id": result.task_id, "status": result.status,
+        "analysis": result.text, "reason": result.reason,
+        "commits_used": result.commits_used,
     }
 
 

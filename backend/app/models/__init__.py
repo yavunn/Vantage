@@ -216,6 +216,41 @@ class TaskStatusTransition(Base):
     task: Mapped[Task] = relationship(back_populates="transitions")
 
 
+class TaskCommitLink(Base):
+    """Task ↔ commit bağı: motorun ÖNERİSİ ya da insanın KARARI.
+
+    Kaynaklarda bu bağ yoktur ve kurulamaz (bkz. services/task_link.py):
+    Trello kart id'si commit mesajında geçmez, task'ların yalnız 2/26'sında
+    assignee var. Bağ anlamsal benzerlikle TAHMİN edilir ve ölçüldüğünde
+    isabet ~%50 çıktı — Türkçe kart başlığı ile İngilizce commit mesajını
+    eşleştirmenin yapısal tavanı.
+
+    Bu yüzden bağ iki aşamalı: motor önerir, insan onaylar. AI analizi
+    YALNIZCA `confirmed` bağları kullanır. Tahmin üstüne analiz yazmak,
+    sistemin yanlış commit'e bakıp kendinden emin konuşması demekti —
+    RAG'daki 'zayıf bağlamla konuşma' kuralının aynısı burada da geçerli.
+
+    `rejected` kaydı SİLİNMEZ: silinseydi motor her senkronda aynı yanlış
+    commit'i yeniden önerir, insanın kararı her seferinde buharlaşırdı.
+    """
+
+    __tablename__ = "task_commit_links"
+    __table_args__ = (UniqueConstraint("task_id", "commit_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
+    commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
+    # suggested = motor önerdi, kimse bakmadı | confirmed / rejected = insan kararı
+    status: Mapped[str] = mapped_column(String(20), default="suggested")
+    # Öneri skoru saklanır: kullanıcı 'bu neden önerildi' diye sorabilmeli.
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_window: Mapped[bool] = mapped_column(Boolean, default=False)
+    decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 # NOT: CodeQualitySnapshot (SonarQube/linter kalite anlık görüntüsü) KALDIRILDI —
 # dış kod-kalitesi taraması artık yok, kod taraması AI modülüyle yapılır. Mevcut
 # DB'lerdeki 'code_quality_snapshots' tablosu (varsa) orphan kalır, kullanılmaz.
