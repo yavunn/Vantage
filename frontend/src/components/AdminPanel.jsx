@@ -11,6 +11,7 @@ import {
 import AuditPanel from "./AuditPanel.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
+import TaskLinksPanel from "./TaskLinksPanel.jsx";
 import Modal from "./Modal.jsx";
 import OnboardingPanel from "./OnboardingPanel.jsx";
 import SurveyAdminPanel from "./SurveyAdminPanel.jsx";
@@ -227,6 +228,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
           <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
           <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
           <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
+          <button className={`tab ${subtab === "tasklinks" ? "active" : ""}`} onClick={() => setSubtab("tasklinks")}>İş ↔ Commit</button>
           <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
           <button className={`tab ${subtab === "survey" ? "active" : ""}`} onClick={() => setSubtab("survey")}>Memnuniyet</button>
           <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
@@ -236,6 +238,10 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       {!hrMode && subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
       {!hrMode && subtab === "integration" && <IntegrationPanel />}
+
+      {!hrMode && subtab === "tasklinks" && (
+        <TaskLinksPanel teams={teams} canManage={!hrMode} />
+      )}
 
       {!hrMode && subtab === "code" && <CodeAnalysisPanel me={me} />}
 

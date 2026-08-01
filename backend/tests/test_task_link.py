@@ -240,6 +240,96 @@ def test_analiz_baglami_kisi_adi_tasimaz(session):
     assert "Ayşe" not in block and "Yılmaz" not in block
 
 
+# --- HTTP uçları ---------------------------------------------------------------
+
+@pytest.fixture()
+def client(app_env):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    return TestClient(app)
+
+
+def _token(client, session, email="admin@x.com", role="admin"):
+    from datetime import datetime, timezone
+
+    from app.core.security import hash_password
+    from app.models import User
+
+    now = datetime.now(timezone.utc)
+    session.add(User(
+        email=email, password_hash=hash_password("parola1"), role=role,
+        is_active=True, must_change_password=False, created_at=now, updated_at=now,
+    ))
+    session.commit()
+    r = client.post("/api/auth/login", json={"email": email, "password": "parola1"})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def test_uc_takimin_bagli_islerini_doner(client, session):
+    _enable_rag()
+    team, t_anket, _t2, _c1, _c2 = _seed(session)
+    from app.services.task_link import refresh_suggestions
+
+    refresh_suggestions(session, _cfg())
+    r = client.get(f"/api/teams/{team.id}/task-links", headers=_token(client, session))
+
+    assert r.status_code == 200, r.text
+    ids = [t["task_id"] for t in r.json()["tasks"]]
+    assert t_anket.id in ids
+
+
+def test_uc_baska_takimin_isini_vermez(client, session):
+    """Takım erişimi olsa bile URL'deki task_id başka takımınsa 404."""
+    _enable_rag()
+    team_a, t_a, _t2, _c1, _c2 = _seed(session)
+    from app.models import Team
+
+    other = Team(name="Takım B")
+    session.add(other)
+    session.commit()
+    h = _token(client, session)
+
+    r = client.get(f"/api/teams/{other.id}/tasks/{t_a.id}/links", headers=h)
+
+    assert r.status_code == 404
+
+
+def test_uc_karar_icin_admin_ister(client, session):
+    _enable_rag()
+    team, t_anket, _t2, c_anket, _c2 = _seed(session)
+    h = _token(client, session, email="calisan@x.com", role="user")
+
+    r = client.post(
+        f"/api/teams/{team.id}/tasks/{t_anket.id}/links/{c_anket.id}",
+        json={"status": "confirmed"}, headers=h,
+    )
+
+    assert r.status_code == 403
+
+
+def test_uc_onaysiz_analizde_200_ve_dural_cevap(client, session):
+    """Onaylı bağ yoksa hata değil, dürüst 'analiz edilecek veri yok' döner."""
+    _enable_rag()
+    team, t_anket, _t2, _c1, _c2 = _seed(session)
+
+    r = client.post(f"/api/teams/{team.id}/tasks/{t_anket.id}/analysis",
+                    headers=_token(client, session))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "no_confirmed_links"
+
+
+def test_uc_tokensiz_401(client, session):
+    _enable_rag()
+    team, t_anket, _t2, _c1, _c2 = _seed(session)
+
+    r = client.get(f"/api/teams/{team.id}/tasks/{t_anket.id}/links")
+
+    assert r.status_code == 401
+
+
 def test_analiz_baglami_sureyi_ve_akisi_tasir(session):
     _enable_rag()
     _team, t_anket, _t2, c_anket, _c2 = _seed(session)

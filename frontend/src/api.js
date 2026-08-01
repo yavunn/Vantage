@@ -367,6 +367,25 @@ export function setTaskIdentity(devId, source, key) {
   return apiPatch(`/api/admin/developers/${devId}/task-identity`, { source, key });
 }
 
+// --- task ↔ commit bağı (öneri + insan onayı) -------------------------------
+//
+// Kaynaklarda bu bağ yok; motor anlamsal benzerlikle TAHMİN ediyor ve isabet
+// ~%50. Bu yüzden analiz yalnızca ONAYLANMIŞ bağları okur — kullanıcı burada
+// onaylamadan hiçbir analiz üretilmez.
+
+export function getTeamTaskLinks(teamId) {
+  return api(`/api/teams/${teamId}/task-links`);
+}
+
+// status: "confirmed" | "rejected". Karar kalıcıdır; senkron onu EZMEZ.
+export function decideTaskLink(teamId, taskId, commitId, status) {
+  return apiPost(`/api/teams/${teamId}/tasks/${taskId}/links/${commitId}`, { status });
+}
+
+export function analyzeTask(teamId, taskId) {
+  return apiPost(`/api/teams/${teamId}/tasks/${taskId}/analysis`);
+}
+
 // --- yönetici: genel ayarlar (metrik/eşik/kural/anket/gizlilik) --------------
 
 export function getSettings() {

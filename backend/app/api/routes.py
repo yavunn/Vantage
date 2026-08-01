@@ -697,6 +697,37 @@ def _task_of_team(session: Session, user: User, team_id: int, task_id: int) -> T
     return task
 
 
+@router.get("/teams/{team_id}/task-links")
+def team_task_links(team_id: int,
+                    session: Session = Depends(get_session),
+                    user: User = Depends(current_user)):
+    """Takımın bağı olan tüm işleri, bağlarıyla birlikte döner (onay ekranı için).
+
+    Bağı hiç olmayan iş listeye GİRMEZ: onay ekranı, karar verilecek şeyleri
+    gösterir; motorun hiçbir aday bulamadığı iş için verilecek karar yoktur."""
+    from app.services.task_link import list_links
+
+    if session.get(Team, team_id) is None:
+        raise HTTPException(404, "Takım bulunamadı")
+    if not _can_access_team(session, user, team_id):
+        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+
+    out = []
+    for task in session.scalars(select(Task).where(Task.team_id == team_id)):
+        links = list_links(session, task.id)
+        if not links:
+            continue
+        out.append({
+            "task_id": task.id, "title": task.title, "status": task.status,
+            "pending": sum(1 for x in links if x["status"] == "suggested"),
+            "confirmed": sum(1 for x in links if x["status"] == "confirmed"),
+            "links": links,
+        })
+    # Karar bekleyenler üstte: ekranın işi, bekleyen işi bitirtmek.
+    out.sort(key=lambda x: (-x["pending"], -x["confirmed"]))
+    return {"team_id": team_id, "tasks": out}
+
+
 @router.get("/teams/{team_id}/tasks/{task_id}/links")
 def task_links(team_id: int, task_id: int,
                session: Session = Depends(get_session),
