@@ -125,7 +125,15 @@ llm:
     base_url: http://localhost:11434
     # Genel amaçlı model — coder DEĞİL. qwen2.5-coder:7b bir kod modeli;
     # Türkçe bağlamı özetlemede kendi içinde çelişen cevaplar üretiyordu.
-    model: qwen2.5:7b
+    #
+    # 7B DEĞİL, 14B. Ölçüldü: qwen2.5:7b iş analizinde sayıyı okuyamıyor
+    # ("+1232/-7 satır"ı "12 commit" diye yazdı) ve Türkçe'de var olmayan
+    # kelimeler üretiyordu. Prompt iki kez sıkılaştırıldı, düzelmedi — bu
+    # 7B'nin Türkçe tavanı, prompt sorunu değil. Modeli küçültürsen aynı
+    # bozulmayı geri getirirsin.
+    #
+    # Kurulum:  ollama pull qwen2.5:14b   (~9 GB)
+    model: qwen2.5:14b
   claude:
     model: claude-sonnet-5
     api_key_env: ANTHROPIC_API_KEY

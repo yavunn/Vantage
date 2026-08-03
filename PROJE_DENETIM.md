@@ -9,17 +9,18 @@
 > Aşağıdaki 2. bölüm denetim ANINDAKİ fotoğraftır (bilerek değiştirilmedi).
 > Bu bölüm o fotoğraftan sonra ne yapıldığını özetler.
 
-**21 maddenin tamamı uygulandı.** Üç kritik bulgunun (K1/K2/K3) hepsi kapandı.
+**22 maddenin tamamı uygulandı.** Üç kritik bulgunun (K1/K2/K3) hepsi kapandı.
+Madde 22 denetimden sonra, LLM katmanı üzerinde çalışırken bulundu (2026-08-03).
 
 | Denetim anı | Şimdi |
 |---|---|
-| 128 backend testi, frontend testi **yok** | **135 backend + 29 frontend** testi |
+| 128 backend testi, frontend testi **yok** | **246 backend + 40 frontend** testi |
 | CI **yok** | GitHub Actions: pytest + ruff + frontend test + build + `npm audit` |
 | `alembic upgrade head` temiz DB'de **çöküyor** | Çalışıyor; şema ayrışmasını yakalayan test var |
 | Kimliksiz okunabilen uç (`/api/annotations`) | Router seviyesinde JWT + regresyon testleri |
 | Parola tabanı 6 | 10 (tek sabit, backend + frontend) |
 | DB parolası config'te (git'te) | `.secrets.env` / `DATABASE_URL` + `.env.example` |
-| `llm.enabled: true` + `claude` (repoda) | `false` + `none` — açmak bilinçli tercih |
+| `llm.enabled: true` + `claude` (repoda) | `true` + `local` — dışarı veri gitmez¹ |
 | `python-jose` → `ecdsa` (CVE) | PyJWT; jose/ecdsa/rsa/pyasn1 tamamen kaldırıldı |
 | Sağlık kontrolü ucu yok | `/api/health` (DB + son senkron yaşı) |
 | `styles.css` 1.684 · `App.jsx` 685 | 4 katman dosyası (çıktı **bayt bayt aynı**) · 559 + `TopBar.jsx` |
@@ -27,9 +28,19 @@
 
 **Madde 16 (branch temizliği) önce durduruldu, sonra güvenli yolla yapıldı:** doğrulama branch'lerin main'e merge EDİLMEDİĞİNİ ve aynı özelliklerin ayrı bir uygulaması olduğunu gösterdi (main'de hiç bulunmayan 27 dosya). Körlemesine silmek yerine önce `arsiv/faz-1..5` etiketleri oluşturulup **uzağa gönderildi**, etiketlerin doğru commit'leri gösterdiği `git ls-remote` ile doğrulandı, ancak ondan sonra branch'ler silindi.
 
+¹ **Madde 21'in kararı sonradan gözden geçirildi.** Denetimde config `claude` ile
+geliyordu ve bu, "veri dışarı çıkmaz" vaadiyle çelişiyordu; madde 21 bunu
+`enabled: false` + `provider: none` yaptı. Sonrasında yerel sağlayıcı (Ollama)
+kuruldu ve config `enabled: true` + `provider: local` oldu. **Maddenin gerekçesi
+ihlal edilmedi, karşılandı:** itiraz "AI açık" olmasına değil, *repoyu olduğu gibi
+çalıştıran birinin farkında olmadan Anthropic'e veri göndermesine* idi. `local`
+sağlayıcıda istek `localhost:11434`'e gider. `provider: claude` yazan bir config
+commit'lenirse madde 21 yeniden ihlal edilmiş olur.
+
 **Bu iş sırasında bulunan ve rapora eklenen yeni sorunlar:** madde 21 (repodaki
-`llm.enabled: true` on-prem vaadiyle çelişiyor) ve `api.js`'te gövde JSON
-değilken kullanıcıya "Geçersiz istek" denmesi (frontend testi ortaya çıkardı).
+`llm.enabled: true` on-prem vaadiyle çelişiyor), madde 22 (`commit_review`
+yerel LLM anahtarını göndermiyor) ve `api.js`'te gövde JSON değilken kullanıcıya
+"Geçersiz istek" denmesi (frontend testi ortaya çıkardı).
 
 ---
 
@@ -203,6 +214,7 @@ frontend build başarılı, config yükleniyor.**
 | ~~**18**~~ ✅ | ~~`scripts/seed_dirty_data.py:153` — döngüde kullanılmayan `team` değişkeni (Ruff B007); ya kullanılmalı ya `_` olmalı.~~ **Yapıldı** (`dcf9fdc`). | Kod kalitesi | Muhtemel kopyala-yapıştır kalıntısı; niyetin ne olduğu belirsiz | Düşük | S | Düşük |
 | ~~**19**~~ ✅ | ~~Girişe IP bazlı hız sınırı ekle (`app/api/auth.py:223`). Hesap kilidi (5 deneme) var ama saldırgan farklı hesapları sırayla deneyebiliyor.~~ **Yapıldı** (`4a395d5`): IP bazlı kayan pencere (5 dk / 20 başarısız). Sayaç var olmayan hesapta da artar (numaralandırma yavaşlar). 2 test. Bellek içi — çoklu worker'a geçilirse Redis'e taşınmalı. | Güvenlik | Kullanıcı numaralandırma + dağıtık deneme yavaşlatılmıyor | Düşük | M | Orta |
 | ~~**20**~~ ✅ | ~~`/api/health` gibi kimliksiz bir sağlık kontrolü ucu ekle (DB bağlantısı + son senkron zamanı).~~ **Yapıldı** (`dcf9fdc`): `/api/health` — DB erişimi + son senkron yaşı; iç bilgi sızdırmaz, DB erişilemezse 503. | DX / İşletim | Bu denetimde sunucunun ayağa kalktığını doğrulamak için 404 dönen bir uca istek atmak zorunda kaldım; izleme/otomasyon bağlanacak bir nokta bulamaz | Düşük | S | Düşük |
+| ~~**22**~~ ✅ | ~~`app/services/commit_review.py:104` — `_ai_call` kendi httpx çağrısını kuruyor ve `llm.local.api_key_env`'i HİÇ okumuyor; yerel uç anahtar istiyorsa (korumalı vLLM, OpenRouter) commit değerlendirmesi 401 alıp sessizce kurala düşüyor.~~ **Yapıldı** (bugün): sağlayıcı istemcisi artık `build_advisor` üzerinden kuruluyor — seçim TEK yerde. Bulgu şuradan çıktı: `71247bd` ("yerel uca API anahtarını gönder") üç çağrı noktasından İKİSİNİ düzeltmiş (`llm/advisor.py:121`, `services/code_analysis.py:563`), üçüncüsü gözden kaçmıştı. Aynı `llm.local` ayarını okuyan üç yol vardı, artık bir tane var. 2 test: yerel anahtar gönderiliyor; AI düşerse sonuç yine dönüyor ve `provider: "rule"` diyerek hangi yoldan geldiğini söylüyor. | Hata yönetimi / Yapılandırma | Kullanıcı için semptom açıklanamaz: kod analizi ve asistan çalışıyor ama commit değerlendirmesi hep kural tabanlı — üstelik düşüş sessiz olduğu için "AI bu özellikte kapalı" sanılıyor. Ollama anahtar istemediği için bu kurulumda görünmüyordu; uç değişince ortaya çıkardı | Orta | S | Düşük |
 
 ---
 

@@ -36,7 +36,27 @@ def reindex(session: Session, cfg: Config,
         )
         return stats
 
-    chunks = build_chunks(session, cfg)
+    # Takımsız kayıt İNDEKSLENMEZ. Arama takım filtresini SQL'de uygular
+    # (`DocChunk.team_id == team_id`, bkz. rag/index.py) ve tek sorgu ucu olan
+    # /api/teams/{id}/ask her zaman gerçek bir takım id'si geçirir — yani
+    # team_id'si NULL olan bir chunk hiçbir sorguda GETİRİLEMEZ. Gömmek onu
+    # erişilebilir yapmaz, yalnızca embedding maliyeti ödetir ve indeks
+    # sayacını şişirerek "kayıtlar indekste var" yanılgısı üretir.
+    #
+    # Filtreyi gevşetip takımsızları her takıma göstermek YANLIŞ olurdu: o
+    # kayıtlar "herkesin" değil, "hiç kimsenin" — ve takım sızıntısını tip
+    # düzeyinde engelleyen kuralı deler.
+    all_chunks = build_chunks(session, cfg)
+    chunks = [ch for ch in all_chunks if ch.team_id is not None]
+    orphan = len(all_chunks) - len(chunks)
+    if orphan:
+        stats["warnings"].append(
+            f"{orphan} kayıt hiçbir takıma bağlı olmadığı için indekslenmedi — "
+            "takım bazlı asistan sorgularında getirilemezler. Sebep genellikle "
+            "takımı belirlenemeyen bir Trello board'u ya da takımsız repo'dur; "
+            "Entegrasyon ekranından takım atayın."
+        )
+    stats["orphan_chunks"] = orphan
     stats["chunks"] = len(chunks)
     existing = {
         (row.source_kind, row.source_id, row.chunk_index): row

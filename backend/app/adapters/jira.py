@@ -94,6 +94,9 @@ class JiraProvider:
         return NormalizedTask(
             source="jira",
             external_id=issue.get("key", ""),
+            # Jira'da external_id ZATEN insan tarafından yazılabilir bir anahtar
+            # ("PROJ-123"); ayrı bir alan üretmeye gerek yok, aynı değeri taşır.
+            key=issue.get("key") or None,
             team_name=project,
             assignee_key=assignee.get("name") or assignee.get("accountId"),
             assignee_name=assignee.get("displayName"),

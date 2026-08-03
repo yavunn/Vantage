@@ -380,3 +380,147 @@ def test_analiz_baglami_sureyi_ve_akisi_tasir(session):
     assert "DONE" in block          # statü akışı
     assert "+100/-2" in block       # değişiklik hacmi
     assert "survey.py" in block     # dokunulan alan
+
+
+# --- konvansiyon: commit mesajı kartın numarasını söylüyorsa -------------------
+#
+# Bu blok, eşleştirmenin TAHMİN olmaktan çıktığı tek yolu korur. Kırılırsa
+# sistem sessizce ~%50 isabetli tahmine geri döner ve kimse fark etmez.
+
+def _seed_konvansiyon(session):
+    """Kart numarası taşıyan bir task + onu anan bir commit + ilgisiz bir commit."""
+    from app.models import Commit, Repo, Task, TaskStatusTransition, Team
+
+    team = Team(name="Takım K")
+    session.add(team)
+    session.flush()
+    repo = Repo(name="repo-k", team_id=team.id)
+    session.add(repo)
+    session.flush()
+
+    anan = Commit(repo_id=repo.id, sha="c" * 40, committed_at=days_ago(3),
+                  message="feat: rapor ekrani\n\nRefs [#42]", changed_files=["r.py"])
+    ilgisiz = Commit(repo_id=repo.id, sha="d" * 40, committed_at=days_ago(3),
+                     message="chore: bagimlilik guncellendi", changed_files=["req.txt"])
+    session.add_all([anan, ilgisiz])
+    task = Task(source="trello", external_id="opak-hash-6a607d67", task_key="42",
+                team_id=team.id, title="rapor ekrani", status="DONE",
+                created_at=days_ago(6))
+    session.add(task)
+    session.flush()
+    session.add(TaskStatusTransition(task_id=task.id, to_status="DONE",
+                                     changed_at=days_ago(3)))
+    session.commit()
+    return team, task, anan, ilgisiz
+
+
+def test_konvansiyon_bagi_kesindir_onay_beklemez(session):
+    _enable_rag()
+    _team, task, anan, _ilgisiz = _seed_konvansiyon(session)
+    from app.services.task_link import list_links, refresh_suggestions
+
+    stats = refresh_suggestions(session, _cfg())
+
+    assert stats["convention"] == 1
+    row = next(x for x in list_links(session, task.id) if x["commit_id"] == anan.id)
+    assert row["status"] == "confirmed"
+    assert row["matched_by"] == "convention"
+    # Skor YOK: benzerlik hiç hesaplanmadı, 1.0 yazmak ölçüm uydurmak olurdu.
+    assert row["score"] is None
+
+
+def test_konvansiyon_varken_o_is_icin_tahmin_uretilmez(session):
+    """Kesin bilginin yanına tahmin koymak ekranı kirletir, kullanıcıyı
+    'acaba bu mu?' diye düşündürür. Konvansiyonla çözülen iş listeden çıkar."""
+    _enable_rag()
+    _team, task, anan, _ilgisiz = _seed_konvansiyon(session)
+    from app.services.task_link import list_links, refresh_suggestions
+
+    refresh_suggestions(session, _cfg())
+
+    links = list_links(session, task.id)
+    assert [x["commit_id"] for x in links] == [anan.id]
+    assert all(x["matched_by"] == "convention" for x in links)
+
+
+def test_ciplak_diyez_github_issue_sayilir_bag_kurmaz(session):
+    """`#42` git dünyasında GitHub issue/PR'dır. Kabul etmek 'fix #5' yazan bir
+    commit'i 5 numaralı karta KESİN bağ diye işaretlerdi — uydurulmuş kesinlik."""
+    _enable_rag()
+    _team, task, anan, _ilgisiz = _seed_konvansiyon(session)
+    anan.message = "feat: rapor ekrani (fix #42)"   # köşeli parantez YOK
+    session.commit()
+    from app.services.task_link import refresh_suggestions
+
+    stats = refresh_suggestions(session, _cfg())
+
+    assert stats["convention"] == 0
+    from sqlalchemy import select
+
+    from app.models import TaskCommitLink
+    rows = session.scalars(select(TaskCommitLink).where(
+        TaskCommitLink.task_id == task.id)).all()
+    assert all(r.status == "suggested" for r in rows)
+
+
+def test_ayni_numara_iki_iste_ise_bag_kurulmaz_ve_uyarilir(session):
+    """Trello'da idShort board BAŞINA benzersiz: iki board'da da 42 olabilir.
+    Hangisi olduğu bilinmiyorken birini seçmek kura çekmektir."""
+    _enable_rag()
+    _team, task, _anan, _ilgisiz = _seed_konvansiyon(session)
+    from app.models import Task
+    session.add(Task(source="trello", external_id="baska-board", task_key="42",
+                     team_id=task.team_id, title="baska kart", status="DONE",
+                     created_at=days_ago(6)))
+    session.commit()
+    from app.services.task_link import refresh_suggestions
+
+    stats = refresh_suggestions(session, _cfg())
+
+    assert stats["convention"] == 0
+    assert any("42" in w for w in stats["warnings"])
+
+
+def test_insan_reddi_konvansiyonu_da_ezer(session):
+    """Kart numarası yanlış yazılmış olabilir; son söz insanındır."""
+    _enable_rag()
+    _team, task, anan, _ilgisiz = _seed_konvansiyon(session)
+    from app.services.task_link import decide, list_links, refresh_suggestions
+
+    refresh_suggestions(session, _cfg())
+    decide(session, task.id, anan.id, "rejected")
+    refresh_suggestions(session, _cfg())
+
+    row = next(x for x in list_links(session, task.id) if x["commit_id"] == anan.id)
+    assert row["status"] == "rejected"
+
+
+def test_konvansiyon_embedding_olmadan_da_calisir(session):
+    """Kesin bağ, yerel embedding ucu kapalıyken de kurulmalı: tahmin adımının
+    başarısızlığı tahmin GEREKTİRMEYEN bağı geri almamalı."""
+    _enable_rag()
+    _team, task, anan, _ilgisiz = _seed_konvansiyon(session)
+    from app.services.task_link import list_links, refresh_suggestions
+
+    class _Patlayan:
+        model = "patlayan"
+
+        def embed(self, texts):
+            raise RuntimeError("embedding ucu kapalı")
+
+    stats = refresh_suggestions(session, _cfg(), provider=_Patlayan())
+
+    assert stats["convention"] == 1
+    assert stats["suggested"] == 0
+    row = next(x for x in list_links(session, task.id) if x["commit_id"] == anan.id)
+    assert row["status"] == "confirmed"
+
+
+def test_jira_anahtari_paranteZsiz_de_taninir(session):
+    """PROJ-123 biçimi kendi kendini tanımlar; başka bir şeyle karışmaz."""
+    from app.services.task_link import referenced_keys
+
+    assert referenced_keys("VAN-12 rapor ekrani duzeltildi") == {"VAN-12"}
+    assert referenced_keys("bkz [#7] ve VAN-3") == {"7", "VAN-3"}
+    assert referenced_keys("fix #7") == set()
+    assert referenced_keys(None) == set()

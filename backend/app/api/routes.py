@@ -719,6 +719,9 @@ def team_task_links(team_id: int,
             continue
         out.append({
             "task_id": task.id, "title": task.title, "status": task.status,
+            # Kart numarası ekranda görünmeli: konvansiyonu kullanabilmek için
+            # kişinin commit'e YAZACAĞI değeri bilmesi gerekir.
+            "task_key": task.task_key, "task_url": task.task_url,
             "pending": sum(1 for x in links if x["status"] == "suggested"),
             "confirmed": sum(1 for x in links if x["status"] == "confirmed"),
             "links": links,
@@ -738,7 +741,9 @@ def task_links(team_id: int, task_id: int,
     from app.services.task_link import list_links
 
     task = _task_of_team(session, user, team_id, task_id)
-    return {"task_id": task.id, "title": task.title, "links": list_links(session, task_id)}
+    return {"task_id": task.id, "title": task.title,
+            "task_key": task.task_key, "task_url": task.task_url,
+            "links": list_links(session, task_id)}
 
 
 @router.post("/teams/{team_id}/tasks/{task_id}/links/{commit_id}")

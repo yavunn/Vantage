@@ -382,3 +382,56 @@ def test_ask_ucu_tokensiz_401(client, session):
     r = client.post(f"/api/teams/{team.id}/ask", json={"question": "durum nedir"})
 
     assert r.status_code == 401
+
+
+# --- takımsız kayıt: indekste ölü ağırlık olmamalı ---------------------------
+
+def test_takimsiz_kayit_indekslenmez_ve_uyarilir(session):
+    """Arama takım filtresini SQL'de uygular ve tek sorgu ucu her zaman gerçek
+    bir takım id'si geçirir → team_id'si NULL olan chunk HİÇBİR sorguda
+    getirilemez. Gömmek onu erişilebilir yapmaz, sadece maliyet ödetir ve
+    'kayıtlar indekste var' yanılgısı üretir."""
+    from app.core.config import get_config
+    from app.models import Task
+
+    _enable_rag()
+    team, _repo = _seed(session)
+    session.add_all([
+        Task(source="trello", external_id="t1", team_id=team.id,
+             title="takimli kart", status="DONE", created_at=days_ago(3)),
+        Task(source="trello", external_id="t2", team_id=None,
+             title="musvedde kart", status="Yapilacaklar", created_at=days_ago(3)),
+    ])
+    session.commit()
+
+    stats = _index(session, get_config())
+
+    assert stats["orphan_chunks"] == 1
+    assert stats["chunks"] == 1
+    assert any("hiçbir takıma bağlı" in w for w in stats["warnings"])
+
+
+def test_indekste_kalmis_takimsiz_chunk_temizlenir(session):
+    """Eski senkronlardan kalan takımsız chunk'lar bir sonraki indekslemede
+    silinir — erişilemeyen kayıt indekste durmaya devam etmemeli."""
+    from sqlalchemy import func, select
+
+    from app.core.config import get_config
+    from app.models import DocChunk, Task
+
+    _enable_rag()
+    team, _repo = _seed(session)
+    session.add(Task(source="trello", external_id="t2", team_id=None,
+                     title="musvedde", status="Yapilacaklar",
+                     created_at=days_ago(3)))
+    session.add(DocChunk(source_kind="task", source_id=999, chunk_index=0,
+                         team_id=None, content="eski takimsiz chunk",
+                         content_hash="x", model="hash", embedding=[0.1, 0.2]))
+    session.commit()
+
+    _index(session, get_config())
+
+    kalan = session.scalar(
+        select(func.count()).select_from(DocChunk).where(DocChunk.team_id.is_(None))
+    )
+    assert kalan == 0

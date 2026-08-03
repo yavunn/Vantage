@@ -76,6 +76,12 @@ class NormalizedTeamMember:
 class NormalizedTask:
     source: str                             # jira | trello | fixture
     external_id: str
+    # İNSANIN yazabileceği kısa referans (Jira "PROJ-123", Trello kart no "42").
+    # external_id'den ayrıdır: Trello'da external_id opak bir hash'tir ve kimse
+    # commit mesajına onu yazmaz. Bu alan dolu olduğunda task↔commit bağı
+    # TAHMİN edilmek zorunda kalmaz — bkz. services/task_link.py.
+    key: str | None = None
+    url: str | None = None                  # kaydın kaynaktaki adresi (varsa)
     team_name: str | None = None
     assignee_key: str | None = None
     assignee_name: str | None = None

@@ -95,7 +95,7 @@ backend/
   migrations/   # Alembic
   scripts/seed_dirty_data.py   # sentetik KİRLİ veri üreteci
   tests/        # metrikler (tam+eksik veri), kurallar, etik uçlar, auth/İK/izin,
-                # anket anonimliği, kod-analiz prompt, projeler (90+ test)
+                # anket anonimliği, kod-analiz prompt, projeler (246 test)
 frontend/       # React dashboard
 config/config.yaml
 ```
@@ -141,9 +141,17 @@ cd ..\backend
 ikisi de [Ollama](https://ollama.com) üzerinden **iki modele** ihtiyaç duyar:
 
 ```powershell
-ollama pull bge-m3        # embedding (RAG) — ~1.2 GB, çok dilli
-ollama pull qwen2.5:7b    # sohbet/öneri   — ~4.7 GB, genel amaçlı
+ollama pull bge-m3         # embedding (RAG) — ~1.2 GB, çok dilli
+ollama pull qwen2.5:14b    # sohbet/öneri   — ~9 GB, genel amaçlı
 ```
+
+**Neden 14B, neden 7B değil:** `qwen2.5:7b` ile iş analizi ölçüldüğünde model
+prompt'taki sayıyı okuyamıyordu ("+1232/-7 satır"ı "12 commit" diye yazdı) ve
+Türkçe'de var olmayan kelimeler üretiyordu. Prompt iki kez sıkılaştırıldı,
+davranış değişmedi — bu 7B'nin Türkçe tavanı. 14B daha yavaştır (CPU'da analiz
+başına belirgin bekleme); bunu göze alamıyorsanız doğru hamle daha küçük modele
+inmek değil, `llm.enabled: false` ile üretimi kapatıp eşleştirme + insan onayı
+katmanıyla çalışmaktır — uydurulmuş bir analiz, analizsizlikten kötüdür.
 
 Modeller yoksa senkron çökmez ama indeksleme atlanır ve şu uyarıyı verir:
 "Embedding sağlayıcısına ulaşılamadı … chunk gömülmeden kaldı". `/api/teams/{id}/ask`
@@ -224,6 +232,29 @@ değildir** (İlke B):
 > `provider: claude` seçerseniz kod analizi ve öneri metinleri Anthropic API'sine
 > gider; RAG'ın **vektörleri** yine yerelde kalır (Anthropic'in embedding ucu yoktur).
 
+> 🔗 **İş ↔ commit bağı için commit konvansiyonu.** Kaynaklarda bu bağ yoktur:
+> Trello kart id'si opak bir hash'tir, commit mesajında geçmez. Sistem bağı
+> başlık benzerliğinden **tahmin** eder ve ölçülen ilk sıra isabeti ~%50'dir.
+> Tahminden kurtulmak için commit mesajına kartın numarasını yazın:
+>
+> ```
+> feat(rapor): aylik ozet ekrani
+>
+> Refs [#42]
+> ```
+>
+> Numara Trello kartının üstünde görünen `idShort`'tur; arayüzde her işin
+> başlığının yanında da yazar. Jira'da anahtar (`VAN-123`) parantezsiz de
+> tanınır. Böyle bir referans taşıyan commit'in bağı **tahmin edilmez, kesin
+> kurulur** ve onay beklemez; o iş için anlamsal öneri de üretilmez.
+>
+> Çıplak `#42` bilerek **kabul edilmez** — git'te o neredeyse her zaman bir
+> GitHub issue/PR numarasıdır ve kabul etmek "fix #5" yazan bir commit'i 5
+> numaralı karta kesin bağ diye işaretlerdi. Aynı numara birden çok işe aitse
+> (Trello'da `idShort` board başına benzersizdir) bağ kurulmaz, senkron bunu
+> uyarı olarak bildirir. Geçmiş commit'ler bu yolla kurtarılamaz — konvansiyon
+> yalnız bundan sonrasını çözer, eskiler için onay ekranı kullanılır.
+
 > 📏 `rag.retrieval.min_score` embedding modeline **ve** korpus büyüklüğüne bağlı
 > ampirik bir sayıdır — kopyalanmaz, ölçülür. Model değiştirdiğinizde ya da veri
 > belirgin büyüdüğünde yeniden belirleyin:
@@ -268,7 +299,7 @@ tarihi bozuk kayıtlar, hotspot dosyalar, cuma-akşamı-deploy + hafta-sonu-fix
 - **CRM** — review darboğazı + hotspot + yüksek WIP + riskli deploy penceresi
 
 Veri fixture JSON'larına yazılır ve **normal ingest hattından** geçirilir —
-dayanıklılık gerçek pipeline üzerinde kanıtlanır. Test paketi (133 pytest) her
+dayanıklılık gerçek pipeline üzerinde kanıtlanır. Test paketi (246 pytest + 40 vitest) her
 metriği hem tam hem eksik veriyle, her kuralın tetiklenme senaryosunu, etik
 kısıtları (leaderboard ucu yok, bireysel görünüm yetkisi), auth/İK izinlerini
 ve migration zincirini kapsar.

@@ -60,6 +60,8 @@ def run_pipeline() -> dict:
             try:
                 link_stats = refresh_suggestions(session, cfg)
                 stats["task_links_suggested"] = link_stats["suggested"]
+                stats["task_links_exact"] = link_stats["convention"]
+                stats["warnings"].extend(link_stats.get("warnings", []))
             except Exception as e:  # noqa: BLE001 — öneri üretimi senkronu düşürmesin
                 stats["warnings"].append(
                     f"Task↔commit önerileri üretilemedi ({type(e).__name__}) — "

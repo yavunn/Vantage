@@ -148,9 +148,24 @@ class TrelloProvider:
                     continue
                 board_name = board_resp.json().get("name")
 
+                if not board_name:
+                    # Takım adı yoksa kartlar hiçbir takıma bağlanamaz: indekste
+                    # ölü kayıt olur, takım bazlı sorguda hiç getirilemezler.
+                    # Sessiz kalmak bu kaybı gizlerdi (bkz. rag/indexer.py uyarısı).
+                    self.warnings.append(
+                        f"Trello board '{board_id}': board adı okunamadı — bu board'un "
+                        "kartları hiçbir takıma bağlanamaz ve asistan sorgularında "
+                        "getirilemez."
+                    )
+
                 cards_resp = client.get(
                     f"/boards/{board_id}/cards",
-                    params={"fields": "name,idList,dateLastActivity,due,labels,idMembers"},
+                    # idShort/shortLink OLMADAN task↔commit bağı tahmin edilmek
+                    # zorunda kalır: kartın `id` alanı opak bir hash'tir ve kimse
+                    # onu commit mesajına yazmaz. idShort kartın üstünde görünen
+                    # numaradır (#42) — insan yazabilir, bağ kesinleşir.
+                    params={"fields": "name,idList,dateLastActivity,due,labels,"
+                                      "idMembers,idShort,shortLink,shortUrl"},
                 )
                 if cards_resp.status_code != 200:
                     self.warnings.append(
@@ -203,9 +218,17 @@ class TrelloProvider:
         is_bug = any(h in lbl for lbl in labels for h in BUG_LABEL_HINTS)
         created = transitions[0].changed_at if transitions else None
         assignee_key = (card.get("idMembers") or [None])[0]
+        short = card.get("idShort")
         return NormalizedTask(
             source="trello",
             external_id=card["id"],
+            # Kart numarası: board'da görünen, insanın commit mesajına
+            # yazabileceği tek kısa referans. Yoksa None kalır — uydurmayız.
+            key=str(short) if short is not None else None,
+            url=card.get("shortUrl") or (
+                f"https://trello.com/c/{card['shortLink']}"
+                if card.get("shortLink") else None
+            ),
             team_name=board_name,
             assignee_key=assignee_key,
             # Ad board üye listesinden gelir (board başına tek istek). Bilinmiyorsa

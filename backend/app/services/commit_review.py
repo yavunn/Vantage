@@ -10,10 +10,9 @@ işareti, tutarlılık, düzen). Ceza dili yok — yapıcı, destek dilli.
 from __future__ import annotations
 
 import json
-import os
 import re
 
-import httpx
+import httpx  # yalnız hata tiplerini yakalamak için (istek advisor'dan gider)
 
 from app.core.config import Config
 
@@ -102,30 +101,23 @@ Commit mesajları:
 
 
 def _ai_call(cfg: Config, commits_block: str) -> dict | None:
-    """LLM'den skor+özet dener; başarısızsa None (çağıran kurala düşer)."""
-    if not cfg.llm.enabled or cfg.llm.provider not in ("local", "claude"):
+    """LLM'den skor+özet dener; başarısızsa None (çağıran kurala düşer).
+
+    Sağlayıcı istemcisi burada KURULMAZ, `build_advisor` kullanılır. Bu dosya
+    kendi httpx çağrısını yazdığı sürece `llm.local.api_key_env` sessizce
+    atlanıyordu: anahtar isteyen bir yerel uçta (korumalı vLLM, OpenRouter)
+    kod analizi ve asistan çalışırken commit değerlendirmesi 401 alıp kurala
+    düşüyordu — ve düşüş sessiz olduğu için kullanıcı bunu "AI bu özellikte
+    kapalı" sanıyordu. Sağlayıcı seçimi TEK yerde kalmalı.
+    """
+    from app.llm.advisor import build_advisor
+
+    advisor = build_advisor(cfg)
+    if advisor is None:
         return None
     prompt = _AI_PROMPT.format(commits_block=commits_block)
     try:
-        if cfg.llm.provider == "local":
-            resp = httpx.post(
-                f"{cfg.llm.local.base_url.rstrip('/')}/v1/chat/completions",
-                json={"model": cfg.llm.local.model, "messages": [{"role": "user", "content": prompt}]},
-                timeout=120,
-            )
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
-        else:  # claude
-            resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": os.environ.get(cfg.llm.claude.api_key_env, ""),
-                         "anthropic-version": "2023-06-01"},
-                json={"model": cfg.llm.claude.model, "max_tokens": 512,
-                      "messages": [{"role": "user", "content": prompt}]},
-                timeout=120,
-            )
-            resp.raise_for_status()
-            text = resp.json()["content"][0]["text"]
+        text = advisor.chat("", prompt)
     except (httpx.HTTPError, KeyError, IndexError):
         return None
 

@@ -187,6 +187,12 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     source: Mapped[str] = mapped_column(String(50))  # jira | trello | fixture
     external_id: Mapped[str] = mapped_column(String(100))
+    # İnsanın commit mesajına yazabileceği kısa referans: Jira "PROJ-123",
+    # Trello kart numarası "42". external_id'den AYRI tutulur çünkü Trello'da
+    # external_id opak bir hash'tir. Dolu olduğunda task↔commit bağı tahmin
+    # edilmez, konvansiyonla KESİNLEŞİR (bkz. services/task_link.py).
+    task_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    task_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("developers.id"), nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -242,6 +248,11 @@ class TaskCommitLink(Base):
     commit_id: Mapped[int] = mapped_column(ForeignKey("commits.id"))
     # suggested = motor önerdi, kimse bakmadı | confirmed / rejected = insan kararı
     status: Mapped[str] = mapped_column(String(20), default="suggested")
+    # Bağ NEREDEN geldi: 'semantic' = anlamsal benzerlik TAHMİNİ (onay ister),
+    # 'convention' = commit mesajında kartın numarası yazıyor (tahmin yok).
+    # İkisini ayırmadan saklamak, kullanıcının ekranda "%73 benzer" ile
+    # "geliştirici [#42] yazmış" arasındaki farkı görememesi demekti.
+    matched_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Öneri skoru saklanır: kullanıcı 'bu neden önerildi' diye sorabilmeli.
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     in_window: Mapped[bool] = mapped_column(Boolean, default=False)

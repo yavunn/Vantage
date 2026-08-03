@@ -167,7 +167,9 @@ class LLMLocal(BaseModel):
     base_url: str = "http://localhost:11434"
     # Genel amaçlı sohbet modeli olmalı. Kod modelleri (…-coder) bu işte
     # bağlamı özetlemek yerine kod üretmeye eğilimli ve Türkçe'de zayıf.
-    model: str = "qwen2.5:7b"
+    # 14B tabanı: 7B Türkçe üretimde sayı okuyamıyor ve kelime uyduruyor
+    # (ölçüldü; bkz. config/config.yaml'daki not).
+    model: str = "qwen2.5:14b"
     api_key_env: str = "LOCAL_LLM_API_KEY"
 
 

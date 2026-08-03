@@ -145,4 +145,34 @@ describe("TaskLinksPanel", () => {
     await screen.findByText(/Çalışan Memnuniyet/);
     expect(screen.queryByRole("button", { name: "Onayla" })).toBeNull();
   });
+
+  // Konvansiyon bağı ile tahmin bağı ekranda AYNI görünürse kullanıcı hangisine
+  // güveneceğini bilemez; ikisini ayırmak bu özelliğin tek görünür faydasıdır.
+  it("kesin bağı benzerlik skoru gibi göstermez", async () => {
+    const p = payload({ confirmed: 1, pending: 0, status: "confirmed" });
+    p.tasks[0].links[0] = {
+      ...p.tasks[0].links[0], matched_by: "convention", score: null,
+    };
+    apiMod.getTeamTaskLinks.mockResolvedValue(p);
+
+    render(<TaskLinksPanel teams={TEAMS} canManage />);
+
+    expect(await screen.findByText(/kesin bağ: commit mesajında kart numarası/))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/benzerlik/)).toBeNull();
+  });
+
+  it("kart numarasını gösterir — yazılacak değer bilinmeden konvansiyon kullanılamaz", async () => {
+    const p = payload();
+    p.tasks[0].task_key = "42";
+    p.tasks[0].task_url = "https://trello.com/c/aBcD1234";
+    apiMod.getTeamTaskLinks.mockResolvedValue(p);
+
+    render(<TaskLinksPanel teams={TEAMS} canManage />);
+
+    expect(await screen.findByText("[#42]")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "kartı aç" })).toHaveAttribute(
+      "href", "https://trello.com/c/aBcD1234"
+    );
+  });
 });

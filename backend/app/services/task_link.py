@@ -1,9 +1,19 @@
 """Task ↔ commit eşleştirme.
 
-Kaynaklarda bu bağ YOKTUR ve kurulamaz: Trello kart id'si opak bir hash
-(`6a61c628...`), commit mesajında asla geçmez; Jira'daki `PROJ-123` konvansiyonu
-da bu kurulumda kullanılmıyor. Kişi sinyali de yok — 26 task'ın yalnız 2'sinde
-assignee dolu. Geriye iki sinyal kalıyor:
+ÜÇ SİNYAL VAR ve ilki diğer ikisini gereksiz kılar:
+
+0. KONVANSİYON (kesin). Commit mesajında kartın numarası yazıyorsa (`[#42]`,
+   Jira'da `PROJ-123`) ortada tahmin yoktur: geliştirici bağı KENDİSİ beyan
+   etmiştir. Bu bağ doğrudan `confirmed` yazılır ve o task için anlamsal
+   tahmin ÜRETİLMEZ — kesin bilginin yanına tahmin koymak, ekranı kirletip
+   kullanıcıyı "acaba bu mu?" diye düşündürmekten başka işe yaramaz.
+
+   Bu yol, kart numarası kaynaktan çekildiği sürece çalışır (Trello `idShort`,
+   `tasks.task_key`). Numarası olmayan ya da commit'lerde hiç anılmayan
+   kartlarda aşağıdaki iki sinyale düşülür.
+
+Konvansiyonun kullanılmadığı kayıtlarda kişi sinyali de yok — 26 task'ın
+yalnız 2'sinde assignee dolu. Geriye iki sinyal kalıyor:
 
 1. ANLAMSAL BENZERLİK (birincil). Task BAŞLIĞI ile commit MESAJI karşılaştırılır.
 
@@ -25,6 +35,7 @@ uyumunu taşır, çağıran taraf bunu kullanıcıya gösterebilsin.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -36,6 +47,17 @@ from app.models import Commit, Task, TaskCommitLink
 from app.services.rag.embedding import cosine
 
 DECIDED = ("confirmed", "rejected")
+
+# --- Konvansiyon ayrıştırma ---------------------------------------------------
+#
+# `[#42]` — köşeli parantez ZORUNLU. Çıplak `#42` bilerek KABUL EDİLMEZ: git
+# dünyasında `#42` neredeyse her zaman bir GitHub issue/PR numarasıdır ve bu
+# depoda da öyle kullanılıyor. Çıplak biçimi kabul etmek, "fix #5" yazan bir
+# commit'i 5 numaralı Trello kartına KESİN bağ diye işaretlerdi — yani sistemin
+# kaçınmak için kurulduğu şeyi, uydurulmuş kesinliği, üretirdi.
+_BRACKET_KEY_RE = re.compile(r"\[#(\d{1,6})\]")
+# Jira biçimi (PROJ-123) kendi kendini tanımlar; parantez aranmaz.
+_JIRA_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b")
 
 # Zaman primi: commit, task'ın hareket penceresine bu kadar gün yakınsa
 # "zamanlama uyuyor" sayılır. Geniş tutuldu — bkz. modül başlığı.
@@ -112,9 +134,77 @@ def _head(message: str | None) -> str:
     return message.strip().splitlines()[0].strip()
 
 
+def referenced_keys(message: str | None) -> set[str]:
+    """Commit mesajında ANILAN task anahtarları (büyük harfe normalize).
+
+    Mesajın TAMAMI taranır, ilk satırı değil: konvansiyon çoğu zaman gövdeye
+    ("Refs [#42]") ya da footer'a yazılır."""
+    if not message:
+        return set()
+    return {
+        *(m.group(1) for m in _BRACKET_KEY_RE.finditer(message)),
+        *(m.group(1).upper() for m in _JIRA_KEY_RE.finditer(message)),
+    }
+
+
+@dataclass(frozen=True)
+class ConventionMatch:
+    task_id: int
+    commit_id: int
+    in_window: bool
+
+
+def convention_matches(
+    tasks: list[Task], commits: list[Commit]
+) -> tuple[list[ConventionMatch], list[str]]:
+    """Commit mesajındaki anahtarlardan KESİN bağlar. Embedding KULLANMAZ.
+
+    İki durumda bağ kurulmaz ve bu bilinçlidir:
+    - Anılan anahtarın karşılığı yok (başka bir sistemin numarası olabilir) →
+      sessizce atlanır; her `#`li sayıyı sahiplenmek yanlış bağ üretirdi.
+    - Aynı anahtar birden çok task'a ait → Trello'da `idShort` board BAŞINA
+      benzersizdir, iki board'da da 42 numaralı kart olabilir. Hangisi olduğu
+      bilinmediğinde birini seçmek kura çekmektir; bağ kurulmaz ve durum
+      UYARI olarak raporlanır ki kullanıcı neden bağ görmediğini bilsin.
+    """
+    by_key: dict[str, list[Task]] = {}
+    for t in tasks:
+        key = (t.task_key or "").strip().upper()
+        if key:
+            by_key.setdefault(key, []).append(t)
+
+    matches: list[ConventionMatch] = []
+    warnings: list[str] = []
+    reported: set[str] = set()
+    for c in commits:
+        for key in referenced_keys(c.message):
+            owners = by_key.get(key)
+            if not owners:
+                continue
+            if len(owners) > 1:
+                if key not in reported:
+                    reported.add(key)
+                    warnings.append(
+                        f"Commit mesajlarında '{key}' anahtarı geçiyor ama bu anahtar "
+                        f"{len(owners)} ayrı işe ait (Trello kart numarası board başına "
+                        "benzersizdir) — hangisi olduğu bilinemediği için bağ kurulmadı."
+                    )
+                continue
+            task = owners[0]
+            start, end = task_window(task)
+            lo = (as_utc(start) - timedelta(days=WINDOW_MARGIN_DAYS)) if start else None
+            hi = (as_utc(end) + timedelta(days=WINDOW_MARGIN_DAYS)) if end else None
+            at = as_utc(c.committed_at)
+            matches.append(ConventionMatch(
+                task_id=task.id, commit_id=c.id,
+                in_window=bool(at and lo and hi and lo <= at <= hi),
+            ))
+    return matches, warnings
+
+
 def link_tasks(session: Session, cfg: Config, *, team_id: int | None = None,
                min_score: float | None = None, top_n: int = 5,
-               provider=None) -> list[TaskLinks]:
+               provider=None, exclude_task_ids: set[int] | None = None) -> list[TaskLinks]:
     """Her task için en olası commit'leri döner.
 
     Eşik verilmezse RAG'ın `retrieval.min_score` değeri kullanılır — aynı
@@ -131,7 +221,11 @@ def link_tasks(session: Session, cfg: Config, *, team_id: int | None = None,
     stmt = select(Task)
     if team_id is not None:
         stmt = stmt.where(Task.team_id == team_id)
-    tasks = [t for t in session.scalars(stmt) if (t.title or "").strip()]
+    skip = exclude_task_ids or set()
+    tasks = [
+        t for t in session.scalars(stmt)
+        if (t.title or "").strip() and t.id not in skip
+    ]
     commits = [c for c in session.scalars(select(Commit)) if _head(c.message)]
     if not tasks or not commits:
         return []
@@ -174,14 +268,23 @@ def link_tasks(session: Session, cfg: Config, *, team_id: int | None = None,
 
 
 def refresh_suggestions(session: Session, cfg: Config, *,
-                        team_id: int | None = None, top_n: int = 3) -> dict:
-    """Motorun önerilerini DB'ye yazar. İNSAN KARARINA DOKUNMAZ.
+                        team_id: int | None = None, top_n: int = 3,
+                        provider=None) -> dict:
+    """Bağları DB'ye yazar: önce konvansiyon (kesin), sonra tahmin.
 
     Bu fonksiyonun tek kritik kuralı: `confirmed`/`rejected` bir satır asla
     güncellenmez ve asla silinmez. Aksi hâlde her senkron, kullanıcının
-    reddettiği eşleşmeyi geri getirir ve onay mekanizması anlamsızlaşır.
+    reddettiği eşleşmeyi geri getirir ve onay mekanizması anlamsızlaşır. Bu
+    kural konvansiyon bağları için de geçerlidir: geliştirici `[#42]` yazmış
+    olsa bile insan o bağı reddettiyse insan haklıdır (kart numarası yanlış
+    yazılmış olabilir).
+
+    Konvansiyon adımı embedding ÇAĞIRMAZ ve kendi başına commit'lenir: yerel
+    model kapalıyken de kesin bağlar kurulur, tahmin adımının başarısızlığı
+    onları geri almaz.
     """
-    stats = {"suggested": 0, "already_decided": 0, "existing": 0}
+    stats = {"suggested": 0, "already_decided": 0, "existing": 0,
+             "convention": 0, "warnings": []}
     now = datetime.now(timezone.utc)
 
     existing: dict[tuple[int, int], TaskCommitLink] = {
@@ -189,7 +292,56 @@ def refresh_suggestions(session: Session, cfg: Config, *,
         for row in session.scalars(select(TaskCommitLink))
     }
 
-    for group in link_tasks(session, cfg, team_id=team_id, top_n=top_n):
+    # --- 0. Konvansiyon: commit mesajı kartın numarasını söylüyorsa ----------
+    task_stmt = select(Task)
+    if team_id is not None:
+        task_stmt = task_stmt.where(Task.team_id == team_id)
+    all_tasks = list(session.scalars(task_stmt))
+    all_commits = list(session.scalars(select(Commit)))
+    matches, warnings = convention_matches(all_tasks, all_commits)
+    stats["warnings"] = warnings
+
+    exact_task_ids: set[int] = set()
+    for m in matches:
+        exact_task_ids.add(m.task_id)
+        key = (m.task_id, m.commit_id)
+        row = existing.get(key)
+        if row is not None and row.status in DECIDED:
+            # İnsanın kararı konvansiyonu da ezer — bkz. docstring.
+            stats["already_decided"] += 1
+            continue
+        if row is None:
+            row = TaskCommitLink(task_id=m.task_id, commit_id=m.commit_id,
+                                 created_at=now)
+            session.add(row)
+            existing[key] = row
+        # Tahmin yok: skor da yok. 1.0 yazmak "%100 benzerlik ölçüldü"
+        # gibi okunurdu; oysa burada benzerlik hiç hesaplanmadı.
+        row.status = "confirmed"
+        row.matched_by = "convention"
+        row.score = None
+        row.in_window = m.in_window
+        stats["convention"] += 1
+    session.commit()
+
+    # --- 1. Anlamsal tahmin: konvansiyonla çözülmüş işler HARİÇ -------------
+    #
+    # Bu adım embedding ucuna bağlıdır ve o uç düşebilir. Hata yukarı
+    # taşınırsa çağıran taraf tüm çağrıyı başarısız sayar ve yukarıda
+    # commit'lenmiş KESİN bağların kurulduğunu öğrenemez — oysa onlar
+    # embedding'e hiç ihtiyaç duymadı. Bu yüzden burada yakalanır.
+    try:
+        groups = link_tasks(session, cfg, team_id=team_id, top_n=top_n,
+                            provider=provider, exclude_task_ids=exact_task_ids)
+    except Exception as e:  # noqa: BLE001 — sebep uyarıya taşınır, iş kaybolmaz
+        stats["warnings"].append(
+            f"Anlamsal eşleştirme yapılamadı ({type(e).__name__}) — embedding "
+            "sağlayıcısı erişilebilir mi? Konvansiyonla kurulan kesin bağlar "
+            "etkilenmedi."
+        )
+        return stats
+
+    for group in groups:
         for link in group.links:
             key = (group.task_id, link.commit_id)
             row = existing.get(key)
@@ -201,11 +353,12 @@ def refresh_suggestions(session: Session, cfg: Config, *,
                 else:
                     row.score = link.score
                     row.in_window = link.in_window
+                    row.matched_by = "semantic"
                     stats["existing"] += 1
                 continue
             session.add(TaskCommitLink(
                 task_id=group.task_id, commit_id=link.commit_id,
-                status="suggested", score=link.score,
+                status="suggested", matched_by="semantic", score=link.score,
                 in_window=link.in_window, created_at=now,
             ))
             stats["suggested"] += 1
@@ -227,6 +380,8 @@ def decide(session: Session, task_id: int, commit_id: int, status: str,
     if row is None:
         row = TaskCommitLink(
             task_id=task_id, commit_id=commit_id,
+            # Motorun hiç önermediği bağ: ne tahmin ne konvansiyon — insan eli.
+            matched_by="manual",
             created_at=datetime.now(timezone.utc),
         )
         session.add(row)
@@ -262,12 +417,16 @@ def list_links(session: Session, task_id: int) -> list[dict]:
             "message": _head(c.message if c else None)[:120],
             "committed_at": (c.committed_at.isoformat() if c and c.committed_at else None),
             "status": r.status,
+            # Arayüz "geliştirici numarayı yazmış" ile "%73 benzer" arasındaki
+            # farkı gösterebilmeli: ikisi aynı güvende değil.
+            "matched_by": r.matched_by,
             "score": r.score,
             "in_window": r.in_window,
             "decided_at": r.decided_at.isoformat() if r.decided_at else None,
         })
-    # Onaylılar üstte, sonra skora göre: kullanıcı önce kararını görsün.
-    out.sort(key=lambda x: (x["status"] != "confirmed", -(x["score"] or 0)))
+    # Kesin bağlar en üstte, sonra onaylılar, sonra skora göre.
+    out.sort(key=lambda x: (x["matched_by"] != "convention",
+                            x["status"] != "confirmed", -(x["score"] or 0)))
     return out
 
 

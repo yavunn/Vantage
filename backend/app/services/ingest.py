@@ -201,6 +201,8 @@ class Ingestor:
                 self.session.flush()
                 count += 1
             assignee = self._developer(t.source, t.assignee_key, t.assignee_name)
+            row.task_key = t.key
+            row.task_url = t.url
             row.team_id = self._team(t.team_name).id if t.team_name else None
             row.assignee_id = assignee.id if assignee else None
             row.title = t.title

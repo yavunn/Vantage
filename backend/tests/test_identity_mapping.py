@@ -341,3 +341,64 @@ def test_kimlik_uclari_admin_disina_kapali(client, session):
         f"/api/admin/developers/{dev.id}/task-identity",
         json={"source": "trello", "key": "m1"}, headers=h,
     ).status_code == 403
+
+
+# --- Adaptör: kart numarası (konvansiyonun ön şartı) --------------------------
+
+def test_kart_numarasi_ve_adresi_cekilir(monkeypatch):
+    """`idShort` çekilmezse task↔commit bağı TAHMİN olmak zorunda kalır: kartın
+    `id` alanı opak bir hash'tir ve kimse onu commit mesajına yazmaz."""
+    p = _provider(monkeypatch, {
+        "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
+        "/boards/b1/members": _FakeResp(200, []),
+        "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "Bitti"}]),
+        "/boards/b1/cards": _FakeResp(200, [{
+            "id": "6a607d6760ba225667be389e", "name": "rapor ekrani",
+            "idList": "l1", "idShort": 42, "shortLink": "aBcD1234",
+            "shortUrl": "https://trello.com/c/aBcD1234", "labels": [],
+        }]),
+        "/cards/6a607d6760ba225667be389e/actions": _FakeResp(200, []),
+    })
+
+    task = p.fetch_tasks()[0]
+
+    assert task.key == "42"
+    assert task.url == "https://trello.com/c/aBcD1234"
+    # external_id opak kalır: benzersizliği o sağlar, insan referansı `key`.
+    assert task.external_id == "6a607d6760ba225667be389e"
+
+
+def test_kart_numarasi_yoksa_uydurulmaz(monkeypatch):
+    p = _provider(monkeypatch, {
+        "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
+        "/boards/b1/members": _FakeResp(200, []),
+        "/boards/b1/lists": _FakeResp(200, []),
+        "/boards/b1/cards": _FakeResp(200, [
+            {"id": "c1", "name": "numarasiz kart", "idList": "l1", "labels": []},
+        ]),
+        "/cards/c1/actions": _FakeResp(200, []),
+    })
+
+    task = p.fetch_tasks()[0]
+
+    assert task.key is None
+    assert task.url is None
+
+
+def test_board_adi_okunamazsa_kartlarin_takimsiz_kalacagi_soylenir(monkeypatch):
+    """Takımsız kart indekste ölü kalır (asistan sorgusunda getirilemez).
+    Sessiz atlama, entegrasyonu çalışıyor sanmaya yol açar."""
+    p = _provider(monkeypatch, {
+        "/boards/b1": _FakeResp(200, {}),          # ad YOK
+        "/boards/b1/members": _FakeResp(200, []),
+        "/boards/b1/lists": _FakeResp(200, []),
+        "/boards/b1/cards": _FakeResp(200, [
+            {"id": "c1", "name": "kart", "idList": "l1", "labels": []},
+        ]),
+        "/cards/c1/actions": _FakeResp(200, []),
+    })
+
+    tasks = p.fetch_tasks()
+
+    assert tasks[0].team_name is None
+    assert any("takıma bağlanamaz" in w for w in p.warnings)

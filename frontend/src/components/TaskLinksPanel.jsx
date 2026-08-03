@@ -19,13 +19,22 @@ const STATUS_LABEL = {
 
 function LinkRow({ link, canManage, busy, onDecide }) {
   const decided = link.status !== "suggested";
+  // Konvansiyon bağı tahmin DEĞİLDİR: geliştirici commit mesajına kart
+  // numarasını yazmıştır. Bunu "benzerlik 0.73" ile aynı satırda, aynı dille
+  // göstermek ikisini eşit güvende gösterirdi — kullanıcı hangisine
+  // güveneceğini bilemezdi.
+  const kesin = link.matched_by === "convention";
   return (
     <li>
       <span>
         <span className={`badge link-${link.status}`}>{STATUS_LABEL[link.status]}</span>
         <span className="mono"> {link.sha}</span> {link.message}
         <span className="desc">
-          {" · "}benzerlik {link.score?.toFixed(3) ?? "—"}
+          {kesin
+            ? " · kesin bağ: commit mesajında kart numarası yazıyor"
+            : link.matched_by === "manual"
+              ? " · elle bağlandı"
+              : ` · benzerlik ${link.score?.toFixed(3) ?? "—"} (tahmin)`}
           {link.in_window ? " · tarih uyumlu" : " · tarih uyumsuz"}
           {link.committed_at ? ` · ${link.committed_at.slice(0, 10)}` : ""}
         </span>
@@ -93,6 +102,21 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
       </h3>
       <p className="desc">
         {task.confirmed} onaylı · {task.pending} karar bekliyor
+        {task.task_key && (
+          <>
+            {" · "}
+            {/* Konvansiyonu kullanabilmek için kişinin commit'e YAZACAĞI
+                değeri görmesi gerekir; ekranda yoksa özellik ölü kalır. */}
+            commit mesajına <code>[#{task.task_key}]</code> yazın, bağ tahmin
+            edilmesin
+            {task.task_url && (
+              <>
+                {" "}
+                (<a href={task.task_url} target="_blank" rel="noreferrer">kartı aç</a>)
+              </>
+            )}
+          </>
+        )}
       </p>
 
       <ul className="team-list">
@@ -178,6 +202,13 @@ export default function TaskLinksPanel({ teams, canManage }) {
         Motor bunu başlık benzerliğinden tahmin eder ve <strong>her tahmini doğru
         değildir</strong> — ölçülen ilk sıra isabeti yaklaşık yarı yarıya. Bu yüzden
         süreç analizi yalnızca <strong>sizin onayladığınız</strong> bağlardan üretilir.
+      </p>
+      <p className="desc">
+        Tahminden kurtulmanın yolu var: commit mesajına kartın numarasını{" "}
+        <code>[#42]</code> biçiminde (Jira'da <code>PROJ-123</code>) yazın. O
+        commit'in bağı tahmin edilmez, <strong>kesin</strong> kurulur ve onay
+        beklemez. Numarayı her işin başlığının yanında bulabilirsiniz. Çıplak{" "}
+        <code>#42</code> kabul edilmez — git'te o, GitHub issue numarasıdır.
       </p>
 
       {list.length > 1 && (

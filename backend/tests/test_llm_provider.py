@@ -216,3 +216,40 @@ def test_yerel_advisor_rag_sohbetiyle_ayni_yolu_kullanir(monkeypatch):
     monkeypatch.setattr(advisor_mod.httpx, "post", post)
     advisor_mod.build_advisor(_local_cfg("TEST_LOCAL_LLM_KEY")).advise("Takım", "metrik")
     assert post.headers == {"Authorization": "Bearer sk-ortam"}
+
+
+def test_commit_degerlendirmesi_de_yerel_anahtari_gonderir(monkeypatch):
+    """`commit_review` kendi httpx çağrısını yazdığı sürece `llm.local.api_key_env`
+    sessizce atlanıyordu: anahtar isteyen bir yerel uçta kod analizi ve asistan
+    çalışırken commit değerlendirmesi 401 alıp KURALA düşüyor, düşüş sessiz
+    olduğu için kullanıcı bunu 'AI bu özellikte kapalı' sanıyordu."""
+    from app.llm import advisor as advisor_mod
+    from app.services import commit_review
+
+    monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
+    post = _CapturingPost()
+    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+
+    commit_review._ai_call(_local_cfg("TEST_LOCAL_LLM_KEY"), "- feat: x")
+
+    assert post.headers == {"Authorization": "Bearer sk-ortam"}
+
+
+def test_commit_degerlendirmesi_ai_dusunce_kurala_duser(monkeypatch):
+    """AI başarısızsa özellik ÇÖKMEZ: kural tabanlı sonuç döner."""
+    import httpx
+
+    from app.llm import advisor as advisor_mod
+    from app.services import commit_review
+
+    def _patla(url, **kwargs):
+        raise httpx.ConnectError("uç kapalı")
+
+    monkeypatch.setattr(advisor_mod.httpx, "post", _patla)
+    cfg = _local_cfg("TEST_LOCAL_LLM_KEY")
+
+    assert commit_review._ai_call(cfg, "- feat: x") is None
+    sonuc = commit_review.review_commits(cfg, [{"message": "feat: x ekledi"}])
+    # Sonuç yine döner ve hangi yoldan geldiğini SÖYLER — sessiz düşüş yok.
+    assert sonuc["provider"] == "rule"
+    assert isinstance(sonuc["score"], (int, float))
