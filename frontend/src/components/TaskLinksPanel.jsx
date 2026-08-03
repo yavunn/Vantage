@@ -122,6 +122,19 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
         <div className={`warn-box ${analysis.status === "ok" ? "info" : "warn"}`}>
           {analysis.status === "ok" ? (
             <>
+              {analysis.alignment && (
+                <p>
+                  <span className={`align-badge ${analysis.alignment}`}>
+                    {analysis.alignment_label}
+                  </span>
+                  {analysis.alignment === "sapma" && (
+                    <span className="desc">
+                      {" "}Sapma bir kusur işareti değil: çoğu zaman kart
+                      güncellenmemiştir ya da iş yol boyunca değişmiştir.
+                    </span>
+                  )}
+                </p>
+              )}
               <p>{analysis.analysis}</p>
               <p className="desc">
                 Kaynak commit: {analysis.commits_used.join(", ")}

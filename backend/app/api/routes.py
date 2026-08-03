@@ -774,6 +774,10 @@ def task_analysis(team_id: int, task_id: int,
         "task_id": result.task_id, "status": result.status,
         "analysis": result.text, "reason": result.reason,
         "commits_used": result.commits_used,
+        # Kartta tarif edilen iş ile onaylı commit'lerin anlattığı iş örtüşüyor mu.
+        # Model biçimi tutturamazsa None — uydurulmuş bir yargı dönmez.
+        "alignment": result.alignment,
+        "alignment_label": result.alignment_label,
     }
 
 

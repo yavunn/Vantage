@@ -16,6 +16,7 @@ girer. Analiz "kim yaptı"yı değil "süreç nasıl işledi"yi anlatır.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -28,6 +29,21 @@ from app.services.task_link import as_utc, confirmed_commits, task_window
 
 SYSTEM_PROMPT = """Sen bir yazılım süreç danışmanısın. Aşağıda bir işin (task) \
 kaydı ve o işe ait olduğu İNSAN TARAFINDAN ONAYLANMIŞ commit'ler var.
+
+ÇIKTI BİÇİMİ — ilk satır TAM OLARAK şu olmalı, başka hiçbir şey yazma:
+UYUM: uyuyor
+ya da
+UYUM: kismi
+ya da
+UYUM: sapma
+Sonra bir boş satır bırak ve analizini yaz.
+
+UYUM ne demek: kartta TARİF EDİLEN iş ile onaylı commit'lerin ANLATTIĞI iş
+örtüşüyor mu? 'uyuyor' = commit'ler kartın işini yapıyor. 'kismi' = işin bir
+kısmı görünüyor ya da commit'ler kartın kapsamından geniş/dar. 'sapma' =
+commit'ler kartta yazandan başka bir işi anlatıyor. Emin olamıyorsan 'kismi' de.
+Bu bir SUÇLAMA DEĞİLDİR: sapma çoğu zaman kartın güncellenmemiş olması ya da
+işin yol boyunca değişmiş olması demektir; bunu böyle yaz.
 
 Kurallar:
 - Yalnızca verilen kayıtlara dayan. Kayıtlarda olmayan bir şeyi ASLA uydurma.
@@ -45,6 +61,26 @@ kaç commit aldığı, hangi alanlara dokunulduğu, süre ile değişiklik hacmi
 
 MAX_FILES = 15  # dosya listesi prompt'u boğmasın (token freni)
 
+# İlk satırdaki uyum yargısı. Model biçimi tutturamazsa yargı ÜRETİLMEZ
+# (None kalır) — uydurulmuş bir "uyuyor" en kötü çıktıdır.
+_ALIGNMENT_RE = re.compile(r"^\s*UYUM\s*:\s*(uyuyor|kismi|kısmi|sapma)\s*$",
+                           re.IGNORECASE | re.MULTILINE)
+ALIGNMENT_LABELS = {
+    "uyuyor": "Kartla uyuyor",
+    "kismi": "Kısmen uyuyor",
+    "sapma": "Karttan sapmış",
+}
+
+
+def parse_alignment(text: str) -> tuple[str | None, str]:
+    """(uyum, yargı satırı ayıklanmış metin). Biçim tutmazsa (None, metin)."""
+    m = _ALIGNMENT_RE.search(text or "")
+    if not m:
+        return None, (text or "").strip()
+    uyum = m.group(1).lower().replace("kısmi", "kismi")
+    kalan = (text[: m.start()] + text[m.end():]).strip()
+    return uyum, kalan
+
 
 @dataclass
 class TaskAnalysis:
@@ -53,6 +89,9 @@ class TaskAnalysis:
     text: str | None = None
     commits_used: list[str] = field(default_factory=list)
     reason: str | None = None
+    # "uyuyor" | "kismi" | "sapma" | None (model biçimi tutturamadıysa)
+    alignment: str | None = None
+    alignment_label: str | None = None
 
 
 def build_context(task: Task, commits: list) -> tuple[str, int]:
@@ -129,8 +168,12 @@ def analyze_task(session: Session, cfg: Config, task_id: int,
         return TaskAnalysis(status="error", task_id=task_id,
                             reason=f"LLM çağrısı başarısız ({type(e).__name__}).")
 
+    ham = text if isinstance(text, str) else str(text)
+    uyum, govde = parse_alignment(ham)
     return TaskAnalysis(
         status="ok", task_id=task_id,
-        text=text.strip() if isinstance(text, str) else str(text),
+        text=govde,
         commits_used=[c.sha[:8] for c in commits],
+        alignment=uyum,
+        alignment_label=ALIGNMENT_LABELS.get(uyum) if uyum else None,
     )

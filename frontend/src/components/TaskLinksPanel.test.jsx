@@ -88,6 +88,47 @@ describe("TaskLinksPanel", () => {
     expect(await screen.findByText(/4 günde tamamlandı/)).toBeInTheDocument();
   });
 
+  it("uyum yargısını rozet olarak gösterir, sapmayı suçlama diline çevirmez", async () => {
+    apiMod.getTeamTaskLinks.mockResolvedValue(
+      payload({ confirmed: 1, pending: 0, status: "confirmed" })
+    );
+    apiMod.analyzeTask.mockResolvedValue({
+      task_id: 225,
+      status: "ok",
+      analysis: "Commit'ler başka bir modüle dokunuyor [1].",
+      commits_used: ["c781ab5f"],
+      alignment: "sapma",
+      alignment_label: "Karttan sapmış",
+    });
+
+    render(<TaskLinksPanel teams={TEAMS} canManage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Süreç analizi üret/ }));
+
+    expect(await screen.findByText("Karttan sapmış")).toBeInTheDocument();
+    // Sapma bir kusur değil: ekran bunu açıkça söylemeli.
+    expect(screen.getByText(/kart\s+güncellenmemiştir/)).toBeInTheDocument();
+  });
+
+  it("yargı üretilemediyse rozet HİÇ gösterilmez (uydurulmuş 'uyuyor' yok)", async () => {
+    apiMod.getTeamTaskLinks.mockResolvedValue(
+      payload({ confirmed: 1, pending: 0, status: "confirmed" })
+    );
+    apiMod.analyzeTask.mockResolvedValue({
+      task_id: 225,
+      status: "ok",
+      analysis: "Serbest metin [1].",
+      commits_used: ["c781ab5f"],
+      alignment: null,
+      alignment_label: null,
+    });
+
+    render(<TaskLinksPanel teams={TEAMS} canManage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Süreç analizi üret/ }));
+
+    expect(await screen.findByText(/Serbest metin/)).toBeInTheDocument();
+    expect(screen.queryByText(/uyuyor|sapmış/i)).toBeNull();
+  });
+
   it("onaylayınca API'ye karar gider ve liste tazelenir", async () => {
     apiMod.decideTaskLink.mockResolvedValue({ status: "confirmed" });
     render(<TaskLinksPanel teams={TEAMS} canManage />);

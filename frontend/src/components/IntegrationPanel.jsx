@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getSources,
   listIdentities,
+  mergeDevelopers,
   setTaskIdentity,
   testSources,
   triggerSync,
@@ -43,6 +44,10 @@ function IdentitySection({ nonce }) {
   const [msg, setMsg] = useState(null);
   const [target, setTarget] = useState({});
   const [busy, setBusy] = useState(null);
+  // Elle birleştirme: aynı insan İKİ git e-postasıyla geldiyse (ör. biri
+  // GitHub'ın …@users.noreply.github.com adresi) iki kayıt da "eşlenmiş"
+  // görünür; otomatik ipucu yoktur, kararı insan verir.
+  const [mergeInto, setMergeInto] = useState({});
 
   function load() {
     listIdentities().then(setRows).catch((e) => setError(e.message));
@@ -72,6 +77,35 @@ function IdentitySection({ nonce }) {
     }
   }
 
+  async function mergeManual(row) {
+    const targetId = Number(mergeInto[row.id]);
+    if (!targetId) return;
+    const hedef = rows.find((r) => r.id === targetId);
+    // Geri alınamaz: kopyanın commit/görev/izin kayıtları hedefe taşınır ve
+    // kayıt SİLİNİR. Onaysız yapılmaz.
+    const ok = window.confirm(
+      `"${row.display_name}" kaydı "${hedef?.display_name}" içine birleştirilecek.\n\n` +
+      `${row.commit_count ?? 0} commit ve ${row.task_count ?? 0} görev hedefe taşınacak, ` +
+      `sonra bu kayıt silinecek. Bu işlem geri alınamaz.`
+    );
+    if (!ok) return;
+    setError(null);
+    setMsg(null);
+    setBusy(row.id);
+    try {
+      const res = await mergeDevelopers(targetId, row.id);
+      const tasinan = Object.entries(res.moved || {})
+        .map(([tablo, n]) => `${n} ${tablo}`).join(", ");
+      setMsg(`Birleştirildi${tasinan ? ` — taşınan: ${tasinan}` : " (taşınacak kayıt yoktu)"}.`);
+      setMergeInto({});
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (error && !rows) return <div className="login-error">{error}</div>;
   if (!rows) return <p className="desc">Yükleniyor…</p>;
 
@@ -89,7 +123,10 @@ function IdentitySection({ nonce }) {
       </p>
 
       {unlinked.length === 0 ? (
-        <p className="desc">Eşlenmemiş kayıt yok.</p>
+        <p className="desc">
+          Otomatik yakalanan eşlenmemiş kayıt yok. Aynı kişinin iki ayrı kayda
+          bölünmüş olabileceğini düşünüyorsan aşağıdaki tam listeye bak.
+        </p>
       ) : (
         <ul className="team-list">
           {unlinked.map((r) => (
@@ -127,17 +164,48 @@ function IdentitySection({ nonce }) {
       )}
 
       <details className="identity-all">
-        <summary>Tüm kimlikler ({rows.length})</summary>
+        <summary>Tüm kimlikler ({rows.length}) — elle birleştirme</summary>
+        <p className="desc">
+          Yukarıdaki otomatik eşleme yalnız <strong>git kimliği olmayan</strong>
+          kayıtları yakalar. Aynı insan <strong>iki git e-postasıyla</strong> gelmişse
+          (ör. biri GitHub'ın <code>…@users.noreply.github.com</code> adresi) iki kayıt
+          da "eşlenmiş" görünür ve otomatik ipucu yoktur — commit'ler birine,
+          görevler diğerine düşer. Böyle bir çift görüyorsan burada birleştir.
+          Hedef, <strong>ağırlığı taşıyan</strong> kayıt olmalı.
+        </p>
         <ul className="team-list">
           {rows.map((r) => (
             <li key={r.id}>
               <span>
                 {r.display_name}
                 {r.user_email && <span className="role-tag">hesap</span>}
+                <span className="desc">
+                  {" "}· {r.commit_count ?? 0} commit · {r.task_count ?? 0} görev
+                </span>
               </span>
               <span className="desc">
                 {r.git_email || "git yok"} ·{" "}
                 {Object.entries(r.task_identities).map(([s, k]) => `${s}:${k.slice(0, 8)}…`).join(" ") || "görev kimliği yok"}
+              </span>
+              <span>
+                <select
+                  value={mergeInto[r.id] ?? ""}
+                  onChange={(e) => setMergeInto((t) => ({ ...t, [r.id]: e.target.value }))}
+                >
+                  <option value="">Bu kaydı şuna birleştir…</option>
+                  {rows.filter((a) => a.id !== r.id).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.display_name} ({a.commit_count ?? 0} commit)
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="mini danger"
+                  onClick={() => mergeManual(r)}
+                  disabled={!mergeInto[r.id] || busy === r.id}
+                >
+                  {busy === r.id ? "Birleştiriliyor…" : "Birleştir"}
+                </button>
               </span>
             </li>
           ))}

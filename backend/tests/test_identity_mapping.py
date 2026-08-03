@@ -241,6 +241,64 @@ def test_kimlik_eslemesi_kopya_kaydi_birlestirir(client, session):
     }
 
 
+def test_iki_git_epostasiyla_bolunmus_kisi_elle_birlestirilir(client, session):
+    """Otomatik eşleme bu vakayı YAKALAYAMAZ: aynı insan iki git e-postasıyla
+    gelmişse (biri GitHub'ın …@users.noreply.github.com adresi) iki kayıt da
+    'eşlenmiş' görünür. Commit'ler birine, görevler diğerine düşer ve hiçbir
+    kişi bazlı görünüm doğru çıkmaz. Kararı insan verir, uç bunu uygular."""
+    from app.models import Commit, Developer, Repo, Task, Team
+
+    team = Team(name="Takım A")
+    repo = Repo(name="r1")
+    asil = Developer(external_ids={"git": "ayse@x.com"}, display_name="Ayşe")
+    ikiz = Developer(external_ids={"git": "1+ayse@users.noreply.github.com",
+                                   "trello": "m1"}, display_name="ayse")
+    session.add_all([team, repo, asil, ikiz])
+    session.flush()
+    session.add_all([
+        Commit(repo_id=repo.id, sha="a1", author_id=asil.id,
+               committed_at=datetime.now(timezone.utc), message="iş"),
+        # Commit kopyada da olabilir: birleştirme onu da taşımalı, yoksa
+        # kopyayı silme adımı foreign key hatası verir.
+        Commit(repo_id=repo.id, sha="b2", author_id=ikiz.id,
+               committed_at=datetime.now(timezone.utc), message="iş 2"),
+        Task(source="trello", external_id="c1", team_id=team.id,
+             assignee_id=ikiz.id, status="DONE"),
+    ])
+    session.commit()
+    asil_id, ikiz_id = asil.id, ikiz.id
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+
+    r = client.post(f"/api/admin/developers/{asil_id}/merge",
+                    json={"duplicate_id": ikiz_id}, headers=auth)
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["merged_developer_id"] == ikiz_id
+    assert body["moved"]["commits"] == 1 and body["moved"]["tasks"] == 1
+    session.expire_all()
+    assert session.get(Developer, ikiz_id) is None
+    # Commit'ler ve görev asıl kayda taşındı — hiçbir kayıt kaybolmadı
+    assert {c.sha for c in session.scalars(select(Commit))} == {"a1", "b2"}
+    assert all(c.author_id == asil_id for c in session.scalars(select(Commit)))
+    assert session.scalar(select(Task)).assignee_id == asil_id
+    # Kopyanın Trello kimliği hedefe geçti: sonraki senkron kopyayı yeniden AÇMAZ
+    assert session.get(Developer, asil_id).external_ids["trello"] == "m1"
+
+
+def test_kendisiyle_birlestirme_reddedilir(client, session):
+    from app.models import Developer
+
+    dev = Developer(external_ids={"git": "a@x.com"}, display_name="A")
+    session.add(dev)
+    session.commit()
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+
+    r = client.post(f"/api/admin/developers/{dev.id}/merge",
+                    json={"duplicate_id": dev.id}, headers=auth)
+    assert r.status_code == 400
+
+
 def test_kimlik_ucu_kopya_yoksa_sadece_bağlar(client, session):
     from app.models import Developer
 

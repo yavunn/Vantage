@@ -367,6 +367,13 @@ export function setTaskIdentity(devId, source, key) {
   return apiPatch(`/api/admin/developers/${devId}/task-identity`, { source, key });
 }
 
+// İki kişi kaydını elle birleştirir (hedef = devId, silinen = duplicateId).
+// Aynı insan iki git e-postasıyla geldiyse otomatik ipucu yoktur; kararı insan
+// verir. GERİ ALINAMAZ — çağıran onay almalı.
+export function mergeDevelopers(devId, duplicateId) {
+  return apiPost(`/api/admin/developers/${devId}/merge`, { duplicate_id: duplicateId });
+}
+
 // --- task ↔ commit bağı (öneri + insan onayı) -------------------------------
 //
 // Kaynaklarda bu bağ yok; motor anlamsal benzerlikle TAHMİN ediyor ve isabet

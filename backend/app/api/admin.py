@@ -467,7 +467,7 @@ def identities(session: Session = Depends(get_session), _: User = Depends(requir
     Aynı insan git'te e-posta, Trello'da üye id'siyle gelir; ingest bunları
     eşleştiremez. Bu uç, eşlenmemiş kayıtları görünür kılar ki admin birleştirsin.
     """
-    from app.models import Developer, Task, TeamMembership
+    from app.models import Commit, Developer, Task, TeamMembership
 
     out = []
     for dev in session.scalars(select(Developer).order_by(Developer.display_name)):
@@ -478,6 +478,12 @@ def identities(session: Session = Depends(get_session), _: User = Depends(requir
             "display_name": dev.display_name,
             "git_email": ids.get("git"),
             "task_identities": task_sources,
+            # Hangi kaydın "asıl" olduğunu ayırt etmek için: commit'ler bir
+            # kayda, görevler diğerine düşmüş olabilir — birleştirmede hedef,
+            # ağırlığı taşıyan kayıt olmalı.
+            "commit_count": session.scalar(
+                select(func.count()).select_from(Commit).where(Commit.author_id == dev.id)
+            ) or 0,
             "team_count": session.scalar(
                 select(func.count()).select_from(TeamMembership)
                 .where(TeamMembership.developer_id == dev.id)
@@ -515,7 +521,7 @@ def set_developer_task_identity(
     kişi başına bölündüğü için metrik olduğundan iyi görünür. Kopyanın task'ları
     ve takım üyelikleri hedefe taşınır, sonra kopya silinir.
     """
-    from app.models import Developer, Task, TeamMembership
+    from app.models import Developer
 
     dev = session.get(Developer, dev_id)
     if dev is None:
@@ -540,28 +546,14 @@ def set_developer_task_identity(
         None,
     )
     if duplicate is not None:
-        for t in session.scalars(select(Task).where(Task.assignee_id == duplicate.id)):
-            t.assignee_id = dev.id
-        target_teams = {
-            m.team_id for m in session.scalars(
-                select(TeamMembership).where(TeamMembership.developer_id == dev.id)
-            )
-        }
-        for m in session.scalars(
-            select(TeamMembership).where(TeamMembership.developer_id == duplicate.id)
-        ):
-            # Hedef zaten o takımdaysa üyelik taşınmaz, silinir (unique kısıtı)
-            if m.team_id in target_teams:
-                session.delete(m)
-            else:
-                m.developer_id = dev.id
-        session.flush()
+        # Birleştirme tek yerde: developers.id'ye bakan TÜM tablolar taşınmalı
+        # (commit/PR/review/izin/analiz dahil), yoksa silme adımı FK hatası verir.
+        from app.services.identity import merge_developers
+
         merged_id = duplicate.id
-        # Kopyanın taşıdığı DİĞER kaynak kimlikleri de hedefe geçsin ki bir
-        # sonraki senkron aynı kopyayı yeniden açmasın.
-        for k, v in (duplicate.external_ids or {}).items():
-            ext.setdefault(k, v)
-        session.delete(duplicate)
+        merge_developers(session, dev.id, duplicate.id)
+        session.refresh(dev)
+        ext = dict(dev.external_ids or {})
 
     ext[source] = key
     dev.external_ids = ext
@@ -571,6 +563,32 @@ def set_developer_task_identity(
         "task_identities": {k: v for k, v in ext.items() if k != "git"},
         "merged_developer_id": merged_id,
     }
+
+
+class DeveloperMerge(BaseModel):
+    duplicate_id: int
+
+
+@router.post("/developers/{dev_id}/merge")
+def merge_developer(
+    dev_id: int,
+    body: DeveloperMerge,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """İki kişi kaydını birleştirir (hedef = dev_id, silinen = duplicate_id).
+
+    Görev kimliği üzerinden otomatik birleştirme yetmediği durum için: aynı
+    insan İKİ git e-postasıyla gelmiş olabilir (ör. biri GitHub'ın
+    `…@users.noreply.github.com` adresi). O zaman iki kayıt da "eşlenmiş"
+    görünür, hiçbir otomatik ipucu yoktur ve kararı yalnız insan verebilir.
+    """
+    from app.services.identity import MergeError, merge_developers
+
+    try:
+        return merge_developers(session, dev_id, body.duplicate_id)
+    except MergeError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("/code-analysis/audit")

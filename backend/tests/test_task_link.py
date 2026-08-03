@@ -218,6 +218,43 @@ def test_onayli_baglantida_analiz_uretilir(session):
     assert "izin onay akisi duzeltildi" not in user_msg
 
 
+def test_uyum_yargisi_ayiklanir_ve_metinden_cikarilir(session):
+    """Kartta tarif edilen iş ile yapılan iş örtüşüyor mu — yargı ayrı alanda
+    döner ki arayüz rozet gösterebilsin, anlatı metni de yargı satırını
+    tekrarlamasın."""
+    _enable_rag()
+    _team, t_anket, _t2, c_anket, _c2 = _seed(session)
+    from app.services.task_analysis import analyze_task
+    from app.services.task_link import decide
+
+    decide(session, t_anket.id, c_anket.id, "confirmed")
+    advisor = _FakeAdvisor("UYUM: sapma\n\nCommit'ler başka bir modüle dokunuyor [1].")
+    result = analyze_task(session, _cfg(), t_anket.id, advisor=advisor)
+
+    assert result.status == "ok"
+    assert result.alignment == "sapma"
+    assert result.alignment_label == "Karttan sapmış"
+    assert result.text == "Commit'ler başka bir modüle dokunuyor [1]."
+    assert "UYUM:" not in result.text
+
+
+def test_uyum_biciminde_gelmezse_yargi_UYDURULMAZ(session):
+    """Model biçimi tutturamazsa alignment None kalır. Varsayılan bir 'uyuyor'
+    üretmek, hiç kontrol edilmemiş bir işi onaylanmış gibi gösterirdi."""
+    _enable_rag()
+    _team, t_anket, _t2, c_anket, _c2 = _seed(session)
+    from app.services.task_analysis import analyze_task
+    from app.services.task_link import decide
+
+    decide(session, t_anket.id, c_anket.id, "confirmed")
+    result = analyze_task(session, _cfg(), t_anket.id,
+                          advisor=_FakeAdvisor("Serbest metin, biçim yok [1]."))
+
+    assert result.status == "ok"
+    assert result.alignment is None and result.alignment_label is None
+    assert result.text == "Serbest metin, biçim yok [1]."
+
+
 def test_analiz_baglami_kisi_adi_tasimaz(session):
     """İlke E: analiz 'kim yaptı'yı değil 'süreç nasıl işledi'yi anlatır."""
     _enable_rag()
