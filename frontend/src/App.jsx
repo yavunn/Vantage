@@ -119,6 +119,12 @@ export default function App() {
   }, [user, uiConfig, tab]);
 
   // Açılış: önce kurulum gerekli mi, sonra token doğrula.
+  //
+  // Kullanıcıyı localStorage'dan İYİMSER set ETME: bu, aşağıdaki veri efektini
+  // (config/teams/directory) daha token doğrulanmadan tetikliyordu. Token süresi
+  // dolmuşsa (TOKEN_TTL_HOURS=12) o istekler 401 dönüp ekrana hata basıyordu.
+  // Önce fetchMe ile doğrula — zaten authReady olana dek "Yükleniyor…" gösteriliyor,
+  // yani iyimser set'in görsel bir faydası da yoktu.
   useEffect(() => {
     setupStatus()
       .then((s) => {
@@ -127,9 +133,7 @@ export default function App() {
           setAuthReady(true);
           return;
         }
-        const stored = getStoredUser();
-        if (getToken() && stored) {
-          setUser(stored);
+        if (getToken() && getStoredUser()) {
           fetchMe()
             .then((u) => setUser(u))
             .catch(() => { logout(); setUser(null); })
@@ -150,6 +154,9 @@ export default function App() {
       setTeamId(null);
       setSummary(null);
       setTab("team");
+      // Hata kutusu OTURUM düşmesinin doğru cevabı değil — login ekranı öyle.
+      // Temizlenmezse giriş yapıldıktan sonra bile ekranı kaplamaya devam eder.
+      setError(null);
     }
     window.addEventListener("vantage:session-expired", onExpired);
     return () => window.removeEventListener("vantage:session-expired", onExpired);
@@ -264,7 +271,8 @@ export default function App() {
 
   if (!authReady) return <div className="app">Yükleniyor…</div>;
   if (needsSetup) return <Setup onSuccess={(u) => { setNeedsSetup(false); setUser(u); }} />;
-  if (!user) return <Login onSuccess={(u) => setUser(u)} />;
+  // Yeni oturum, önceki oturumun hatasını miras almaz.
+  if (!user) return <Login onSuccess={(u) => { setError(null); setUser(u); }} />;
   if (user.must_change_password) {
     return (
       <ForceChangePassword
