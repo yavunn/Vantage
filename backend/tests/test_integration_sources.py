@@ -20,9 +20,11 @@ from tests.conftest import days_ago
 # --- Sahte HTTP katmanı (Trello ağa çıkmadan test edilir) ---------------------
 
 class _FakeResp:
-    def __init__(self, status_code: int, payload=None):
+    def __init__(self, status_code: int, payload=None, headers=None):
         self.status_code = status_code
         self._payload = payload if payload is not None else {}
+        # GitLab sayfalaması x-next-page başlığına bakar; boş sözlük "son sayfa".
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -75,6 +77,66 @@ def test_trello_tokensiz_calisamadigini_soyler(monkeypatch):
 
     assert p.fetch_tasks() == []
     assert any("key/token" in w for w in p.warnings)
+
+
+def test_gitlab_hedefleri_ortak_repo_listesinden_okunur(monkeypatch):
+    """Hedefler ayrı bir `gitlab.projects` listesinde yaşarsa repo→takım eşlemesi
+    (repo ADIYLA yapılır) tutmaz ve commitler hiçbir metriğe giremez. Bu yüzden
+    GitLab da github ile aynı `repos` girdilerini okur; normalize kayda giden ad
+    config'teki `name`'dir, API'ye giden yol `slug`'tır."""
+    from app.adapters.gitlab import GitLabProvider
+
+    p = GitLabProvider("https://gitlab.local", "GL_TOKEN", [], repos=[
+        {"name": "vantage", "slug": "platform/vantage", "team": "Takım A"},
+        # Tam URL ve iç içe grup da kabul edilmeli
+        {"name": "mobil", "slug": "https://gitlab.local/mobil/ios/uygulama.git"},
+    ])
+    p.token = "t"
+    routes = {
+        "/projects/platform%2Fvantage/repository/commits": _FakeResp(200, [
+            {"id": "abc", "author_email": "a@x.com", "author_name": "A",
+             "committed_date": "2026-01-01T10:00:00Z", "title": "iş",
+             "stats": {"additions": 3, "deletions": 1}},
+        ]),
+        "/projects/mobil%2Fios%2Fuygulama/repository/commits": _FakeResp(200, []),
+    }
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient(routes))
+
+    commits = p.fetch_commits()
+    assert [c.repo_name for c in commits] == ["vantage"]  # config'teki ad, yol değil
+    assert p.warnings == []
+
+
+def test_gitlab_okunamayan_proje_ve_bos_liste_sessiz_kalmaz(monkeypatch):
+    from app.adapters.gitlab import GitLabProvider
+
+    p = GitLabProvider("https://gitlab.local", "GL_TOKEN", [],
+                       repos=[{"name": "yok", "slug": "grup/yok"}])
+    p.token = "t"
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient({}))  # her yol 404
+    assert p.fetch_commits() == []
+    assert any("bulunamadı" in w and "yok" in w for w in p.warnings)
+
+    # Adres tanımsızsa hiç istek atılmaz ama sebep söylenir
+    p2 = GitLabProvider("", "GL_TOKEN", [], repos=[{"name": "x", "slug": "g/x"}])
+    assert p2.fetch_commits() == []
+    assert any("base_url" in w for w in p2.warnings)
+
+    # Hedef yoksa: boş liste uyarısı
+    p3 = GitLabProvider("https://gitlab.local", "GL_TOKEN", [], repos=[])
+    p3.token = "t"
+    assert p3.fetch_commits() == []
+    assert any("liste" in w for w in p3.warnings)
+
+
+def test_gitlab_eski_projects_listesine_dusulur():
+    """Kurulu sistemlerde hedefler `gitlab.projects` içinde olabilir; repos boşsa
+    o liste kullanılmaya devam eder (geriye dönük uyum)."""
+    from app.adapters.gitlab import GitLabProvider
+
+    p = GitLabProvider("https://gitlab.local", "GL_TOKEN", ["grup/eski"], repos=[])
+    p.token = "t"
+    assert p._hedefler() == [("grup/eski", "grup/eski")]
 
 
 def test_git_log_bozuk_repo_yolu_uyari_uretir(tmp_path):
@@ -221,6 +283,50 @@ def test_repo_takim_eslemesi_config_e_yazilir(client, session):
     assert r.status_code == 200, r.text
     reset_config_cache()
     assert "team" not in get_config().sources.git.repos[0]
+
+
+def test_gitlab_ve_jira_panelden_uctan_uca_ayarlanir(client, session, monkeypatch):
+    """Kaynak bağlamak için sunucuya girip YAML düzenlemek gerekmemeli.
+
+    Sır (token) config'e yazılmaz, .secrets.env + ortama gider; env değişkeninin
+    ADI config'ten okunur, sabit değil."""
+    from app.core.config import active_config_path, get_config, reset_config_cache
+
+    yazilan: dict[str, str] = {}
+    monkeypatch.setattr("app.core.secrets.set_secret",
+                        lambda ad, deger: yazilan.__setitem__(ad, deger))
+
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+    r = client.put("/api/admin/sources", json={
+        "git_provider": "gitlab",
+        "gitlab_base_url": "https://gitlab.sirket.local",
+        "gitlab_token": "glpat-xyz",
+        "repos": [{"name": "vantage", "path": "", "slug": "platform/vantage",
+                   "team": "Takım A"}],
+        "tasks_provider": "jira",
+        "jira_base_url": "https://jira.sirket.local",
+        "jira_projects": ["ENG", " OPS ", ""],
+        "jira_token": "jira-pat",
+    }, headers=auth)
+    assert r.status_code == 200, r.text
+
+    reset_config_cache()
+    cfg = get_config()
+    assert cfg.sources.git.provider == "gitlab"
+    assert cfg.sources.git.gitlab.base_url == "https://gitlab.sirket.local"
+    assert cfg.sources.git.repos[0]["slug"] == "platform/vantage"
+    assert cfg.sources.tasks.jira.projects == ["ENG", "OPS"]  # boş/boşluk temizlenir
+
+    # Token'lar config'e SIZMAZ, sır olarak yazılır (env adı config'ten).
+    assert yazilan == {"GITLAB_TOKEN": "glpat-xyz", "JIRA_TOKEN": "jira-pat"}
+    ham = yaml.safe_load(active_config_path().read_text(encoding="utf-8"))
+    assert "glpat-xyz" not in yaml.safe_dump(ham)
+    assert "jira-pat" not in yaml.safe_dump(ham)
+
+    # GET, panelin doldurabilmesi için proje listelerini geri verir.
+    body = client.get("/api/admin/sources", headers=auth).json()
+    assert body["tasks"]["jira_projects"] == ["ENG", "OPS"]
+    assert body["git"]["gitlab_projects"] == []
 
 
 def test_sources_test_ucu_okunamayan_kaynagi_raporlar(client, session):

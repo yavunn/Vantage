@@ -155,9 +155,13 @@ function IdentitySection({ nonce }) {
 // eşleme config'i elle düzenlemeye bırakılmaz.
 function RepoRow({ repo, teams, provider, onChange, onRemove }) {
   const unmapped = !repo.team;
-  // git_log yerel klasör okur, github ise owner/repo ister. Yanlış alanı
-  // doldurmak sessiz bir "0 commit"e yol açardı, o yüzden alan sağlayıcıya göre.
-  const github = provider === "github";
+  // git_log yerel klasör okur; github owner/repo, gitlab ise grup/proje ister.
+  // Yanlış alanı doldurmak sessiz bir "0 commit"e yol açardı, o yüzden alan
+  // sağlayıcıya göre değişir.
+  const uzakYol = provider === "github" || provider === "gitlab";
+  const yolIpucu = provider === "gitlab"
+    ? "grup/proje  ya da  https://gitlab.sirket.local/grup/proje"
+    : "owner/repo  ya da  https://github.com/owner/repo";
   return (
     <div className={`repo-row editable ${unmapped ? "unmapped" : ""}`}>
       <div className="repo-ident">
@@ -167,11 +171,11 @@ function RepoRow({ repo, teams, provider, onChange, onRemove }) {
           placeholder="repo adı (kimlik — değiştirmek commitleri ayırır)"
           onChange={(e) => onChange({ ...repo, name: e.target.value })}
         />
-        {github ? (
+        {uzakYol ? (
           <input
             className="repo-path-input"
             value={repo.slug || ""}
-            placeholder="owner/repo  ya da  https://github.com/owner/repo"
+            placeholder={yolIpucu}
             onChange={(e) => onChange({ ...repo, slug: e.target.value })}
           />
         ) : (
@@ -256,11 +260,14 @@ export default function IntegrationPanel() {
           tasks_provider: d.tasks.provider,
           gitlab_base_url: d.git.gitlab_base_url || "",
           jira_base_url: d.tasks.jira_base_url || "",
+          jira_projects: (d.tasks.jira_projects || []).join("\n"),
           sync_interval_minutes: d.sync_interval_minutes,
           trello_boards: (d.tasks.trello?.boards || []).join("\n"),
           trello_key: "",    // sır asla önden doldurulmaz
           trello_token: "",
           github_token: "",  // sır — önden doldurulmaz
+          gitlab_token: "",
+          jira_token: "",
           repos: (d.git.repos || []).map((r) => ({ ...r, team: r.team || NO_TEAM })),
         });
       })
@@ -301,6 +308,8 @@ export default function IntegrationPanel() {
         sync_interval_minutes: Number(form.sync_interval_minutes),
         trello_boards: form.trello_boards
           .split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+        jira_projects: form.jira_projects
+          .split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
         // Listenin tamamı gider (ekleme/çıkarma); adsız satırlar atılır.
         repos: form.repos
           .filter((r) => r.name.trim())
@@ -311,6 +320,8 @@ export default function IntegrationPanel() {
       if (form.trello_key.trim()) payload.trello_key = form.trello_key.trim();
       if (form.trello_token.trim()) payload.trello_token = form.trello_token.trim();
       if (form.github_token.trim()) payload.github_token = form.github_token.trim();
+      if (form.gitlab_token.trim()) payload.gitlab_token = form.gitlab_token.trim();
+      if (form.jira_token.trim()) payload.jira_token = form.jira_token.trim();
       await updateSources(payload);
       setMsg("Ayarlar kaydedildi. Değişikliğin panoya yansıması için 'Şimdi senkronize et'.");
       load();
@@ -368,7 +379,9 @@ export default function IntegrationPanel() {
     : "henüz yok";
   const repos = data.git.repos || [];
   const teams = data.teams || [];
-  const gitReposUsed = form.git_provider === "git_log" || form.git_provider === "github";
+  // gitlab da ORTAK repo listesini kullanır: hedef projeler ve repo→takım
+  // eşlemesi tek listede yaşar (bkz. adapters/gitlab.py).
+  const gitReposUsed = ["git_log", "github", "gitlab"].includes(form.git_provider);
   const unmappedCount = form.repos.filter((r) => r.name.trim() && !r.team).length;
 
   return (
@@ -451,7 +464,7 @@ export default function IntegrationPanel() {
               <p className="field-hint">
                 Metrik motoru bir takımın commitlerini o takıma bağlı repolardan çeker.
                 Takımsız repo hiçbir metrik üretmez — pano "veri yetersiz" gösterir.
-                {form.git_provider === "github" ? (
+                {form.git_provider === "github" && (
                   <>
                     {" "}GitHub'da repo yolu <code>owner/repo</code> biçimindedir.
                     <strong> PR metrikleri (review süresi, review gecikmesi, deploy
@@ -459,9 +472,18 @@ export default function IntegrationPanel() {
                     yerel <code>git log</code>'da pull request kaydı yoktur.
                     Özel repo için aşağıdaki GitHub token'ı gerekir.
                   </>
-                ) : (
-                  " Yol, sunucunun eriştiği bir git klonu olmalı."
                 )}
+                {form.git_provider === "gitlab" && (
+                  <>
+                    {" "}GitLab'da proje yolu <code>grup/proje</code> biçimindedir
+                    (iç içe gruplarda <code>grup/alt/proje</code>); tam URL de
+                    yapıştırabilirsiniz. <strong>Merge request metrikleri bu
+                    sağlayıcıyla ölçülür</strong> — MR'lar PR olarak işlenir,
+                    ilk review MR notlarından çıkarılır.
+                    Aşağıdaki GitLab adresi ve token'ı gerekir.
+                  </>
+                )}
+                {form.git_provider === "git_log" && " Yol, sunucunun eriştiği bir git klonu olmalı."}
               </p>
               {form.repos.length === 0 ? (
                 <p className="desc">Henüz repo yok — "+ Repo ekle" ile başlayın.</p>
@@ -483,10 +505,32 @@ export default function IntegrationPanel() {
           )}
 
           {form.git_provider === "gitlab" && (
-            <label className="span-2">
-              GitLab base URL
-              <input value={form.gitlab_base_url} onChange={(e) => upd("gitlab_base_url", e.target.value)} placeholder="https://gitlab.sirket.local" />
-            </label>
+            <>
+              <label>
+                GitLab adresi
+                <input value={form.gitlab_base_url} onChange={(e) => upd("gitlab_base_url", e.target.value)} placeholder="https://gitlab.sirket.local" />
+                <span className="field-hint">
+                  Şirket GitLab'ının kök adresi — <code>/api/v4</code> otomatik eklenir.
+                </span>
+              </label>
+              <label>
+                GitLab token
+                <input type="password" autoComplete="off" value={form.gitlab_token} onChange={(e) => upd("gitlab_token", e.target.value)} placeholder={data.git.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "glpat-… (read_api)"} />
+                <span className="field-hint">
+                  Project/Personal access token, <code>read_api</code> kapsamı yeter.
+                  Boş bırakırsan mevcut sır korunur.
+                </span>
+              </label>
+              {(data.git.gitlab_projects || []).length > 0 && (
+                <p className="field-hint span-2">
+                  Config'te eski biçimde {data.git.gitlab_projects.length} proje tanımlı
+                  (<code>{data.git.gitlab_projects.join(", ")}</code>). Yukarıdaki repo
+                  listesi boş kaldığı sürece hedef olarak <strong>onlar</strong> kullanılır,
+                  ama takım eşlemesi yapılamadığı için metrik üretmezler — projeleri
+                  repo satırı olarak ekleyip takım seçin.
+                </p>
+              )}
+            </>
           )}
 
           <label>
@@ -501,10 +545,28 @@ export default function IntegrationPanel() {
           </label>
 
           {form.tasks_provider === "jira" && (
-            <label className="span-2">
-              Jira base URL
-              <input value={form.jira_base_url} onChange={(e) => upd("jira_base_url", e.target.value)} placeholder="https://jira.sirket.local" />
-            </label>
+            <>
+              <label>
+                Jira adresi
+                <input value={form.jira_base_url} onChange={(e) => upd("jira_base_url", e.target.value)} placeholder="https://jira.sirket.local" />
+                <span className="field-hint">
+                  Kök adres — <code>/rest/api/2</code> otomatik eklenir.
+                </span>
+              </label>
+              <label>
+                Jira token
+                <input type="password" autoComplete="off" value={form.jira_token} onChange={(e) => upd("jira_token", e.target.value)} placeholder={data.tasks.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "Bearer token / PAT"} />
+              </label>
+              <label className="span-2">
+                Jira proje anahtarları (her satıra bir tane)
+                <textarea rows={3} value={form.jira_projects} onChange={(e) => upd("jira_projects", e.target.value)} placeholder="ENG&#10;OPS" />
+                <span className="field-hint">
+                  Issue anahtarının başındaki kısım: <code>ENG</code>-142 → <code>ENG</code>.
+                  Liste boşsa hiçbir görev çekilmez. Kaydettikten sonra "Bağlantıyı
+                  test et" ile doğrulayın.
+                </span>
+              </label>
+            </>
           )}
 
           {form.tasks_provider === "trello" && (

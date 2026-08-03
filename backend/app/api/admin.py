@@ -48,6 +48,16 @@ class SourcesUpdate(BaseModel):
     trello_token: str | None = None
     # GitHub PAT: "Projelerim" özel repoları için. Sır → .secrets.env, config'e değil.
     github_token: str | None = None
+    # GitLab/Jira: adres + token panelden girilebilsin diye. Token'lar sır →
+    # .secrets.env; env değişkeninin ADI config'ten okunur (token_env), sabit değil.
+    gitlab_token: str | None = None
+    jira_token: str | None = None
+    # Jira proje anahtarları (ör. ["ENG", "OPS"]). Sır değil → config'e yazılır.
+    jira_projects: list[str] | None = None
+    # GitLab hedefleri artık ORTAK `repos` listesinden okunur (repo→takım eşlemesi
+    # oradan geliyor). Bu alan eski kurulumların listesini düzenleyebilmek için
+    # duruyor; panel kullanmaz.
+    gitlab_projects: list[str] | None = None
     # repo adı → takım adı. Boş değer eşlemeyi kaldırır. Takımsız repo'nun
     # commitleri hiçbir takım metriğine giremez, o yüzden bu panelden yönetilir.
     repo_teams: dict[str, str] | None = None
@@ -109,6 +119,10 @@ def get_sources(
         "git": {
             "provider": cfg.sources.git.provider,
             "gitlab_base_url": cfg.sources.git.gitlab.base_url,
+            # Eski biçimdeki hedef listesi: panelde repo satırları boşken hâlâ
+            # buradan çekiliyor olabilir — görünmezse "neden hâlâ veri geliyor"
+            # sorusu doğar.
+            "gitlab_projects": list(cfg.sources.git.gitlab.projects),
             "token": _env_status(cfg.sources.git.gitlab.token_env),
             # Hem "Projelerim" özel repoları hem de github sağlayıcısı bu PAT'i
             # kullanır. Public repo tokensiz çalışır ama oran sınırı 60/saat.
@@ -119,6 +133,7 @@ def get_sources(
         "tasks": {
             "provider": cfg.sources.tasks.provider,
             "jira_base_url": cfg.sources.tasks.jira.base_url,
+            "jira_projects": list(cfg.sources.tasks.jira.projects),
             "token": _env_status(cfg.sources.tasks.jira.token_env),
             "trello": {
                 "boards": cfg.sources.tasks.trello.boards,
@@ -168,6 +183,14 @@ def update_sources(
         raw["sources"]["tasks"]["trello"]["boards"] = [
             b.strip() for b in body.trello_boards if b and b.strip()
         ]
+    if body.jira_projects is not None:
+        raw["sources"]["tasks"]["jira"]["projects"] = [
+            p.strip() for p in body.jira_projects if p and p.strip()
+        ]
+    if body.gitlab_projects is not None:
+        raw["sources"]["git"]["gitlab"]["projects"] = [
+            p.strip() for p in body.gitlab_projects if p and p.strip()
+        ]
     if body.repos is not None:
         # Listenin TAMAMI değişir (ekleme/çıkarma). Aynı ad iki kez verilemez:
         # repo adı ingest'te kimlik anahtarıdır, çakışırsa commitler karışır.
@@ -211,6 +234,14 @@ def update_sources(
     if body.github_token is not None:
         from app.core.secrets import set_secret
         set_secret("GITHUB_TOKEN", body.github_token.strip())
+    # Env değişkeninin adı config'ten okunur: kurulum GITLAB_TOKEN yerine başka
+    # bir ad kullanıyorsa panel onu yazsın, sabit ada yazıp sessizce kaybolmasın.
+    if body.gitlab_token is not None:
+        from app.core.secrets import set_secret
+        set_secret(cfg.sources.git.gitlab.token_env, body.gitlab_token.strip())
+    if body.jira_token is not None:
+        from app.core.secrets import set_secret
+        set_secret(cfg.sources.tasks.jira.token_env, body.jira_token.strip())
 
     active_config_path().parent.mkdir(parents=True, exist_ok=True)
     with open(active_config_path(), "w", encoding="utf-8") as f:

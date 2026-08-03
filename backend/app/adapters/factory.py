@@ -28,7 +28,9 @@ def build_git_provider(cfg: Config, fixture_dir: Path = FIXTURE_DIR) -> GitProvi
         return GitHubProvider(src.repos, gh.token_env, gh.detail_limit, gh.max_prs)
     if src.provider == "gitlab":
         gl = src.gitlab
-        return GitLabProvider(gl.base_url, gl.token_env, gl.projects)
+        # repos: github ile ORTAK liste — repo→takım eşlemesi repo adıyla yapılır,
+        # hedefler ayrı bir listede yaşarsa takımsız kalırdı (bkz. gitlab.py).
+        return GitLabProvider(gl.base_url, gl.token_env, gl.projects, src.repos)
     if src.provider == "fixture":
         return FixtureGitProvider(fixture_dir)
     return None
