@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Config, get_config
@@ -31,21 +31,51 @@ from app.models import (
     TeamMembership,
 )
 
+# Türkçe'de büyük/küçük harf eşlemesi Python'un varsayılanından FARKLIDIR:
+# "I" → "ı", "İ" → "i". Python bunu bilmez, str.lower() her ikisini de "i" yapar.
+# Sonuç: gerçek bir Trello/Jira kolonu olan "YAPILIYOR" → "yapiliyor" (noktalı i)
+# çıkar, aşağıdaki varsayılan kümede ise "yapılıyor" (noktasız ı) yazar → HİÇBİR
+# kategoriye düşmez ve bitmiş/devam eden iş yanlış sayılır.
+#
+# Çözüm: karşılaştırma öncesi noktalı/noktasız i ayrımını TEK biçime indirgemek.
+# Bilinçli ödün: "sıra" ile "sira" bu eşlemede aynı sayılır. Statü adı eşlemesi
+# için kabul edilebilir; buradaki amaç anlam ayrımı değil, kolon adı eşleştirmek.
+_TR_FOLD = str.maketrans({"I": "i", "İ": "i", "ı": "i"})
+
+
+def fold_status(status: str | None) -> str:
+    """Statü adını karşılaştırılabilir tek biçime indirger (Türkçe-güvenli)."""
+    return (status or "").strip().translate(_TR_FOLD).lower()
+
+
+def _fold_all(names) -> set[str]:
+    return {fold_status(n) for n in names if n and n.strip()}
+
+
 DONE_STATUSES = {"done", "closed", "resolved", "bitti", "tamamlandı"}
 IN_PROGRESS_STATUSES = {"in progress", "doing", "yapılıyor", "in review", "review"}
 # WIP'e sayılmayan bekleme statüleri: backlog'daki iş "devam eden" değildir
 BACKLOG_STATUSES = {"to do", "todo", "backlog", "open", "yapılacak"}
 # Yalnızca VARSAYILAN. Gerçek eşleme config'ten gelir (sources.tasks.status_mapping)
 # ve resolve_statuses() ile birleştirilir — kaynak kolon adları serbest metindir.
+# Kümeler karşılaştırma biçiminde (fold_status'tan geçmiş) tutulur: yukarıdaki
+# okunur listeler kaynak, aşağıdaki sözlük çalışma biçimidir.
 DEFAULT_STATUSES = {
-    "done": DONE_STATUSES,
-    "in_progress": IN_PROGRESS_STATUSES,
-    "backlog": BACKLOG_STATUSES,
+    "done": _fold_all(DONE_STATUSES),
+    "in_progress": _fold_all(IN_PROGRESS_STATUSES),
+    "backlog": _fold_all(BACKLOG_STATUSES),
 }
 
 # Kaynak yeteneği: alan KAYNAKTA YOKSA doldurulmaması süreç hijyeni eksikliği
 # değildir. Bu bir ayar değil, aracın gerçeği (Trello'da estimate alanı yoktur).
+# TEK KAYNAK: kural motoru da (rules/engine.py) bunu okur — iki yerde kopyası
+# tutulduğunda metrik Trello'yu dışlarken kural dışlamıyordu.
 SOURCES_WITHOUT_ESTIMATE = {"trello"}
+
+# Süreç hijyeni bu kadar kayda ulaşana dek tamlık 1.0 sayılmaz. Frontend'in
+# "az örneklem" uyarısıyla (MetricCard LOW_SAMPLE) aynı eşik tutuluyor ki
+# pano ile motor aynı şeye "az veri" desin.
+MIN_HYGIENE_RECORDS = 5
 
 FIX_HINTS = ("fix", "hotfix", "bugfix", "düzeltme")
 # CFR için daha dar sinyal: her "fix" commit'i deploy hatası değildir;
@@ -75,7 +105,7 @@ def resolve_statuses(cfg: Config | None = None) -> dict[str, set[str]]:
     for category in out:
         for name in getattr(mapping, category, None) or []:
             if name and name.strip():
-                declared[name.strip().lower()] = category
+                declared[fold_status(name)] = category
     for name, category in declared.items():
         for names in out.values():
             names.discard(name)
@@ -84,7 +114,26 @@ def resolve_statuses(cfg: Config | None = None) -> dict[str, set[str]]:
 
 
 def _in(status: str | None, names: set[str]) -> bool:
-    return (status or "").strip().lower() in names
+    return fold_status(status) in names
+
+
+def is_mapped(status: str | None, statuses: dict[str, set[str]] | None = None) -> bool:
+    """Statü herhangi bir kategoriye (done/in_progress/backlog) düşüyor mu?
+
+    Eşlenmemiş kolon bir hata değil, BİLİNMEYEN'dir: akışta mı, beklemede mi
+    bilinmez. Metrikler bunu 'devam eden iş' varsayarsa WIP sessizce şişer."""
+    st = statuses or DEFAULT_STATUSES
+    return any(_in(status, names) for names in st.values())
+
+
+def is_in_flow(status: str | None, statuses: dict[str, set[str]] | None = None) -> bool:
+    """Akıştaki (devam eden) iş mi? YALNIZCA in_progress kategorisi sayılır.
+
+    Eskiden 'done ve backlog dışındaki her şey' akış sayılıyordu; bu, hiçbir
+    kategoriye eşlenmemiş her yeni kolonu (ör. 'Beklemede', 'Blocked') sessizce
+    WIP'e yazıyordu. Bilinmeyen artık akış sayılmaz, tamlık oranına düşer."""
+    st = statuses or DEFAULT_STATUSES
+    return _in(status, st["in_progress"])
 
 
 def _is_done(status: str | None, statuses: dict[str, set[str]] | None = None) -> bool:
@@ -158,6 +207,15 @@ class TeamData:
     tasks: list[Task]            # takımın tüm task'ları (WIP için hepsi gerekir)
     start: datetime
     end: datetime
+    # Repoda HİÇ merge commit'i var mı (pencereden bağımsız, repo geçmişinin
+    # tamamına bakar). Deploy sinyalinin VARLIĞINI belirler: bkz. _deploy_signal.
+    has_merge_commits: bool = False
+    # Pencerenin ÖNCESİNDEKİ commit'ler (rework geriye bakışı için). Metrik
+    # pencere uzunluğundan bağımsız olsun diye gerekli: bkz. rework_rate.
+    prior_commits: list[Commit] = field(default_factory=list)
+    # Pencerenin SONRASINDAKİ commit'ler (CFR ileriye bakışı için): pencere
+    # sonundaki bir deploy'un hotfix'i pencere dışında gelir. bkz. change_failure_rate.
+    later_commits: list[Commit] = field(default_factory=list)
     # Config'ten çözümlenmiş statü eşlemesi (kategori → adlar). Metrik
     # fonksiyonları gömülü sabit yerine bunu kullanır.
     statuses: dict[str, set[str]] = field(default_factory=lambda: {
@@ -165,13 +223,50 @@ class TeamData:
     })
 
 
+# SQL tarih filtresine bırakılan güvenlik payı.
+#
+# NEDEN GEREKLİ: SQLite, timezone=True kolonlarda saat dilimi bilgisini
+# SAKLAMADAN yazıyor — ölçüldü: 12:00+03:00 değeri "2026-08-01 12:00:00" olarak
+# saklanıyor, yani 09:00 UTC ile 12:00 UTC ayırt edilemiyor. Bu yüzden SQL
+# karşılaştırması TEK BAŞINA doğru sonuç vermez (Postgres'te sorun yok).
+#
+# Çözüm: SQL filtresi taramayı DARALTIR (asıl amaç bu — eskiden tüm tablo
+# okunuyordu), kesin karar Python'daki as_utc karşılaştırmasında verilir.
+# Pay, dünyadaki en uç saat dilimi farkından (±14 saat) büyük seçildi.
+_TZ_GUVENLIK_PAYI = timedelta(days=1)
+
+
 def load_team_data(session: Session, team: Team, start: datetime, end: datetime,
                    cfg: Config | None = None) -> TeamData:
     repo_ids = [r.id for r in session.scalars(select(Repo).where(Repo.team_id == team.id))]
+    cfg_ = cfg if cfg is not None else get_config()
+    # Rework geriye bakışı ve CFR ileriye bakışı için gereken en geniş aralık.
+    rework_days = cfg_.metric("rework").extra_int("window_days", 21)
+    hotfix_days = cfg_.metric("change_failure_rate").extra_int("hotfix_window_days", 3)
+    lookback_start = start - timedelta(days=rework_days)
+    lookahead_end = end + timedelta(days=hotfix_days)
+
+    def _tarih_araliginda(kolon, alt: datetime, ust: datetime):
+        """Tarihi eksik kayıtlar DIŞARIDA BIRAKILMAZ: mevcut davranışta
+        tamlık paydasına giriyorlar (bkz. aşağıdaki Python filtresi)."""
+        return or_(
+            kolon.is_(None),
+            and_(kolon >= alt - _TZ_GUVENLIK_PAYI, kolon <= ust + _TZ_GUVENLIK_PAYI),
+        )
+
+    # Tek sorgu: pencere + geriye/ileriye bakış. Eskiden tüm commit tablosu
+    # (repo bazında) belleğe alınıp Python'da filtreleniyordu ve compute_all
+    # bunu takım başına 6 kez yapıyordu.
+    ham_commits = list(session.scalars(
+        select(Commit).where(
+            Commit.repo_id.in_(repo_ids),
+            _tarih_araliginda(Commit.committed_at, lookback_start, lookahead_end),
+        )
+    )) if repo_ids else []
     commits = [
-        c for c in session.scalars(select(Commit).where(Commit.repo_id.in_(repo_ids)))
+        c for c in ham_commits
         if (ts := as_utc(c.committed_at)) is None or start <= ts <= end
-    ] if repo_ids else []
+    ]
     all_prs = list(
         session.scalars(
             select(PullRequest)
@@ -187,12 +282,36 @@ def load_team_data(session: Session, team: Team, start: datetime, end: datetime,
     ]
     tasks = list(
         session.scalars(
-            select(Task).where(Task.team_id == team.id).options(selectinload(Task.transitions))
+            select(Task)
+            .where(Task.team_id == team.id, Task.missing_since.is_(None))
+            .options(selectinload(Task.transitions))
         )
     )
     members = session.scalars(
         select(TeamMembership).where(TeamMembership.team_id == team.id)
     ).all()
+    # Merge commit'i VAR MI: pencereye değil, repo geçmişinin tamamına bakılır.
+    # Pencerede merge yoksa bu "sinyal yok" demek değildir — o hafta merge
+    # yapılmamış olabilir. İkisini karıştırmak metriği yanlış kırmızıya çekiyordu.
+    # Geriye/ileriye bakış aynı sorgudan ayrıştırılır (ikinci tam tarama yok).
+    # Rework: pencere BAŞLAMADAN önceki dokunuşlar da görülmeli, yoksa kısa
+    # kovalarda ilk dokunuşun geçmişi kesilir ve oran yapay düşer.
+    # CFR: pencere sonundaki deploy'un hotfix'i pencere DIŞINDA gelir.
+    prior_commits: list[Commit] = []
+    later_commits: list[Commit] = []
+    for c in ham_commits:
+        ts = as_utc(c.committed_at)
+        if ts is None:
+            continue
+        if lookback_start <= ts < start:
+            prior_commits.append(c)
+        elif end < ts <= lookahead_end:
+            later_commits.append(c)
+    has_merge = bool(repo_ids) and session.scalar(
+        select(Commit.id)
+        .where(Commit.repo_id.in_(repo_ids), func.lower(Commit.message).like("merge%"))
+        .limit(1)
+    ) is not None
     return TeamData(
         team=team,
         # GERÇEK sayı: 0 üyeli takımda "kişi başı" metrik uydurmak yerine
@@ -204,7 +323,10 @@ def load_team_data(session: Session, team: Team, start: datetime, end: datetime,
         tasks=tasks,
         start=start,
         end=end,
-        statuses=resolve_statuses(cfg if cfg is not None else get_config()),
+        has_merge_commits=has_merge,
+        prior_commits=prior_commits,
+        later_commits=later_commits,
+        statuses=resolve_statuses(cfg_),
     )
 
 
@@ -303,29 +425,50 @@ def review_latency(data: TeamData, cfg: Config) -> MetricOutcome:
 
 def deployment_frequency(data: TeamData, cfg: Config) -> MetricOutcome:
     """Haftalık teslim sayısı. deploy_signal=merge: main'e merge proxy'si
-    (merge commit ya da merge edilmiş PR)."""
-    deploys = _deploy_events(data)
+    (merge commit ya da merge edilmiş PR).
+
+    KRİTİK AYRIM — "sinyal yok" ile "0 teslim" aynı şey DEĞİLDİR:
+    - Takımın hiç PR verisi ve hiç merge commit'i yoksa (git_log kaynağı,
+      squash-merge akışı) elimizde deploy'u görecek bir sinyal YOKTUR. Bunu
+      "0 teslim / veri tam" diye raporlamak, eşik gereği kırmızı bir sağlık
+      göstergesi ve yönetici alarmı üretiyordu — tamamen uydurma bir sinyal.
+      Bu durumda metrik gizlenir (İlke A: değer uydurulmaz).
+    - Sinyal VARSA (PR verisi ya da repoda merge commit geçmişi) ama pencerede
+      hiç merge yoksa bu gerçekten "0 teslim"dir ve öyle raporlanır.
+    """
+    events, layer = _deploy_signal(data)
+    if layer is None:
+        return ZERO
     weeks = max(1.0, (data.end - data.start).total_seconds() / (7 * 86400))
-    if not deploys:
-        # Hiç deploy görünmüyorsa bu "0 teslim"dir, eksik veri değildir —
-        # ama commit verisi de hiç yoksa veri yetersizdir.
-        if not data.commits and not data.prs:
-            return ZERO
-        return MetricOutcome(0.0, 1.0, "git", 0)
-    return MetricOutcome(len(deploys) / weeks, 1.0, "git", len(deploys))
-
-
-def _deploy_events(data: TeamData) -> list[datetime]:
-    events = [
-        m for p in data.prs if (m := as_utc(p.merged_at)) and data.start <= m <= data.end
-    ]
     if not events:
+        return MetricOutcome(0.0, 1.0, layer, 0)
+    return MetricOutcome(len(events) / weeks, 1.0, layer, len(events))
+
+
+def _deploy_signal(data: TeamData) -> tuple[list[datetime], str | None]:
+    """(pencere içindeki deploy olayları, kaynak katmanı).
+
+    Katman None ise takımda deploy'u görebileceğimiz hiçbir sinyal yok —
+    çağıran "veri yetersiz" demelidir, 0 değil."""
+    if data.all_prs_count:
+        events = [
+            m for p in data.prs
+            if (m := as_utc(p.merged_at)) and data.start <= m <= data.end
+        ]
+        return sorted(events), "pr_merge"
+    if data.has_merge_commits:
         events = [
             ts for c in data.commits
             if (c.message or "").lower().startswith("merge")
             and (ts := as_utc(c.committed_at)) and data.start <= ts <= data.end
         ]
-    return sorted(events)
+        return sorted(events), "merge_commit"
+    return [], None
+
+
+def _deploy_events(data: TeamData) -> list[datetime]:
+    """Yalnız olay listesi isteyen çağıranlar için (kural motoru, drilldown)."""
+    return _deploy_signal(data)[0]
 
 
 def change_failure_rate(data: TeamData, cfg: Config) -> MetricOutcome:
@@ -334,16 +477,31 @@ def change_failure_rate(data: TeamData, cfg: Config) -> MetricOutcome:
     kalitesinin takım göstergesi olarak kullanılır."""
     mc = cfg.metric("change_failure_rate")
     window = timedelta(days=mc.extra_int("hotfix_window_days", 3))
-    deploys = _deploy_events(data)
-    if not deploys:
+    deploys, layer = _deploy_signal(data)
+    if layer is None or not deploys:
         return ZERO
+    # Hotfix penceresi HENÜZ DOLMAMIŞ deploy'lar paydaya girmez: onların hatalı
+    # olup olmadığını bilemeyiz. Eskiden bunlar "hatasız" sayılıyordu ve oran
+    # sistematik olarak düşük çıkıyordu (pencere ne kadar kısaysa o kadar sapma).
+    now = datetime.now(timezone.utc)
+    observable = [d for d in deploys if d + window <= now]
+    if not observable:
+        return MetricOutcome(None, 0.0, layer, 0)
+    # Hotfix, pencerenin DIŞINDA da gelebilir (haftalık kovalarda çok olur):
+    # ileriye bakış commit'leri de taranır.
     fix_times = [
-        ts for c in data.commits
+        ts for c in (*data.commits, *data.later_commits)
         if any(h in (c.message or "").lower() for h in HOTFIX_HINTS)
         and (ts := as_utc(c.committed_at))
     ]
-    failures = sum(1 for d in deploys if any(d < f <= d + window for f in fix_times))
-    return MetricOutcome(failures / len(deploys), 1.0, "git", len(deploys))
+    failures = sum(1 for d in observable if any(d < f <= d + window for f in fix_times))
+    return MetricOutcome(
+        failures / len(observable),
+        # Gözlenebilen deploy oranı = bu değerin ne kadar veriye dayandığı.
+        len(observable) / len(deploys),
+        layer,
+        len(observable),
+    )
 
 
 def wip(data: TeamData, cfg: Config) -> MetricOutcome:
@@ -355,18 +513,21 @@ def wip(data: TeamData, cfg: Config) -> MetricOutcome:
     yerine 'veri yetersiz' döner (İlke A)."""
     if data.member_count <= 0:
         return ZERO
-    with_status = [t for t in data.tasks if t.status is not None]
+    # Arşivli kart AKIŞTA DEĞİLDİR: kaynakta kapatılmıştır. Paydaya da girmez,
+    # yoksa arşivlenen her kart tamlığı düşürürdü.
+    with_status = [t for t in data.tasks if t.status is not None and not t.archived]
     if with_status:
-        # Backlog VE done dışındakiler akıştaki iştir. Kategoriler config'ten
-        # gelir; kaynak kolon adları ("Araştırma Konuları") gömülü listede yok.
-        open_tasks = [
-            t for t in with_status
-            if not _is_done(t.status, data.statuses)
-            and not _in(t.status, data.statuses["backlog"])
-        ]
+        # Akış YALNIZCA in_progress kategorisinden sayılır (bkz. is_in_flow).
+        # Hiçbir kategoriye eşlenmemiş kolon "bilinmeyen"dir: değere girmez ama
+        # tamlık oranını düşürür — böylece eşleme eksikse metrik sessizce yanlış
+        # bir sayı vermek yerine "veri yetersiz"e döner.
+        mapped = [t for t in with_status if is_mapped(t.status, data.statuses)]
+        open_tasks = [t for t in mapped if is_in_flow(t.status, data.statuses)]
+        # Payda arşivsiz task'lar: arşivlenen kart bir "eksik veri" değildir.
+        aday = [t for t in data.tasks if not t.archived]
         return MetricOutcome(
             value=len(open_tasks) / data.member_count,
-            completeness=len(with_status) / max(1, len(data.tasks)),
+            completeness=len(mapped) / max(1, len(aday)),
             source_layer="task_status",
             sample=len(open_tasks),
         )
@@ -383,7 +544,15 @@ def wip(data: TeamData, cfg: Config) -> MetricOutcome:
 
 def rework_rate(data: TeamData, cfg: Config) -> MetricOutcome:
     """Aynı dosyaya X gün içinde tekrar dokunma oranı — TAKIM seviyesinde
-    kalite sinyali (Katman 0, otomatik)."""
+    kalite sinyali (Katman 0, otomatik).
+
+    PENCERE BAĞIMSIZLIĞI: geriye bakış pencerenin ÖNCESİNE de uzanır
+    (data.prior_commits). Aksi hâlde kısa kovalarda her dosyanın ilk dokunuşu
+    "geçmişi yok" sayılıyor, oran yapay olarak düşüyordu: aynı veride 30 günlük
+    manşet %68 iken haftalık kovalar %18-%59 çıkıyor, yani manşet ile trend
+    noktaları farklı tanımlar oluyordu. Seçilen çözüm bu; alternatif "geriye
+    bakışı kova boyuna kısaltmak" reddedildi çünkü 21 günlük rework tanımını
+    7 güne indirir ve metriğin anlamını değiştirirdi."""
     mc = cfg.metric("rework")
     window = timedelta(days=mc.extra_int("window_days", 21))
     dated = [
@@ -393,7 +562,16 @@ def rework_rate(data: TeamData, cfg: Config) -> MetricOutcome:
     if not dated:
         return MetricOutcome(None, 0.0, "git", 0) if data.commits else ZERO
     dated.sort(key=lambda c: as_utc(c.committed_at))
+    # Geçmişi pencere öncesi dokunuşlarla tohumla (payda'ya GİRMEZ, yalnız
+    # "daha önce dokunulmuş muydu" sorusunu doğru cevaplar).
     last_touch: dict[str, datetime] = {}
+    for c in sorted(
+        (c for c in data.prior_commits if c.committed_at is not None and c.changed_files),
+        key=lambda c: as_utc(c.committed_at),
+    ):
+        ts = as_utc(c.committed_at)
+        for f in c.changed_files or []:
+            last_touch[f] = ts
     touches = reworks = 0
     for c in dated:
         ts = as_utc(c.committed_at)
@@ -510,8 +688,15 @@ def mttr(data: TeamData, cfg: Config) -> MetricOutcome:
 def process_hygiene(data: TeamData, cfg: Config) -> MetricOutcome:
     """Eksik verinin kendisi metriktir (İlke A). Bileşenler:
     estimate doluluk, status güncelleme, PR review'lanma, commit kimliği.
-    Yüksek = süreç izlenebilir; düşük = süreç körlüğü var, planlama iyileştir."""
+    Yüksek = süreç izlenebilir; düşük = süreç körlüğü var, planlama iyileştir.
+
+    TAMLIK: eskiden SABİT 1.0 yazılıyordu ("meta-metrik, kendisi zaten eksikliği
+    ölçer"). Ama bu, tek kayıtlık bir takımı ("Vantage": 0 üye, 0 repo, 1 task)
+    %100 / yeşil "Akıyor" gösteriyordu — veri YOKLUĞU mükemmel süreç gibi
+    okunuyordu. Tamlık artık değerin dayandığı kayıt sayısına bağlı: az kanıt =
+    düşük tamlık = panoda "veri yetersiz"."""
     components: list[float] = []
+    evidence = 0  # değere kanıt oluşturan kayıt sayısı (task + PR + commit)
     if data.tasks:
         # Estimate bileşeni YALNIZCA alanı olan kaynaklar için sayılır. Trello'da
         # estimate alanı yoktur; onu "doldurulmamış" saymak takımı var olmayan bir
@@ -528,21 +713,26 @@ def process_hygiene(data: TeamData, cfg: Config) -> MetricOutcome:
         components.append(
             sum(1 for t in data.tasks if t.transitions) / len(data.tasks)
         )
+        evidence += len(data.tasks)
     if data.prs:
         components.append(
             sum(1 for p in data.prs if p.first_review_at is not None or p.reviews) / len(data.prs)
         )
+        evidence += len(data.prs)
     if data.commits:
         components.append(
             sum(1 for c in data.commits if c.author_id is not None) / len(data.commits)
         )
+        evidence += len(data.commits)
     if not components:
         return ZERO
     return MetricOutcome(
         value=sum(components) / len(components),
-        completeness=1.0,  # meta-metrik: kendisi zaten eksikliği ölçer
+        completeness=min(1.0, evidence / MIN_HYGIENE_RECORDS),
         source_layer="composite",
-        sample=len(components),
+        # Bileşen sayısı değil KAYIT sayısı: kullanıcıya "2 kayıt" gibi yanlış
+        # okunan bir sayı gösteriyordu (frontend LOW_SAMPLE uyarısı buna bakar).
+        sample=evidence,
     )
 
 
@@ -606,10 +796,10 @@ def compute_all(session: Session, cfg: Config) -> int:
 
     for team in session.scalars(select(Team)):
         data = load_team_data(session, team, start, end)
-        for key, func in METRIC_FUNCS.items():
+        for key, metric_fn in METRIC_FUNCS.items():
             if not cfg.metric(key).enabled:
                 continue  # config kapattıysa hesaplanmaz, saklanmaz
-            outcome = func(data, cfg)
+            outcome = metric_fn(data, cfg)
             _upsert(session, "team", team.id, key, _period_key(start, end), outcome, now)
             written += 1
 

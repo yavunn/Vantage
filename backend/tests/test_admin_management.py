@@ -246,3 +246,75 @@ def test_ayar_uclari_admin_disina_kapali(client, session):
     assert client.get("/api/admin/settings", headers=auth).status_code == 403
     assert client.put("/api/admin/settings", json={"anonymize_individuals": True},
                       headers=auth).status_code == 403
+
+
+# --- İŞ-23: senkron arka planda çalışır ---------------------------------------
+# Uç, pipeline'ı İSTEK İÇİNDE çalıştırıyordu: gerçek kaynakla dakikalar sürüyor,
+# tarayıcı/proxy zaman aşımına düşüyor ve ilerleme görünmüyordu.
+
+def test_senkron_hemen_doner_ve_durum_izlenebilir(client, session, monkeypatch):
+    import time
+
+    from app.services import sync_job
+
+    def _yavas_pipeline(incremental=True):
+        time.sleep(0.3)
+        return {"commits": 3, "warnings": ["dikkat"]}
+
+    monkeypatch.setattr("app.services.pipeline.run_pipeline", _yavas_pipeline)
+    token = _admin_token(client, session)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    r = client.post("/api/admin/sync", headers=auth)
+    assert r.status_code == 200
+    job_id = r.json()["job"]["id"]
+    assert r.json()["job"]["status"] == "running"   # İSTEK BEKLEMEDİ
+
+    for _ in range(60):
+        durum = client.get(f"/api/admin/sync/{job_id}", headers=auth).json()["job"]
+        if durum["status"] != "running":
+            break
+        time.sleep(0.1)
+
+    assert durum["status"] == "done"
+    assert durum["stats"]["commits"] == 3
+    assert durum["warnings"] == ["dikkat"]
+    assert not sync_job.calisiyor_mu()
+
+
+def test_ayni_anda_iki_senkron_calismaz(client, session, monkeypatch):
+    import time
+
+    def _yavas_pipeline(incremental=True):
+        time.sleep(0.5)
+        return {}
+
+    monkeypatch.setattr("app.services.pipeline.run_pipeline", _yavas_pipeline)
+    token = _admin_token(client, session)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    assert client.post("/api/admin/sync", headers=auth).status_code == 200
+    ikinci = client.post("/api/admin/sync", headers=auth)
+    assert ikinci.status_code == 409
+    assert "senkron" in ikinci.json()["detail"].lower()
+
+
+def test_senkron_hatasi_kullaniciya_sebebiyle_doner(client, session, monkeypatch):
+    import time
+
+    def _patlayan(incremental=True):
+        raise RuntimeError("Trello ulaşılamıyor")
+
+    monkeypatch.setattr("app.services.pipeline.run_pipeline", _patlayan)
+    token = _admin_token(client, session)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    job_id = client.post("/api/admin/sync", headers=auth).json()["job"]["id"]
+    for _ in range(60):
+        durum = client.get(f"/api/admin/sync/{job_id}", headers=auth).json()["job"]
+        if durum["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert durum["status"] == "error"
+    assert "Trello ulaşılamıyor" in durum["error"]

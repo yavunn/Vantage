@@ -55,6 +55,9 @@ def test_trello_olu_board_sessizce_atlanmaz(monkeypatch):
     p.key, p.token = "k", "t"  # ortam değişkenine bağlı kalmasın
     routes = {
         "/boards/saglam": _FakeResp(200, {"name": "Takım Panosu"}),
+        # Kart hareketleri artık board seviyesinde TEK istekle çekiliyor
+        # (kart başına istek oran sınırına takılıp veriyi sessizce kaybediyordu).
+        "/boards/saglam/actions": _FakeResp(200, []),
         "/boards/saglam/cards": _FakeResp(200, []),
         "/boards/saglam/lists": _FakeResp(200, []),
         # "/boards/olu" YOK → 404
@@ -362,4 +365,367 @@ def test_sources_test_ucu_admin_disina_kapali(client, session):
     ).json()["access_token"]
 
     r = client.post("/api/admin/sources/test", headers={"Authorization": f"Bearer {t}"})
+    assert r.status_code == 403
+
+
+# --- İŞ-12: arşivli kartlar ---------------------------------------------------
+# Gerçek board üzerinde ölçüldü: varsayılan kart çağrısı 19, filter=all 21 kart
+# döndürüyordu — 2 arşivli kart HİÇ çekilmiyordu. Arşivlenen kart çoğu zaman
+# BİTMİŞ iştir; takım kartlarını ne kadar düzenli arşivlerse cycle time ve
+# teslim sinyali o kadar çok kayboluyordu.
+
+def test_trello_arsivli_kartlar_da_cekilir(monkeypatch):
+    from app.adapters.trello import TrelloProvider
+
+    p = TrelloProvider("K", "T", ["b1"])
+    p.key, p.token = "k", "t"
+    yakalanan: dict = {}
+
+    class _Client(_FakeClient):
+        def get(self, url, params=None):
+            if url.endswith("/cards"):
+                yakalanan["params"] = params
+            return super().get(url, params)
+
+    routes = {
+        "/boards/b1": _FakeResp(200, {"name": "Pano"}),
+        "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "DONE"}]),
+        "/boards/b1/members": _FakeResp(200, []),
+        "/boards/b1/actions": _FakeResp(200, []),
+        "/boards/b1/cards": _FakeResp(200, [
+            {"id": "c1", "name": "acik", "idList": "l1", "idShort": 1, "closed": False},
+            {"id": "c2", "name": "arsivli", "idList": "l1", "idShort": 2, "closed": True},
+        ]),
+        "/cards/c1/actions": _FakeResp(200, []),
+        "/cards/c2/actions": _FakeResp(200, []),
+    }
+    monkeypatch.setattr(p, "_client", lambda: _Client(routes))
+
+    tasks = p.fetch_tasks()
+
+    # filter=all gönderilmezse Trello arşivlileri hiç döndürmez.
+    assert yakalanan["params"]["filter"] == "all"
+    assert {t.external_id: t.archived for t in tasks} == {"c1": False, "c2": True}
+
+
+def test_arsivli_kart_wipe_sayilmaz(session):
+    """Arşivli kart akışta değildir; paydaya da girmez (eksik veri değildir)."""
+    from app.metrics.engine import load_team_data, wip
+    from app.models import Task
+    from tests.conftest import NOW, make_team
+
+    team, repo, devs, _ = make_team(session)  # 2 üye
+    session.add(Task(source="trello", external_id="acik", team_id=team.id,
+                     status="DEVELOPMENT", archived=False))
+    session.add(Task(source="trello", external_id="arsiv", team_id=team.id,
+                     status="DEVELOPMENT", archived=True))
+    session.commit()
+
+    from datetime import timedelta
+
+    from app.core.config import get_config
+    cfg = get_config()
+    cfg.sources.tasks.status_mapping.in_progress = ["DEVELOPMENT"]
+    data = load_team_data(session, team, NOW - timedelta(days=30), NOW, cfg)
+    out = wip(data, cfg)
+
+    assert out.sample == 1          # yalnız açık kart akışta
+    assert out.value == 0.5         # 1 iş / 2 üye
+    assert out.completeness == 1.0  # arşivli kart tamlığı düşürmez
+
+
+# --- İŞ-21: /api/sources/test "ok" yalanı -------------------------------------
+# Uç, ok'u yalnızca warnings listesinin boşluğuna bakarak veriyordu. Uyarı
+# sözleşmesini uygulamayan bir sağlayıcı (eskiden JiraProvider) 401 alsa bile
+# ok:true, count:0 diyordu → kullanıcı "bağlantı çalışıyor, henüz kayıt yok"
+# sanıyordu. Oysa bu uç tam da yanlış ayarı yüzeye çıkarmak için yazılmıştı.
+
+def test_sifir_kayit_basari_sayilmaz(client, session, monkeypatch):
+    """Hata yok + kayıt da yok: bu bir başarı değil, kontrol edilecek bir durum."""
+    import app.adapters.factory as factory_mod
+
+    class _BosSaglayici:
+        """Uyarı sözleşmesini uygular ama hiç kayıt döndürmez."""
+
+        def __init__(self):
+            self.warnings: list[str] = []
+
+        def fetch_commits(self, since=None):
+            return []
+
+        def fetch_pull_requests(self, since=None):
+            return []
+
+        def fetch_tasks(self, since=None):
+            return []
+
+        def fetch_team_members(self):
+            return []
+
+    _set_git_repos([{"name": "r", "path": ".", "team": "T"}])
+    # Uç sağlayıcıları fabrikadan fonksiyon içinde import ediyor → yama hedefi fabrika.
+    monkeypatch.setattr(factory_mod, "build_git_provider", lambda cfg: _BosSaglayici())
+    monkeypatch.setattr(factory_mod, "build_task_provider", lambda cfg: _BosSaglayici())
+    token = _admin_token(client, session)
+
+    body = client.post("/api/admin/sources/test",
+                       headers={"Authorization": f"Bearer {token}"}).json()
+
+    assert body["git"]["ok"] is False
+    assert body["tasks"]["ok"] is False
+    assert "kayıt gelmedi" in body["tasks"]["detail"]
+
+
+def test_uyari_desteklemeyen_saglayici_ok_demez(client, session, monkeypatch):
+    """Sözleşmesiz sağlayıcıda 'uyarı yok' bilgi değil SESSİZLİKTİR."""
+    import app.adapters.factory as factory_mod
+
+    class _Sozlesmesiz:
+        def fetch_tasks(self, since=None):
+            return [object()]      # kayıt döndürüyor ama hata bildirimi yok
+
+        def fetch_team_members(self):
+            return []
+
+    _set_git_repos([{"name": "r", "path": ".", "team": "T"}])
+    monkeypatch.setattr(factory_mod, "build_task_provider", lambda cfg: _Sozlesmesiz())
+    token = _admin_token(client, session)
+
+    body = client.post("/api/admin/sources/test",
+                       headers={"Authorization": f"Bearer {token}"}).json()
+
+    assert body["tasks"]["ok"] is False
+    assert "hata bildirimi" in body["tasks"]["detail"]
+
+
+# --- İŞ-14/İŞ-15: GitLab review sinyali ve dosya listesi ----------------------
+# İŞ-14: "system olmayan ilk yorum" review sayılıyordu. CI/kalite botları da
+#        yorum bıraktığı için review_latency olduğundan İYİ görünüyordu.
+# İŞ-15: changed_files SABİT None'dı → rework metriği, hotspot kuralı ve
+#        mesaj-kod uyum analizi GitLab kurulumunda kalıcı olarak ölüydü.
+
+def _gitlab(routes, **kw):
+    from app.adapters.gitlab import GitLabProvider
+
+    p = GitLabProvider("https://gl.local", "GL_TOKEN", [], [{"name": "r", "slug": "g/p"}], **kw)
+    p.token = "t"
+    return p
+
+
+def test_gitlab_commit_dosyalari_cekilir(monkeypatch):
+    p = _gitlab({})
+    routes = {
+        "/projects/g%2Fp/repository/commits": _FakeResp(
+            200, [{"id": "s1", "author_email": "a@b.c", "title": "feat: x",
+                   "committed_date": "2026-08-01T10:00:00+03:00",
+                   "stats": {"additions": 3, "deletions": 1}}]),
+        "/projects/g%2Fp/repository/commits/s1/diff": _FakeResp(
+            200, [{"new_path": "app/a.py"}, {"new_path": "app/b.py"}]),
+    }
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient(routes))
+
+    commits = p.fetch_commits()
+
+    assert commits[0].changed_files == ["app/a.py", "app/b.py"]
+    assert commits[0].additions == 3
+
+
+def test_gitlab_onay_verisi_yorumdan_once_gelir(monkeypatch):
+    p = _gitlab({})
+    routes = {
+        "/projects/g%2Fp/merge_requests": _FakeResp(200, [{
+            "iid": 7, "author": {"username": "yazar", "name": "Yazar"},
+            "title": "MR", "created_at": "2026-08-01T09:00:00+03:00",
+            "merged_at": "2026-08-02T09:00:00+03:00",
+        }]),
+        "/projects/g%2Fp/merge_requests/7/approvals": _FakeResp(200, {
+            "updated_at": "2026-08-01T15:00:00+03:00",
+            "approved_by": [{"user": {"username": "inceleyen"}}],
+        }),
+    }
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient(routes))
+
+    prs = p.fetch_pull_requests()
+
+    assert prs[0].review_source == "approval"
+    assert [r.reviewer_key for r in prs[0].reviews] == ["inceleyen"]
+
+
+def test_gitlab_bot_yorumu_review_sayilmaz(monkeypatch):
+    """Onay verisi yoksa yorumlara düşülür ama bot yorumu review DEĞİLDİR."""
+    p = _gitlab({})
+    routes = {
+        "/projects/g%2Fp/merge_requests": _FakeResp(200, [{
+            "iid": 7, "author": {"username": "yazar"},
+            "created_at": "2026-08-01T09:00:00+03:00",
+        }]),
+        # approvals 404 → onay özelliği kapalı; yorum yoluna düşülür
+        "/projects/g%2Fp/merge_requests/7/notes": _FakeResp(200, [
+            {"author": {"username": "sonarqube-bot"}, "system": False,
+             "created_at": "2026-08-01T09:05:00+03:00"},
+            {"author": {"username": "yazar"}, "system": False,
+             "created_at": "2026-08-01T09:10:00+03:00"},
+            {"author": {"username": "insan"}, "system": False,
+             "created_at": "2026-08-01T12:00:00+03:00"},
+        ]),
+    }
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient(routes))
+
+    prs = p.fetch_pull_requests()
+
+    assert prs[0].review_source == "comment"
+    # Bot ve yazarın kendi yorumu elendi: ilk review 12:00'deki insan yorumu.
+    assert [r.reviewer_key for r in prs[0].reviews] == ["insan"]
+    assert prs[0].first_review_at.hour == 12
+
+
+# --- İŞ-13: oran sınırı (429) ve geri çekilme ---------------------------------
+# Hiçbir adaptörde backoff yoktu. Trello'da kart hareketleri isteği 429 alınca
+# `status_code == 200` sağlanmıyor ve o kartın TÜM geçişleri sessizce boş
+# kalıyordu: cycle time düşüyor, sebebi hiçbir yerde görünmüyordu.
+
+def test_429_sonrasi_yeniden_denenir():
+    from app.adapters.http_retry import get_with_backoff
+
+    class _Client:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, params=None):
+            self.n += 1
+            return _FakeResp(429 if self.n < 3 else 200, [], {"retry-after": "0"})
+
+    c = _Client()
+    uykular: list[float] = []
+    resp = get_with_backoff(c, "/x", sleep=uykular.append)
+
+    assert resp.status_code == 200
+    assert c.n == 3
+    assert uykular == [0.0, 0.0]   # Retry-After'a saygı duyuldu
+
+
+def test_backoff_sonsuza_kadar_denemez():
+    from app.adapters.http_retry import get_with_backoff
+
+    class _Client:
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, params=None):
+            self.n += 1
+            return _FakeResp(429, [], {"retry-after": "0"})
+
+    c = _Client()
+    resp = get_with_backoff(c, "/x", max_retries=2, sleep=lambda s: None)
+
+    assert resp.status_code == 429   # çağıran net uyarı üretir
+    assert c.n == 3                  # ilk istek + 2 deneme
+
+
+def test_github_oran_siniri_403_olarak_taninir():
+    from app.adapters.http_retry import oran_siniri_mi
+
+    assert oran_siniri_mi(_FakeResp(403, {}, {"x-ratelimit-remaining": "0"})) is True
+    assert oran_siniri_mi(_FakeResp(429, {}, {})) is True
+    assert oran_siniri_mi(_FakeResp(404, {}, {})) is False
+
+
+def test_hareketler_okunamazsa_kayip_bildirilir(monkeypatch):
+    """Sessiz atlama cycle time'ı sebepsiz düşürüyordu."""
+    from app.adapters.trello import TrelloProvider
+
+    p = TrelloProvider("K", "T", ["b1"])
+    p.key, p.token = "k", "t"
+    routes = {
+        "/boards/b1": _FakeResp(200, {"name": "Pano"}),
+        "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "DONE"}]),
+        "/boards/b1/members": _FakeResp(200, []),
+        "/boards/b1/cards": _FakeResp(200, [
+            {"id": "c1", "name": "kart", "idList": "l1", "idShort": 1},
+        ]),
+        # /boards/b1/actions YOK → 404
+    }
+    monkeypatch.setattr(p, "_client", lambda: _FakeClient(routes))
+
+    tasks = p.fetch_tasks()
+
+    assert len(tasks) == 1 and tasks[0].transitions == []
+    assert any("cycle time" in w for w in p.warnings)
+
+
+# --- Panelden ayarlanabilirlik: düzeltmenin YAML'da kalmaması --------------
+# İŞ-10 Jira'yı gerçek Cloud kurulumunda çalışır hale getirdi ama yeni ayarlar
+# (auth stili, e-posta, uç sürümü, story point alanı) panelde YOKTU: kullanıcı
+# ancak sunucuya girip config.yaml düzenleyerek kullanabilirdi.
+
+def test_jira_kimlik_ayarlari_panelden_girilebilir(client, session):
+    token = _admin_token(client, session)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    r = client.put("/api/admin/sources", headers=auth, json={
+        "jira_base_url": "https://sirket.atlassian.net",
+        "jira_auth": "basic",
+        "jira_email": "kisi@sirket.com",
+        "jira_api_style": "cloud",
+        "jira_story_points_field": "customfield_99",
+    })
+    assert r.status_code == 200, r.text
+
+    body = client.get("/api/admin/sources", headers=auth).json()["tasks"]
+    assert body["jira_auth"] == "basic"
+    assert body["jira_email"] == "kisi@sirket.com"
+    assert body["jira_api_style"] == "cloud"
+    assert body["jira_story_points_field"] == "customfield_99"
+
+
+def test_gecersiz_jira_auth_reddedilir(client, session):
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+    r = client.put("/api/admin/sources", headers=auth, json={"jira_auth": "oauth"})
+    assert r.status_code == 422
+
+
+def test_story_point_alani_bosaltilabilir(client, session):
+    """Boş bırakmak bilinçli tercihtir: alan okunmaz, uyarı da üretilmez."""
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+    client.put("/api/admin/sources", headers=auth,
+               json={"jira_story_points_field": ""})
+    body = client.get("/api/admin/sources", headers=auth).json()["tasks"]
+    assert body["jira_story_points_field"] == ""
+
+
+def test_ikiz_adaylari_ucu_listeler(client, session):
+    """İŞ-19: uyarı senkron çıktısında kayboluyordu; eşleme ekranı listeyi
+    doğrudan görebilmeli. Karar yine insanın (otomatik birleştirme yok)."""
+    from app.models import Developer
+
+    session.add(Developer(display_name="Ayşe Yılmaz", external_ids={"git": "ayse@sirket.com"}))
+    session.add(Developer(display_name="ayse",
+                          external_ids={"git": "12345+ayse@users.noreply.github.com"}))
+    session.commit()
+
+    auth = {"Authorization": f"Bearer {_admin_token(client, session)}"}
+    body = client.get("/api/admin/developers/duplicate-candidates", headers=auth).json()
+
+    assert body["count"] == 1
+    aday = body["candidates"][0]
+    assert "noreply" in aday["reason"]
+    assert {aday["a"]["name"], aday["b"]["name"]} == {"Ayşe Yılmaz", "ayse"}
+
+
+def test_ikiz_adaylari_admin_disina_kapali(client, session):
+    from datetime import datetime, timezone
+
+    from app.core.security import hash_password
+    from app.models import User
+
+    now = datetime.now(timezone.utc)
+    session.add(User(email="calisan2@x.com", password_hash=hash_password("parola1"),
+                     role="user", is_active=True, must_change_password=False,
+                     created_at=now, updated_at=now))
+    session.commit()
+    t = client.post("/api/auth/login",
+                    json={"email": "calisan2@x.com", "password": "parola1"}).json()["access_token"]
+
+    r = client.get("/api/admin/developers/duplicate-candidates",
+                   headers={"Authorization": f"Bearer {t}"})
     assert r.status_code == 403

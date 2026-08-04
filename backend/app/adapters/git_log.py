@@ -16,13 +16,26 @@ from app.adapters.base import NormalizedCommit, NormalizedPR
 # Alan ayracı olarak kayıtlarda geçmesi imkansız bir dizi kullanılır
 FIELD_SEP = "\x1f"
 RECORD_SEP = "\x1e"
-LOG_FORMAT = f"{RECORD_SEP}%H{FIELD_SEP}%ae{FIELD_SEP}%an{FIELD_SEP}%aI{FIELD_SEP}%s"
+# %B = konu + GÖVDE. Gövde eskiden atılıyordu (%s) ve commit gövdesine yazılan
+# görev referansları ("PROJ-123", "#42") task↔commit eşleşmesine hiç girmiyordu —
+# oysa aynı iş için code_analysis.py:718 gövdeyi zaten alıyordu (tutarsızlık).
+# Mesaj ÇOK SATIRLI olabildiği için en sona konur ve sonuna bir alan ayracı daha
+# eklenir: numstat satırları o ayraçtan sonra başlar, parse belirsizliği kalmaz.
+LOG_FORMAT = (
+    f"{RECORD_SEP}%H{FIELD_SEP}%ae{FIELD_SEP}%an{FIELD_SEP}%aI{FIELD_SEP}%B{FIELD_SEP}"
+)
 
 
 class GitLogProvider:
-    def __init__(self, repos: list[dict]):
-        """repos: [{name, path, team}] — config'ten gelir."""
+    def __init__(self, repos: list[dict], scan_all_branches: bool = False):
+        """repos: [{name, path, team}] — config'ten gelir.
+
+        scan_all_branches: varsayılan False (yalnız HEAD). True yapılırsa
+        `--all` ile merge edilmemiş dallardaki commit'ler de okunur. Varsayılan
+        bilinçle dar: çoğu kurulumda ölçüm ana dalın akışıdır, `--all` kişisel
+        deneme dallarını da metriğe sokar."""
         self.repos = repos
+        self.scan_all_branches = scan_all_branches
         # Okunamayan repolar burada birikir; ingest bunu senkron sonucuna taşır.
         self.warnings: list[str] = []
 
@@ -46,16 +59,47 @@ class GitLogProvider:
                 )
                 continue
             args = ["git", "-C", str(path), "log", f"--pretty=format:{LOG_FORMAT}", "--numstat"]
+            if self.scan_all_branches:
+                args.append("--all")
             if since:
                 args.append(f"--since={since.isoformat()}")
             try:
-                raw = subprocess.run(
-                    args, capture_output=True, text=True, encoding="utf-8", timeout=120
-                ).stdout
+                proc = subprocess.run(
+                    args, capture_output=True, text=True,
+                    # errors="replace": UTF-8 OLMAYAN commit mesajı (eski depolar,
+                    # latin-1 yazılmış Türkçe) UnicodeDecodeError fırlatıyordu ve
+                    # bu ValueError ailesinden olduğu için aşağıdaki except onu
+                    # YAKALAMIYOR, tüm senkron çöküyordu. code_analysis._run_git
+                    # aynı işi zaten errors="replace" ile yapıyordu (tutarsızlık).
+                    encoding="utf-8", errors="replace", timeout=120,
+                )
             except (subprocess.SubprocessError, OSError) as e:
                 self.warnings.append(f"Repo '{name}': git komutu çalıştırılamadı ({type(e).__name__}).")
                 continue
-            out.extend(self._parse(raw, repo["name"]))
+            # Çıkış kodu KONTROL EDİLMELİ: git hata verdiğinde stdout boş gelir ve
+            # sonuç "0 commit" olur. Sessiz kalırsa panoda "veri yok" görünür,
+            # sebebi hiçbir yerde yazmaz.
+            if proc.returncode != 0:
+                hata = (proc.stderr or "").strip().splitlines()
+                self.warnings.append(
+                    f"Repo '{name}': git komutu hata verdi (kod {proc.returncode})"
+                    + (f" — {hata[0][:200]}" if hata else "")
+                )
+                continue
+            commits = self._parse(proc.stdout, repo["name"])
+            if not commits and since is None:
+                # "Hata yok ama kayıt da yok" ayrı bir durumdur: dal seçimi ya da
+                # repo yolu yanlış olabilir. Hata mesajıyla karışmasın diye ayrı yazılır.
+                #
+                # ARTIMLI çekimde (since dolu) bu NORMALDİR — son senkrondan beri
+                # commit atılmamış demektir; uyarı üretmek iki kez yanlış olurdu:
+                # kullanıcıyı boşuna telaşlandırır ve uyarı ürettiği için
+                # ingest son-başarı damgasını ilerletmez, yani artımlılık zamanla
+                # bozulurdu (gerçek senkron koşusunda görüldü).
+                self.warnings.append(
+                    f"Repo '{name}': git okundu ama hiç commit bulunamadı."
+                )
+            out.extend(commits)
         return out
 
     def _parse(self, raw: str, repo_name: str) -> list[NormalizedCommit]:
@@ -64,11 +108,13 @@ class GitLogProvider:
             record = record.strip()
             if not record:
                 continue
-            lines = record.splitlines()
-            head = lines[0].split(FIELD_SEP)
-            if len(head) < 5:
+            # Mesaj çok satırlı olabildiği için alanlara AYRAÇLA bölünür,
+            # satırlara değil: son alan numstat bloğunu taşır.
+            parts = record.split(FIELD_SEP)
+            if len(parts) < 5:
                 continue
-            sha, email, name, date_iso, subject = head[:5]
+            sha, email, name, date_iso, message = parts[:5]
+            numstat = parts[5] if len(parts) > 5 else ""
             committed_at = None
             try:
                 committed_at = datetime.fromisoformat(date_iso)
@@ -76,7 +122,7 @@ class GitLogProvider:
                 pass  # bozuk tarih → None; metrik motoru bu kaydı düşer
             files: list[str] = []
             additions = deletions = 0
-            for line in lines[1:]:
+            for line in numstat.splitlines():
                 parts = line.split("\t")
                 if len(parts) == 3:
                     add, rem, fname = parts
@@ -91,7 +137,7 @@ class GitLogProvider:
                     author_key=email or None,
                     author_name=name or None,
                     committed_at=committed_at,
-                    message=subject or None,
+                    message=message.strip() or None,
                     changed_files=files or None,
                     additions=additions,
                     deletions=deletions,

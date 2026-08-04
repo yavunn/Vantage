@@ -27,6 +27,23 @@ from app.services.pipeline import run_pipeline
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 
+def _zamanlanmis_senkron() -> None:
+    """Zamanlayıcı işi — elle tetiklenen senkronla AYNI kilidi kullanır.
+
+    max_instances=1 yalnız zamanlayıcının kendi işlerini serileştirir; elle
+    tetiklenen senkron ayrı bir iş parçacığında koştuğu için ikisi çakışabilirdi
+    (aynı satırları upsert eden iki koşu + yarım veriyle 'kaynakta yok' tespiti).
+    Kilit alınamıyorsa bu tur atlanır: bir sonraki aralıkta yeniden denenir."""
+    from app.services.sync_job import SYNC_LOCK
+
+    if not SYNC_LOCK.acquire(blocking=False):
+        return
+    try:
+        run_pipeline()
+    finally:
+        SYNC_LOCK.release()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.secrets import load_secrets
@@ -40,7 +57,7 @@ async def lifespan(app: FastAPI):
     if cfg.sync.interval_minutes > 0:
         scheduler = BackgroundScheduler()
         scheduler.add_job(
-            run_pipeline, "interval", minutes=cfg.sync.interval_minutes,
+            _zamanlanmis_senkron, "interval", minutes=cfg.sync.interval_minutes,
             id="sync", coalesce=True, max_instances=1,
         )
         scheduler.start()

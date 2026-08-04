@@ -48,6 +48,10 @@ class NormalizedPR:
     merged_at: datetime | None = None
     closed_at: datetime | None = None
     reviews: list[NormalizedReview] = field(default_factory=list)
+    # Review sinyalinin GÜCÜ: "approval" gerçek onaydır, "comment" yalnızca bir
+    # yorumdur (zayıf sinyal). Ayrılmazsa bir bot yorumu ile insan onayı aynı
+    # güvenle sunulur ve review_latency olduğundan iyi görünür.
+    review_source: str | None = None
 
 
 @dataclass
@@ -89,6 +93,10 @@ class NormalizedTask:
     type: str | None = None                 # story | bug | task
     status: str | None = None
     created_at: datetime | None = None
+    # Kaynakta arşivlenmiş mi (Trello 'closed'). Arşivli kart AKIŞTA DEĞİLDİR:
+    # WIP'e sayılmaz. Ama kaydın kendisi çekilir — arşivlenen kart genelde
+    # BİTMİŞ iştir ve dışarıda bırakmak cycle time sinyalini kaybettiriyordu.
+    archived: bool = False
     # Katman 2 — çoğu zaman boş gelir, boş kalır:
     estimate_hours: float | None = None
     due_date: datetime | None = None
@@ -97,10 +105,18 @@ class NormalizedTask:
 
 
 # --- Sağlayıcı arayüzleri -----------------------------------------------------
+#
+# UYARI SÖZLEŞMESİ (zorunlu): her sağlayıcı `warnings: list[str]` taşır ve
+# okunamayan her kaynağı oraya NET bir sebeple yazar. ingest bu listeyi senkron
+# sonucuna taşır. Sözleşmeyi uygulamayan bir sağlayıcı (eskiden JiraProvider)
+# 401 alsa bile hiçbir uyarı üretmiyor, kullanıcı yalnız "0 kayıt" görüyor ve
+# /api/sources/test "ok" diyordu — sessiz başarısızlığın tam tanımı.
 
 @runtime_checkable
 class GitProvider(Protocol):
     """Katman 0 — her zaman var olan, kimsenin elle girmediği veri."""
+
+    warnings: list[str]
 
     def fetch_commits(self, since: datetime | None = None) -> list[NormalizedCommit]: ...
     def fetch_pull_requests(self, since: datetime | None = None) -> list[NormalizedPR]: ...
@@ -109,6 +125,8 @@ class GitProvider(Protocol):
 @runtime_checkable
 class TaskProvider(Protocol):
     """Katman 1+2 — Jira ve Trello bu tek arayüzün arkasındadır."""
+
+    warnings: list[str]
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]: ...
 

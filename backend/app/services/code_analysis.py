@@ -396,6 +396,9 @@ class AnalyzerResult:
     extra_reads: int = 0
     extra_chars: int = 0
     masked_secrets: int = 0
+    # Prompt bağlam bütçesine sığmadığı için kırpıldı mı. Sessiz kırpma,
+    # "analiz yapıldı" görünüp eksik girdiye dayanan bir sonuç üretiyordu.
+    truncated: bool = False
 
 
 class ClaudeAnalyzer:
@@ -508,13 +511,10 @@ class LocalAnalyzer:
 
     provider = "local"
 
-    def __init__(self, base_url: str, model: str, api_key: str | None = None,
-                 system: str = _SYSTEM):
-        import httpx
-
-        self._httpx = httpx
-        self.base_url = base_url.rstrip("/")
-        self.model = model
+    def __init__(self, local, api_key: str | None = None, system: str = _SYSTEM):
+        self.local = local
+        self.base_url = local.base_url.rstrip("/")
+        self.model = local.model
         self._api_key = api_key or None
         self.system = system
 
@@ -523,27 +523,32 @@ class LocalAnalyzer:
                 ca_cfg: CodeAnalysisSettings | None = None) -> AnalyzerResult:
         # Yerel uçta araç çağrısı garantisi yok: commit mesajı metin olarak girer,
         # ek dosya okuma YAPILMAZ (repo_path yok sayılır).
-        prompt = (
-            self.system + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS)
-            + ", summary, suggestions.\n\n"
-            + build_user_prompt(file_path, diff_text, commit_message)
-        )
-        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-        resp = self._httpx.post(
-            f"{self.base_url}/v1/chat/completions",
-            json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
-            headers=headers,
+        #
+        # İstek app/llm/local_client.py üzerinden kurulur: bağlam uzunluğu
+        # (num_ctx) orada gönderilir ve prompt bütçeyi aşarsa GÖNDERMEDEN ÖNCE
+        # kırpılıp kırpıldığı beyan edilir. Eskiden burada kurulan doğrudan
+        # httpx çağrısı num_ctx göndermediği için Ollama 4096'ya düşüyor ve
+        # prompt'un başını sessizce atıyordu (ölçüm: 7.700 token gönderildi,
+        # 2050 görüldü) — model diff'in dörtte birini görüp puan veriyordu.
+        from app.llm.local_client import local_chat
+
+        system = self.system + "\n\nİstenen JSON alanları: " + ", ".join(DIMENSIONS) \
+            + ", summary, suggestions."
+        sonuc = local_chat(
+            self.local,
+            system,
+            build_user_prompt(file_path, diff_text, commit_message),
+            api_key=self._api_key,
             timeout=180,
         )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
-        data = parse_local_analysis(text)
+        data = parse_local_analysis(sonuc.text)
         return AnalyzerResult(
             scores=coerce_scores(data),
             summary=" ".join(str(data.get("summary", "")).split()),
             suggestions=coerce_suggestions(data.get("suggestions")),
             provider="local",
             model=self.model,
+            truncated=sonuc.truncated,
         )
 
 
@@ -558,8 +563,7 @@ def build_analyzer(cfg: Config):
         return ClaudeAnalyzer(cfg.llm.claude.model, cfg.llm.claude.api_key_env, system)
     if cfg.llm.provider == "local":
         return LocalAnalyzer(
-            cfg.llm.local.base_url,
-            cfg.llm.local.model,
+            cfg.llm.local,
             os.environ.get(cfg.llm.local.api_key_env),
             system,
         )
@@ -576,6 +580,14 @@ def _composite(scores: dict[str, int], weights: dict[str, float]) -> float:
 def classify_error(e: Exception) -> str:
     """LLM çağrısı hatasını kullanıcıya gösterilecek NET Türkçe sebebe çevirir.
     'analiz 0 yeni' gibi sessiz başarısızlık yerine gerçek neden görünsün."""
+    from app.llm.local_client import ContextOverflowError
+
+    # Bağlam taşması: uç prompt'un bir kısmını görmemiş. Bu, "analiz üretildi ama
+    # eksik girdiye dayanıyor" durumudur ve SESSİZ kalmamalı — sonuç üretilse
+    # bile güvenilir değildir.
+    if isinstance(e, ContextOverflowError):
+        return (f"Yerel uç prompt'un tamamını görmedi ({e}). llm.local.context_tokens "
+                "değerini ya da sunucunun bağlam sınırını büyütün.")
     # Yerel uçta şema garantisi yok: modelin biçim hatası, "model bulunamadı"
     # gibi bir altyapı hatasıyla karışmasın diye EN BAŞTA ve tipe göre eşlenir
     # (metin eşleşmesi 'model' kelimesine takılıyordu).
@@ -671,6 +683,7 @@ def analyze_diff(
         composite=_composite(result.scores, ca_cfg.weights),
         suggestions=[{"text": s} for s in result.suggestions],
         summary=result.summary, provider=result.provider, model=result.model,
+        truncated=result.truncated,
         analyzed_at=now,
     )
     session.add(row)
@@ -680,7 +693,8 @@ def analyze_diff(
         chars_sent=len(truncated) + result.extra_chars,
         masked_secrets=n_secrets + result.masked_secrets,
         extra_reads=result.extra_reads,
-        provider=result.provider, model=result.model, outcome="ok", sent_at=now,
+        provider=result.provider, model=result.model, outcome="ok",
+        truncated=result.truncated, sent_at=now,
     ))
     session.flush()
     return row
@@ -760,6 +774,63 @@ def _developer_git_emails(session: Session, developer_id: int) -> set[str]:
     return {g.lower()} if g else set()
 
 
+def _diff_iterator(cfg: Config, repo_cfg: dict, warnings: list[str]):
+    """Repo yapılandırmasına göre doğru diff kaynağını seçer.
+
+    None dönerse o repodan diff ÜRETİLEMEZ ve sebebi `warnings`'e yazılmıştır —
+    sessizce atlamak, özelliği çalışıyor sanmaya yol açıyordu."""
+    import os
+
+    from app.services.diff_sources import iter_github_file_diffs, iter_gitlab_file_diffs
+
+    ad = repo_cfg.get("name") or "(isimsiz repo)"
+    saglayici = (cfg.sources.git.provider or "").lower()
+    max_commits = 40
+
+    # Yerel klasör her sağlayıcıda önceliklidir: varsa ağ trafiği hiç doğmaz.
+    if repo_cfg.get("path"):
+        return iter_git_file_diffs(repo_cfg["path"], max_commits)
+
+    if saglayici == "github":
+        from app.adapters.github import parse_slug
+
+        ham = repo_cfg.get("slug") or repo_cfg.get("url") or ""
+        slug = parse_slug(str(ham))
+        if not slug:
+            warnings.append(
+                f"Repo '{ad}': GitHub yolu çözülemedi ('{ham}') — kod analizi bu repo "
+                "için çalışamaz. Beklenen biçim: owner/repo"
+            )
+            return None
+        token_env = cfg.sources.git.github.token_env
+        return iter_github_file_diffs(
+            slug, os.environ.get(token_env), max_commits, warnings, token_env
+        )
+
+    if saglayici == "gitlab":
+        from app.adapters.gitlab import parse_project_path
+
+        ham = repo_cfg.get("slug") or repo_cfg.get("url") or ""
+        yol = parse_project_path(str(ham))
+        if not yol:
+            warnings.append(
+                f"Repo '{ad}': GitLab proje yolu çözülemedi ('{ham}') — kod analizi bu "
+                "repo için çalışamaz. Beklenen biçim: grup/proje"
+            )
+            return None
+        gl = cfg.sources.git.gitlab
+        return iter_gitlab_file_diffs(
+            gl.base_url, yol, os.environ.get(gl.token_env), max_commits,
+            warnings, gl.token_env,
+        )
+
+    warnings.append(
+        f"Repo '{ad}': yerel 'path' tanımlı değil ve kaynak sağlayıcısı "
+        f"('{saglayici or 'tanımsız'}') diff üretemiyor — kod analizi bu repo için atlandı."
+    )
+    return None
+
+
 def run_code_analysis(session: Session, cfg: Config,
                       only_developer_id: int | None = None) -> dict:
     """git_log repolarındaki değişen dosyaları analiz eder (cache'li, maliyet
@@ -784,15 +855,24 @@ def run_code_analysis(session: Session, cfg: Config,
     dev_cache: dict = {}
     analyzed = cached = skipped = other_author = 0
     errors: list[str] = []
+    source_warnings: list[str] = []
+    # Diff üretilebilen repo sayısı: 0 ise sonuç "ok/0" DEĞİL, sebebi olan bir
+    # durumdur (aşağıda). Eskiden github/gitlab kaynağında döngü hiç dönmüyor
+    # ve özellik "çalışıyor ama yeni analiz yok" gibi görünüyordu.
+    usable_repos = 0
 
     for repo_cfg in cfg.sources.git.repos:
         if budget <= 0:
             break
-        if not isinstance(repo_cfg, dict) or not repo_cfg.get("path"):
+        if not isinstance(repo_cfg, dict):
             continue
+        diffs = _diff_iterator(cfg, repo_cfg, source_warnings)
+        if diffs is None:
+            continue
+        usable_repos += 1
         repo_row = session.scalar(select(Repo).where(Repo.name == repo_cfg.get("name")))
         repo_id = repo_row.id if repo_row else None
-        for sha, email, commit_msg, file_path, diff in iter_git_file_diffs(repo_cfg["path"]):
+        for sha, email, commit_msg, file_path, diff in diffs:
             if budget <= 0:
                 break
             if target_emails is not None and email not in target_emails:
@@ -812,7 +892,10 @@ def run_code_analysis(session: Session, cfg: Config,
                 continue
             row = analyze_diff(session, cfg, analyzer, repo_id, file_path, sha, diff,
                                developer_id=dev_id, errors=errors,
-                               commit_message=commit_msg, repo_path=repo_cfg["path"])
+                               commit_message=commit_msg,
+                               # Derin okuma (repo'dan ek dosya) yalnız YEREL
+                               # klasör varsa mümkün; uzak kaynakta None.
+                               repo_path=repo_cfg.get("path"))
             budget -= 1
             if row is not None:
                 analyzed += 1
@@ -820,6 +903,18 @@ def run_code_analysis(session: Session, cfg: Config,
     out = {"status": "ok", "analyzed": analyzed, "cached": cached, "excluded": skipped}
     if target_emails is not None:
         out["other_author_skipped"] = other_author
+    if source_warnings:
+        out["warnings"] = source_warnings
+    # Hiçbir repodan diff ÜRETİLEMEDİYSE bu "0 yeni analiz" değildir: kaynak
+    # yapılandırması analizi imkânsız kılıyordur. "ok" demek, özelliği çalışıyor
+    # sanmaya yol açıyordu — sebebi söyle.
+    if usable_repos == 0:
+        out["status"] = "no_source"
+        out["note"] = source_warnings[-1] if source_warnings else (
+            "Kod analizi için diff üretilebilecek repo yok — sources.git.repos "
+            "altında yerel 'path' ya da uzak 'slug' tanımlı olmalı."
+        )
+        return out
     # Hiç yeni analiz olmadı ama LLM çağrıları hata verdiyse: sessiz "0 yeni"
     # yerine NET sebep göster (ör. kredi yetersiz).
     if analyzed == 0 and errors:

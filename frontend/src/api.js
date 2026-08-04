@@ -328,8 +328,15 @@ export function updateSources(patch) {
   return apiPut("/api/admin/sources", patch);
 }
 
-export function triggerSync() {
-  return apiPost("/api/admin/sync", {});
+// Senkron artık ARKA PLANDA çalışır: uç hemen bir iş kimliği döner.
+// (Eskiden pipeline istek içinde koşuyordu; gerçek kaynakla dakikalar sürdüğü
+// için tarayıcı/proxy zaman aşımına düşüyor ve ilerleme görünmüyordu.)
+export function triggerSync(full = false) {
+  return apiPost(`/api/admin/sync${full ? "?full=true" : ""}`, {});
+}
+
+export function syncStatus(jobId) {
+  return api(jobId ? `/api/admin/sync/${jobId}` : "/api/admin/sync/status");
 }
 
 // Kuru çalıştırma: kaynaklar okunabiliyor mu? DB'ye yazmaz.

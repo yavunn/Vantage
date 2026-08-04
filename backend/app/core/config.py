@@ -39,6 +39,15 @@ class GitLabSource(BaseModel):
     base_url: str = ""
     token_env: str = "GITLAB_TOKEN"
     projects: list[str] = Field(default_factory=list)
+    # Dosya listesi commit LİSTESİ ucunda gelmez; en yeni N commit için ayrı
+    # istek atılır (GitHub adaptörüyle aynı anlam). Sınırın ötesi None kalır ve
+    # tamlık oranı düşer — uydurma yok.
+    detail_limit: int = 150
+    # Onay verisi yoksa yorumlara düşülür; aranan İLK review olduğu için tüm
+    # tartışmayı çekmek gereksiz ağır.
+    max_notes_pages: int = 3
+    # Ek bot hesapları (kullanıcı adı). Yaygın olanlar zaten koda gömülü.
+    bot_users: list[str] = Field(default_factory=list)
 
 
 class GitHubSource(BaseModel):
@@ -55,6 +64,10 @@ class GitHubSource(BaseModel):
 class GitSource(BaseModel):
     provider: str = "git_log"  # git_log | github | gitlab | fixture
     repos: list[dict[str, Any]] = Field(default_factory=list)
+    # git_log: yalnız HEAD mi okunsun, `--all` ile tüm dallar mı? Varsayılan dar
+    # tutuldu: ölçüm genelde ana dalın akışıdır, `--all` kişisel deneme dallarını
+    # da metriğe sokar. Merge edilmemiş dallar da sayılsın isteniyorsa açılır.
+    scan_all_branches: bool = False
     gitlab: GitLabSource = Field(default_factory=GitLabSource)
     github: GitHubSource = Field(default_factory=GitHubSource)
 
@@ -63,6 +76,19 @@ class JiraSource(BaseModel):
     base_url: str = ""
     token_env: str = "JIRA_TOKEN"
     projects: list[str] = Field(default_factory=list)
+    # Jira CLOUD e-posta + API token ile BASIC auth ister; Bearer yalnızca
+    # Server/Data Center kişisel erişim token'ında geçerlidir. Adaptör eskiden
+    # yalnız Bearer gönderiyordu → Cloud'da her istek 401 alıyor ve hata sessizce
+    # yutulduğu için kullanıcı sadece "0 task" görüyordu.
+    auth: str = "basic"        # basic | bearer
+    email: str = ""            # basic auth kullanıcı adı (Jira Cloud hesabı)
+    email_env: str = "JIRA_EMAIL"   # e-posta config yerine ortamdan da gelebilir
+    # auto: base_url'e göre (atlassian.net → Cloud). Cloud'da /rest/api/2/search
+    # kaldırıldı; yerine token tabanlı sayfalamalı /rest/api/3/search/jql geldi.
+    api_style: str = "auto"    # auto | cloud | server
+    # Story point alanı kurulumdan kuruluma DEĞİŞİR. Sabit kodlanmışken yanlış
+    # kurulumda sessizce None üretiyordu. Boş bırakılırsa hiç okunmaz.
+    story_points_field: str = "customfield_10016"
 
 
 class TrelloSource(BaseModel):
@@ -171,6 +197,20 @@ class LLMLocal(BaseModel):
     # (ölçüldü; bkz. config/config.yaml'daki not).
     model: str = "qwen2.5:14b"
     api_key_env: str = "LOCAL_LLM_API_KEY"
+    # ollama: /api/chat + options.num_ctx  |  openai: /v1/chat/completions
+    #
+    # NEDEN İKİ STİL: Ollama'nın OpenAI-uyumlu ucu (/v1/chat/completions)
+    # `options` kabul ETMEZ, dolayısıyla bağlam uzunluğu ayarlanamaz ve Ollama
+    # varsayılan 4096 token'a düşer. Ölçüldü: 400 satırlık (config sınırı) bir
+    # analiz prompt'u ~7.700 token iken Ollama prompt_tokens=2050 saydı — diff'in
+    # dörtte üçü modele HİÇ ulaşmadı, model yine de puan üretti. Yerel uçta
+    # varsayılan bu yüzden 'ollama'. vLLM/OpenRouter/OpenAI için 'openai' seçilir.
+    api_style: str = "ollama"  # ollama | openai
+    # Modelin bağlam penceresi (token). Prompt bu bütçeye göre kırpılır ve
+    # ollama stilinde num_ctx olarak uca bildirilir.
+    context_tokens: int = 16384
+    # Yanıta ayrılan pay: bütçenin tamamı prompt'a verilirse cevap yeri kalmaz.
+    reserve_output_tokens: int = 1024
 
 
 class LLMClaude(BaseModel):
@@ -235,9 +275,11 @@ class RagRetrievalSettings(BaseModel):
     top_k: int = 3
     # Bu skorun altındaki isabet atılır. Hepsi atılırsa cevap üretilmez —
     # zayıf eşleşmeyle konuşmak, bilmemekten kötüdür (halüsinasyon kaynağı).
-    # Değer EMBEDDING MODELİNE bağlıdır (bge-m3 için ölçüldü); model
-    # değişirse scripts/rag_eval.py ile yeniden belirlenmelidir.
-    min_score: float = 0.49
+    # Değer EMBEDDING MODELİNE ve KORPUSA bağlıdır (bge-m3 ile ölçüldü:
+    # ilgili min 0.5456, alakasız maks 0.4885 → eşik ortada). Model ya da
+    # korpus belirgin değişirse scripts/rag_eval.py ile yeniden belirlenir;
+    # korpus değişikliği de boşluğu kaydırıyor (ölçüldü, bkz. config.yaml).
+    min_score: float = 0.517
 
 
 class RagSettings(BaseModel):

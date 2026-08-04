@@ -12,7 +12,40 @@ from app.rules.engine import run_rules
 from app.services.ingest import run_ingest
 
 
-def run_pipeline() -> dict:
+def unmapped_status_warnings(session, cfg) -> list[str]:
+    """Kaynakta görülen ama hiçbir kategoriye eşlenmemiş kolon adlarını bildirir.
+
+    Eşlenmemiş kolon artık WIP'e sayılmıyor (bkz. metrics.engine.is_in_flow) —
+    bu doğru davranış ama SESSİZ olursa kullanıcı "işlerim neden görünmüyor"
+    diye arar. Kaybın sebebini burada açıkça söylüyoruz."""
+    from sqlalchemy import select
+
+    from app.metrics.engine import is_mapped, resolve_statuses
+    from app.models import Task
+
+    statuses = resolve_statuses(cfg)
+    # Kaynakta artık olmayan kayıtların kolonları sayılmaz: silinmiş bir
+    # board'un kolon adları için "eşleyin" demek, kapatılamayan bir uyarı olurdu
+    # (metrikler de o kayıtları zaten dışlıyor — bkz. load_team_data).
+    unmapped = sorted({
+        s.strip() for s in session.scalars(
+            select(Task.status).where(Task.missing_since.is_(None)).distinct()
+        )
+        if s and s.strip() and not is_mapped(s, statuses)
+    })
+    if not unmapped:
+        return []
+    return [
+        f"{len(unmapped)} kolon hiçbir kategoriye eşlenmemiş "
+        f"({', '.join(unmapped[:5])}{'…' if len(unmapped) > 5 else ''}) — bu kolonlardaki "
+        "işler WIP hesabına girmedi ve veri tamlığını düşürüyor. Eşleme: "
+        "config sources.tasks.status_mapping ya da Entegrasyon ekranı."
+    ]
+
+
+def run_pipeline(incremental: bool = True) -> dict:
+    """incremental=False: son senkron damgasını yok sayıp TAM çekim yapar.
+    Kaynak tarafında bir sorun düzeltildikten sonra geçmişi tazelemek için."""
     from app.core.secrets import load_secrets
     load_secrets()  # arayüzden girilen token'lar CLI senkronunda da geçerli olsun
     cfg = get_config()
@@ -30,6 +63,7 @@ def run_pipeline() -> dict:
             build_git_provider(cfg),
             build_task_provider(cfg),
             repo_team_map=repo_team_map,
+            incremental=incremental,
         )
         # Takımsız repo = commitleri hiçbir takım metriğine girmez (metrik motoru
         # commitleri takımın repolarından çeker). Sessiz kalırsa pano boş görünür
@@ -42,6 +76,7 @@ def run_pipeline() -> dict:
                 for r in cfg.sources.git.repos
                 if isinstance(r, dict) and r.get("name") and not r.get("team")
             ),
+            *unmapped_status_warnings(session, cfg),
         ]
         # RAG indeksi ingest'ten SONRA, metrikten ÖNCE tazelenir: indeks kaynağı
         # normalize şemadır, metrik hesabı değil. Kapalıysa hiç çalışmaz.

@@ -199,6 +199,23 @@ class Task(Base):
     type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # story | bug | task
     status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Kaynakta arşivlenmiş mi. Arşivli kart WIP'e sayılmaz (akışta değildir) ama
+    # kaydı tutulur: arşivlenen kart çoğu zaman BİTMİŞ iştir ve onu hiç çekmemek
+    # cycle time / teslim sinyalini kaybettiriyordu.
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Kaynakta EN SON ne zaman görüldü / ne zamandan beri KAYIP.
+    # Ingest yalnız upsert yapıyordu: kaynaktan silinen kayıt DB'de sonsuza
+    # kadar kalıyordu. Canlı ölçüm: board'da 21 kart varken DB'de 26 task vardı;
+    # aradaki 5'i artık kullanılmayan bir board'dan kalmıştı ve her senkronda
+    # "hiçbir takıma bağlı değil" uyarısı üretip metrik paydalarına giriyordu.
+    # KALICI SİLME YOK: kayıt saklanır, yalnız hesaplardan çıkarılır — kaynak
+    # geçici bir hata verdiyse veri kaybı yaşanmasın.
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    missing_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # --- Katman 2: elle girilen, güvenilmez alanlar. Çoğu zaman BOŞ olacak. ---
     estimate_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -467,6 +484,9 @@ class CodeAnalysis(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # claude | local
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Diff, modelin bağlam penceresine sığmadığı için kırpılarak gönderildi mi.
+    # Panoda gösterilir: kırpılmış girdiye dayanan puan "tam analiz" sanılmamalı.
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -487,7 +507,34 @@ class CodeAnalysisAudit(Base):
     provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
     outcome: Mapped[str] = mapped_column(String(20))  # ok | error | skipped
+    # Bağlam bütçesi için prompt kırpıldı mı (denetim: modele ne gitti).
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class SyncState(Base):
+    """Kaynak bazında son BAŞARILI senkron zamanı (artımlı çekim için).
+
+    NEDEN: adaptörlerin hepsi `fetch_*(since=...)` destekliyordu ama ingest
+    hepsini PARAMETRESİZ çağırıyordu — kod tabanında `since` üreten tek satır
+    yoktu. Sonuç: her saat tam çekim. GitHub'da repo başına ~350 istek/saat
+    (10 sayfa commit + 150 commit detayı + 200 PR + review istekleri); 5000/saat
+    sınırında ~13 repo tavanı, token'sız kurulumda ilk repoda biter.
+
+    KRİTİK KURAL: damga yalnız UYARISIZ (eksiksiz) çekimden sonra ilerletilir.
+    Kısmi başarıda ilerletmek, alınamayan veriyi kalıcı olarak atlamak olurdu.
+    """
+
+    __tablename__ = "sync_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_kind: Mapped[str] = mapped_column(String(20), unique=True)  # git | tasks
+    last_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class AuditLog(Base):

@@ -6,6 +6,7 @@ import {
   setTaskIdentity,
   testSources,
   triggerSync,
+  syncStatus,
   updateSources,
 } from "../api.js";
 
@@ -414,6 +415,9 @@ export default function IntegrationPanel() {
     }
   }
 
+  // Senkron ARKA PLANDA çalışır (uç hemen iş kimliği döner); burada durum
+  // yoklanır. Eskiden istek dakikalarca açık kalıyor, gerçek kaynakla
+  // tarayıcı/proxy zaman aşımına düşüyordu.
   async function sync() {
     setError(null);
     setMsg(null);
@@ -421,15 +425,37 @@ export default function IntegrationPanel() {
     setSyncing(true);
     try {
       const res = await triggerSync();
-      const s = res.stats || {};
-      // Ingest sayıları da gösterilir: "metrik: 68" tek başına entegrasyonun
-      // çalıştığını sanmaya yol açıyordu — asıl bilgi kaç YENİ kayıt geldiği.
-      setMsg(
-        `Senkron tamam · ${s.commits ?? 0} yeni commit · ${s.pull_requests ?? 0} yeni PR · ` +
-        `${s.tasks ?? 0} yeni görev · ${s.team_members ?? 0} yeni kadro üyesi · ` +
-        `metrik: ${s.metric_results ?? 0} · öneri: ${s.recommendations ?? 0}`
-      );
-      setWarnings(s.warnings || []);
+      setMsg("Senkron başladı — arka planda çalışıyor…");
+      await pollSync(res.job?.id);
+    } catch (err) {
+      setError(err.message);
+      setSyncing(false);
+    }
+  }
+
+  async function pollSync(jobId) {
+    // Sunucu tarafı zaten "aynı anda tek senkron" garantisi veriyor; burada
+    // yalnız durumu izliyoruz. Hata SESSİZ yutulmaz (bkz. denetim önerisi 7).
+    try {
+      const { job } = await syncStatus(jobId);
+      if (!job || job.status === "running") {
+        setTimeout(() => pollSync(jobId), 2000);
+        return;
+      }
+      if (job.status === "error") {
+        setError(`Senkron başarısız: ${job.error || "bilinmeyen hata"}`);
+        setMsg(null);
+      } else {
+        const s = job.stats || {};
+        // Ingest sayıları da gösterilir: "metrik: 68" tek başına entegrasyonun
+        // çalıştığını sanmaya yol açıyordu — asıl bilgi kaç YENİ kayıt geldiği.
+        setMsg(
+          `Senkron tamam · ${s.commits ?? 0} yeni commit · ${s.pull_requests ?? 0} yeni PR · ` +
+          `${s.tasks ?? 0} yeni görev · ${s.team_members ?? 0} yeni kadro üyesi · ` +
+          `metrik: ${s.metric_results ?? 0} · öneri: ${s.recommendations ?? 0}`
+        );
+      }
+      setWarnings(job.warnings || []);
       load();
       setIdentityNonce((n) => n + 1);
     } catch (err) {

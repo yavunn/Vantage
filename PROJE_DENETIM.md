@@ -247,3 +247,88 @@ Aşağıdakiler hakkında **yorum yapmadım**, çünkü satır satır okumadım:
   her uca isteği) yapılmadı — yalnız bağımlılık bildirimleri statik olarak tarandı.
 - **`faz-*` branch'lerinin içeriği** `main` ile karşılaştırılmadı (öneri 16 bu yüzden
   "önce doğrula" diyor).
+
+---
+
+## 6. İkinci denetim (2026-08-04) — 26 iş, hepsi uygulandı
+
+Bölüm 5'te "incelenmedi" denen alanlar (adaptör gövdeleri, metrik doğruluğu,
+LLM prompt yönetimi, performans) satır satır incelendi ve **canlı sistem
+üzerinde ölçüldü**. Bulguların ortak teması: *sessiz başarısızlık* — sonuç
+üretiliyor, doğru görünüyor, yanlış.
+
+### Ölçümle kanıtlanan düzeltmeler
+
+| İş | Sorun (ölçüm) | Sonuç (ölçüm) |
+|---|---|---|
+| İŞ-08 | Yerel LLM prompt'un %75'ini görmüyordu: 400 satırlık diff (~7.700 token) gönderiliyor, Ollama `prompt_tokens=2050` sayıyordu | `num_ctx` gönderiliyor → `prompt_tokens=15296`; kırpma artık beyan ediliyor, taşma hata veriyor |
+| İŞ-01 | `deployment_frequency` sinyal yokken `0.0 / tamlık 1.0` yazıp KIRMIZI oluyordu; 31.07-04.08 arası sahte "Teslim Sıklığı kırmızıya döndü" alarmları | Sinyal yoksa "veri yetersiz"; yeni sahte alarm yok |
+| İŞ-02 | Rework pencere uzunluğuna bağlıydı: 30 günlük manşet %68, haftalık kovalar %18-59 | Geriye bakış pencere öncesini görüyor: kovalar %23-90, manşetle aynı ölçekte |
+| İŞ-12 | Trello arşivli kartları hiç çekmiyordu: gerçek board 19 kart döndürüyordu | `filter=all` → 21 kart; DONE'daki arşivli kart geri geldi |
+| İŞ-13 | Kart başına bir istek: 21 kart = 26 HTTP isteği (300 kartlık board'da Trello sınırını aşar) | Board seviyesinde tek istek: **5 HTTP isteği**, 21/21 kartın geçiş geçmişi korundu |
+| İŞ-18 | Kaynaktan silinen kayıt DB'de kalıyordu: board'da 21 kart varken DB'de 26 task | 5 hayalet kayıt "kaynakta yok" damgalandı, metrik ve indeksten çıktı (silinmedi) |
+| İŞ-22 | `load_team_data` tüm commit tablosunu belleğe alıyor, `compute_all` bunu 6 kez yapıyordu | 50.000 commit: eski desen **8,58 sn**, yeni `compute_all` **1,95 sn** (hedef < 30 sn) |
+| İŞ-24 | Bellek indeksinin ölçeği hiç ölçülmemişti ("birkaç yüz chunk" varsayımı) | Ölçüldü: 72→0,03 sn / 3,9 MB · 5.000→0,64 sn / 264 MB · 20.000→2,53 sn / **1 GB**. Sınır 5.000, aşılınca uyarı |
+| İŞ-25 | `min_score: 0.49` eski korpusla ölçülmüştü | Yeniden ölçüldü: ilgili min 0.5456, alakasız maks 0.4885 → **0.517**. Eski değer alakasız banda 0.0015 kalıyordu |
+
+### Kodda kanıtlanan düzeltmeler
+
+İŞ-03 (boş takım %100 yeşil görünüyordu) · İŞ-04 (CFR pencere kenarında düşük
+çıkıyordu) · İŞ-05 (eşlenmemiş kolon sessizce WIP'e giriyordu) · İŞ-06 (Türkçe
+"YAPILIYOR" hiçbir kategoriye düşmüyordu) · İŞ-07 (Trello'da kapatılamayan
+estimate önerisi) · İŞ-09 (kod analizi GitHub/GitLab'da `ok/0` diyordu) ·
+İŞ-10/11 (Jira Cloud'da her istek 401 alıyor ve hiç uyarı üretmiyordu) ·
+İŞ-14/15 (GitLab'da bot yorumu review sayılıyor, `changed_files` hiç
+gelmiyordu) · İŞ-16/17 (git hatası "0 commit" olarak yutuluyor, UTF-8 olmayan
+mesaj senkronu çökertiyor, commit gövdesi atılıyordu) · İŞ-19 (kimlik ikizi
+adayları) · İŞ-20 (artımlı senkron hiç kullanılmıyordu) · İŞ-21 (`/sources/test`
+uyarı desteklemeyen sağlayıcıya "ok" diyordu) · İŞ-23 (elle senkron istek
+içinde koşuyordu) · İŞ-26 (yük üreteci + ölçüm betikleri).
+
+### Dürüstlük notu — İŞ-19
+
+Denetimde "canlı DB'deki iki geliştirici kaydı aynı kişi" demiştim. Dedektör
+yazıldıktan sonra ölçtüm: o çift **yakalanmıyor ve yakalanmamalı** — iki kaydın
+hiçbir alanı örtüşmüyor (farklı e-posta, farklı Trello id, farklı görünen ad).
+İlk tespit veriden değil, bağlam bilgisinden geliyordu. Dedektör yalnız
+kanıtlanabilir üç sinyali bildiriyor (GitHub noreply ↔ kişisel e-posta, aynı
+görünen ad, aynı kaynak kimliği); bu çiftin kararı panelden insana bırakıldı.
+İK bağlamında yanlış pozitif gerçek bir zarardır.
+
+### Test durumu
+
+246 → **322 backend testi** + 40 frontend testi. Yeni ölçüm betikleri
+(`scripts/load_test.py`, `scripts/rag_scale_test.py`) normal test koşusuna
+girmez, geçici veritabanı kurup siler.
+
+### Sonradan kapatılan eksikler
+
+İlk turda kod yazıldı ama **kullanıcıya ulaşmıyordu**; bunlar da tamamlandı:
+
+- **`/api/teams/{id}/ask` uyarıları yutuyordu.** İŞ-24'ün ölçek uyarısı
+  `RagAnswer.warnings` içinde üretiliyor ama uç yanıtına konmuyordu — yani
+  sessiz yavaşlama yine sessiz kalıyordu.
+- **Jira'nın yeni ayarları panelde yoktu.** `auth` / `email` / `api_style` /
+  `story_points_field` yalnız `config.yaml` düzenlenerek girilebiliyordu; İŞ-10
+  "gerçek Cloud kurulumunda çalışsın" derken pratikte sunucuya SSH gerektiriyordu.
+  Uç artık bunları okuyup yazıyor ve geçersiz değeri 422 ile reddediyor.
+- **İkiz adayları yalnız senkron uyarısında kalıyordu.** Uyarı akıp gidiyor;
+  eşleme ekranının listeyi görebilmesi için
+  `GET /api/admin/developers/duplicate-candidates` eklendi (karar yine insanın).
+- **Eşlenmemiş kolon uyarısı ölü kayıtları da sayıyordu.** Silinmiş bir board'un
+  kolon adları için "eşleyin" demek kapatılamayan bir uyarı olurdu; sorgu artık
+  `missing_since IS NULL` filtreliyor.
+- **README'de artık yanlış olan cümle** ("eşlenmeyen kolon akıştaki iş sayılır ve
+  WIP'i şişirir") düzeltildi — İŞ-05 tam olarak bunu değiştirmişti.
+
+### Uçtan uca doğrulanan
+
+- **GitHub diff (İŞ-09):** gerçek public repo (`octocat/Hello-World`), tokensiz →
+  2 dosya diffi (sha, yazar e-postası, patch). Erişilemeyen repoda net uyarı.
+- **Yerel diff yolu bozulmadı:** aynı refactor sonrası `git_log` yolundan 200+
+  dosya diffi, uyarı yok.
+- **İşletimsel bulgu:** `.secrets.env`'deki `GITHUB_TOKEN` **geçersiz (401)**.
+  GitHub kaynağına geçilecekse yenilenmeli — sistem artık bunu söylüyor,
+  sessizce boş dönmüyor.
+- **Senkron yazma yolu (İŞ-26):** 50.000 commit'lik DB'de 2.000 yeni commit
+  ingest'i 0,64 sn (~3.100 kayıt/sn).

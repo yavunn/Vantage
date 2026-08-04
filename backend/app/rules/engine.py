@@ -17,6 +17,7 @@ from app.core.config import Config
 from app.metrics.engine import (
     FIX_HINTS,
     HOTFIX_HINTS,
+    SOURCES_WITHOUT_ESTIMATE,
     TeamData,
     _deploy_events,
     as_utc,
@@ -103,10 +104,18 @@ def rule_low_process_hygiene(data: TeamData, cfg: Config) -> RuleFinding | None:
     (Eksik veri ceza değildir; görünürlük kaybı olarak raporlanır.)"""
     rc = cfg.rule("low_process_hygiene")
     threshold = rc.extra_num("missing_estimate_pct", 70)
-    if not data.tasks:
+    # Kaynağında estimate ALANI OLMAYAN task'lar paydaya girmez (Trello'da böyle
+    # bir alan yoktur). Metrik motoru bunu zaten dışlıyordu (SOURCES_WITHOUT_ESTIMATE)
+    # ama kural dışlamıyordu: Trello kullanan takım "%100'ünde estimate yok"
+    # önerisini KAPATAMIYORDU — sistem çözümsüz bir iş öneriyordu.
+    estimable = [
+        t for t in data.tasks
+        if (t.source or "").strip().lower() not in SOURCES_WITHOUT_ESTIMATE
+    ]
+    if not estimable:
         return None
-    missing = sum(1 for t in data.tasks if t.estimate_hours is None)
-    pct = 100 * missing / len(data.tasks)
+    missing = sum(1 for t in estimable if t.estimate_hours is None)
+    pct = 100 * missing / len(estimable)
     if pct >= threshold:
         return RuleFinding(
             "low_process_hygiene",

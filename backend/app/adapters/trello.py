@@ -13,6 +13,7 @@ from datetime import datetime
 import httpx
 
 from app.adapters.base import NormalizedTask, NormalizedTeamMember, NormalizedTransition
+from app.adapters.http_retry import get_with_backoff
 
 DONE_LIST_HINTS = ("done", "bitti", "tamamlan")
 BUG_LABEL_HINTS = ("bug", "hata", "fix")
@@ -40,10 +41,14 @@ def _dt(value: str | None) -> datetime | None:
 
 
 class TrelloProvider:
-    def __init__(self, key_env: str, token_env: str, boards: list[str]):
+    def __init__(self, key_env: str, token_env: str, boards: list[str],
+                 max_action_pages: int = 5):
         self.key = os.environ.get(key_env, "")
         self.token = os.environ.get(token_env, "")
         self.boards = boards
+        # Board hareket geçmişi sayfa sınırı (sayfa başına 1000 hareket).
+        # Sonsuz sayfalama, çok eski board'larda senkronu kilitlerdi.
+        self.max_action_pages = max(1, max_action_pages)
         # Okunamayan board'lar burada birikir; ingest bunu senkron sonucuna taşır.
         self.warnings: list[str] = []
 
@@ -164,8 +169,15 @@ class TrelloProvider:
                     # zorunda kalır: kartın `id` alanı opak bir hash'tir ve kimse
                     # onu commit mesajına yazmaz. idShort kartın üstünde görünen
                     # numaradır (#42) — insan yazabilir, bağ kesinleşir.
-                    params={"fields": "name,idList,dateLastActivity,due,labels,"
-                                      "idMembers,idShort,shortLink,shortUrl"},
+                    #
+                    # filter=all: varsayılan çağrı yalnız AÇIK kartları getirir.
+                    # Ölçüldü (gerçek board): varsayılan 19 kart, filter=all 21 —
+                    # 2 arşivli kart hiç görünmüyordu. Arşivlenen kart genelde
+                    # BİTMİŞ iştir; takım ne kadar düzenli arşivlerse cycle time
+                    # ve teslim sinyali o kadar çok kayboluyordu.
+                    params={"filter": "all",
+                            "fields": "name,idList,dateLastActivity,due,labels,"
+                                      "idMembers,idShort,shortLink,shortUrl,closed"},
                 )
                 if cards_resp.status_code != 200:
                     self.warnings.append(
@@ -179,11 +191,59 @@ class TrelloProvider:
                     for lst in (lists_resp.json() if lists_resp.status_code == 200 else [])
                 }
                 member_names = self._members(client, board_id, board_name, warn=False)
-                for card in cards_resp.json():
+                kartlar = cards_resp.json()
+                actions = self._board_actions(client, board_id, board_name)
+                if actions is None:
+                    # Sessiz atlama, cycle time'ı sebepsiz düşürüyordu.
+                    self.warnings.append(
+                        f"Trello board '{board_name or board_id}': kart hareketleri "
+                        f"okunamadı — {len(kartlar)} kartın geçiş geçmişi (dolayısıyla "
+                        "cycle time'ı) bu senkronda hesaplanamayacak."
+                    )
+                    actions = {}
+                for card in kartlar:
                     out.append(
-                        self._normalize(client, card, board_name, list_names, member_names)
+                        self._normalize(client, card, board_name, list_names,
+                                        member_names, actions.get(card["id"]))
                     )
         return out
+
+    def _board_actions(self, client: httpx.Client, board_id: str,
+                       board_name: str | None) -> dict[str, list[dict]] | None:
+        """Board'un TÜM kart hareketleri, kart id'sine göre gruplanmış.
+
+        NEDEN BOARD SEVİYESİ: eskiden her kart için ayrı bir /cards/{id}/actions
+        isteği atılıyordu. 300 kartlık bir board = 300 istek; Trello sınırı ise
+        token başına ~100 istek/10 saniye. Sınıra takılınca yanıt 200 olmuyor ve
+        o kartın TÜM geçişleri sessizce boş kalıyordu → cycle time düşüyor,
+        sebebi hiçbir yerde görünmüyordu. Board ucu aynı veriyi tek istekte
+        (gerekirse sayfalayarak) verir.
+
+        None dönerse hareketler okunamadı — çağıran bunu uyarıya taşır.
+        """
+        gruplu: dict[str, list[dict]] = {}
+        before: str | None = None
+        for _ in range(self.max_action_pages):
+            params = {"filter": "updateCard:idList,createCard", "limit": 1000}
+            if before:
+                params["before"] = before
+            try:
+                resp = get_with_backoff(client, f"/boards/{board_id}/actions", params)
+            except httpx.HTTPError:
+                return None
+            if resp.status_code != 200:
+                return None
+            batch = resp.json() or []
+            for action in batch:
+                kart = ((action.get("data") or {}).get("card") or {}).get("id")
+                if kart:
+                    gruplu.setdefault(kart, []).append(action)
+            if len(batch) < 1000:
+                break
+            before = batch[-1].get("id")
+            if not before:
+                break
+        return gruplu
 
     def _normalize(
         self,
@@ -192,27 +252,25 @@ class TrelloProvider:
         board_name: str | None,
         list_names: dict,
         member_names: dict[str, str] | None = None,
+        actions: list[dict] | None = None,
     ) -> NormalizedTask:
-        # Kart hareketleri = status geçişleri (Katman 1)
+        # Kart hareketleri = status geçişleri (Katman 1). Board seviyesinde
+        # önceden çekilir; kart başına istek atılmaz (oran sınırı).
         transitions: list[NormalizedTransition] = []
-        actions_resp = client.get(
-            f"/cards/{card['id']}/actions", params={"filter": "updateCard:idList,createCard"}
-        )
-        if actions_resp.status_code == 200:
-            for action in reversed(actions_resp.json()):  # eski → yeni
-                ts = _dt(action.get("date"))
-                data = action.get("data", {})
-                if ts is None:
-                    continue
-                if action.get("type") == "createCard":
-                    to_list = (data.get("list") or {}).get("name")
-                    if to_list:
-                        transitions.append(NormalizedTransition(None, to_list, ts))
-                else:
-                    before = (data.get("listBefore") or {}).get("name")
-                    after = (data.get("listAfter") or {}).get("name")
-                    if after:
-                        transitions.append(NormalizedTransition(before, after, ts))
+        for action in reversed(actions or []):  # eski → yeni
+            ts = _dt(action.get("date"))
+            data = action.get("data", {})
+            if ts is None:
+                continue
+            if action.get("type") == "createCard":
+                to_list = (data.get("list") or {}).get("name")
+                if to_list:
+                    transitions.append(NormalizedTransition(None, to_list, ts))
+            else:
+                before = (data.get("listBefore") or {}).get("name")
+                after = (data.get("listAfter") or {}).get("name")
+                if after:
+                    transitions.append(NormalizedTransition(before, after, ts))
 
         labels = [(lbl.get("name") or "").lower() for lbl in card.get("labels", [])]
         is_bug = any(h in lbl for lbl in labels for h in BUG_LABEL_HINTS)
@@ -230,6 +288,9 @@ class TrelloProvider:
                 if card.get("shortLink") else None
             ),
             team_name=board_name,
+            # Arşivli kart akışta değildir (WIP'e sayılmaz) ama kaydı tutulur:
+            # arşivlenen kart çoğu zaman bitmiş iştir.
+            archived=bool(card.get("closed")),
             assignee_key=assignee_key,
             # Ad board üye listesinden gelir (board başına tek istek). Bilinmiyorsa
             # None kalır: ingest o zaman ham id'yi görünen ad yapar, uydurmaz.

@@ -295,10 +295,15 @@ def test_coerce_suggestions_nesneyi_python_repr_olarak_yazmaz():
     assert coerce_suggestions("tek öneri") == ["tek öneri"]
 
 
-def test_local_analyzer_bozuk_yaniti_net_hataya_cevirir():
-    """LocalAnalyzer.analyze uçtan uca: HTTP 200 ama içerik şemaya uymuyor."""
+def test_local_analyzer_bozuk_yaniti_net_hataya_cevirir(monkeypatch):
+    """LocalAnalyzer.analyze uçtan uca: HTTP 200 ama içerik şemaya uymuyor.
+
+    İstek artık app/llm/local_client.py'de kurulduğu için (bağlam sınırı TEK
+    yerde ayarlansın diye) yama hedefi orasıdır."""
     import pytest
 
+    from app.core.config import LLMLocal
+    from app.llm import local_client
     from app.services.code_analysis import LocalAnalyzer, LocalOutputError
 
     class FakeResp:
@@ -309,27 +314,23 @@ def test_local_analyzer_bozuk_yaniti_net_hataya_cevirir():
             return None
 
         def json(self):
-            return {"choices": [{"message": {"content": self._i}}]}
+            # Ollama /api/chat gövdesi (varsayılan api_style).
+            return {"message": {"content": self._i}, "prompt_eval_count": 10_000}
 
-    class FakeHttpx:
-        def __init__(self, icerik):
-            self._i = icerik
+    def _fake_post(icerik):
+        return lambda url, **kw: FakeResp(icerik)
 
-        def post(self, *a, **kw):
-            return FakeResp(self._i)
+    az = LocalAnalyzer(LLMLocal(base_url="http://localhost:11434", model="m"), None, "S")
 
-    az = LocalAnalyzer.__new__(LocalAnalyzer)
-    az.base_url = "http://localhost:11434"
-    az.model = "m"
-    az._api_key = None
-    az.system = "S"
-
-    az._httpx = FakeHttpx('```json\n"ping": "pong"\n```')
+    monkeypatch.setattr(local_client.httpx, "post",
+                        _fake_post('```json\n"ping": "pong"\n```'))
     with pytest.raises(LocalOutputError):
         az.analyze("a.py", "@@ diff @@")
 
-    az._httpx = FakeHttpx(f"Iste sonuc:\n```json\n{_tam_json(suggestions=[{'description': 'x', 'implementation': 'y'}])}\n```")
+    monkeypatch.setattr(local_client.httpx, "post", _fake_post(
+        f"Iste sonuc:\n```json\n{_tam_json(suggestions=[{'description': 'x', 'implementation': 'y'}])}\n```"))
     res = az.analyze("a.py", "@@ diff @@")
     assert res.provider == "local"
     assert res.scores["readability"] == 80
     assert res.suggestions == ["x — y"]
+    assert res.truncated is False

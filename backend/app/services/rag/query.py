@@ -60,6 +60,9 @@ class RagAnswer:
     answer: str | None = None
     sources: list[Source] = field(default_factory=list)
     reason: str | None = None
+    # İndeks ölçek sınırı gibi uyarılar: cevap üretilir ama kullanıcı durumu
+    # öğrenir. Sessiz yavaşlama, sebebi görünmeyen bir bozulmadır.
+    warnings: list[str] = field(default_factory=list)
 
 
 def _question_hash(question: str) -> str:
@@ -167,6 +170,7 @@ def answer(
     _audit("ok", len(hits), len(context_block), masked, provider.model)
     return RagAnswer(
         status="ok",
+        warnings=list(getattr(index, "warnings", [])),
         answer=text.strip() if isinstance(text, str) else str(text),
         sources=[
             Source(n=i, chunk_id=h.chunk_id, source_kind=h.source_kind,

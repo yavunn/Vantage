@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.adapters.base import NormalizedCommit, NormalizedPR, NormalizedReview
+from app.adapters.http_retry import get_with_backoff, oran_siniri_mi
 
 GITHUB_API = "https://api.github.com"
 _SLUG_RE = re.compile(r"(?:github\.com[/:])?([\w.-]+)/([\w.-]+?)(?:\.git)?/?$", re.IGNORECASE)
@@ -109,19 +110,27 @@ class GitHubProvider:
                     f"{self.token_env} tanımlı ve 'repo' yetkili olmalı.")
         if resp.status_code == 401:
             return f"Repo '{ad}': {self.token_env} geçersiz."
+        if oran_siniri_mi(resp):
+            # Yeniden denemedik: GitHub oran sınırı bir saate kadar sürebilir,
+            # senkronu o kadar bekletmek doğru değil. Kullanıcı sebebi görsün.
+            return (f"Repo '{ad}': GitHub oran sınırı aşıldı. "
+                    f"{self.token_env} tanımlayın (60/saat → 5000/saat).")
         if resp.status_code == 403:
-            if "rate limit" in resp.text.lower():
-                return (f"Repo '{ad}': GitHub oran sınırı aşıldı. "
-                        f"{self.token_env} tanımlayın (60/saat → 5000/saat).")
             return f"Repo '{ad}': erişim reddedildi (403)."
         return f"Repo '{ad}': GitHub API hatası ({resp.status_code})."
 
     def _paged(self, client: httpx.Client, url: str, params: dict, limit: int) -> list[dict]:
-        """Link başlığını izleyerek sayfalar; limit'e ulaşınca durur."""
+        """Link başlığını izleyerek sayfalar; limit'e ulaşınca durur.
+
+        429/5xx'te geri çekilip yeniden dener (bkz. http_retry). GitHub'ın
+        "403 + oran sınırı" durumu YENİDEN DENENMEZ — sıfırlanması bir saati
+        bulabilir; yanıt olduğu gibi döner ve _hata_uyarisi net sebep yazar."""
         items: list[dict] = []
         page = 1
         while len(items) < limit:
-            resp = client.get(url, params={**params, "per_page": 100, "page": page})
+            resp = get_with_backoff(
+                client, url, {**params, "per_page": 100, "page": page}
+            )
             if resp.status_code != 200:
                 raise httpx.HTTPStatusError("api", request=resp.request, response=resp)
             batch = resp.json()

@@ -435,3 +435,76 @@ def test_indekste_kalmis_takimsiz_chunk_temizlenir(session):
         select(func.count()).select_from(DocChunk).where(DocChunk.team_id.is_(None))
     )
     assert kalan == 0
+
+
+# --- İŞ-24: bellek indeksinin ölçek davranışı ---------------------------------
+# index.py'nin tasarım notu ölçeği yalnız yorumda ("birkaç yüz chunk")
+# varsayıyordu; aşıldığında sistem hata vermiyor, SESSİZCE yavaşlıyordu.
+# Sınır artık ölçüme dayanıyor (scripts/rag_scale_test.py).
+
+def _chunk_ekle(session, team_id, n, model="test", boyut=8, ofset=0):
+    from app.models import DocChunk
+
+    for i in range(ofset, ofset + n):
+        session.add(DocChunk(
+            source_kind="task", source_id=i, chunk_index=0, team_id=team_id,
+            content=f"kayıt {i}", content_hash=f"h{i}", model=model,
+            embedding=[0.1 * ((i + j) % 5) for j in range(boyut)],
+        ))
+    session.commit()
+
+
+def test_olcek_sinirini_asinca_uyari_uretilir(session, monkeypatch):
+    from app.models import Team
+    from app.services.rag import index as index_mod
+
+    monkeypatch.setattr(index_mod, "MAX_MEMORY_CHUNKS", 5)
+    index_mod.invalidate_cache()
+    team = Team(name="T")
+    session.add(team)
+    session.commit()
+    _chunk_ekle(session, team.id, 8)
+
+    idx = index_mod.InMemoryIndex(session, model="test")
+    hits = idx.search([0.1] * 8, 3, team.id)
+
+    assert len(hits) == 3            # cevap YİNE üretilir
+    assert idx.warnings              # ama sessiz kalmaz
+    assert "pgvector" in idx.warnings[0]
+
+
+def test_sinir_altinda_uyari_yok(session, monkeypatch):
+    from app.models import Team
+    from app.services.rag import index as index_mod
+
+    monkeypatch.setattr(index_mod, "MAX_MEMORY_CHUNKS", 100)
+    index_mod.invalidate_cache()
+    team = Team(name="T")
+    session.add(team)
+    session.commit()
+    _chunk_ekle(session, team.id, 8)
+
+    idx = index_mod.InMemoryIndex(session, model="test")
+    idx.search([0.1] * 8, 3, team.id)
+    assert idx.warnings == []
+
+
+def test_onbellek_indeks_tazelenince_gecersiz_olur(session):
+    """Bayat vektörle cevap üretmek, silinmiş bir kaydı kaynak göstermektir."""
+    from app.models import Team
+    from app.services.rag import index as index_mod
+
+    index_mod.invalidate_cache()
+    team = Team(name="T")
+    session.add(team)
+    session.commit()
+    _chunk_ekle(session, team.id, 3)
+
+    idx = index_mod.InMemoryIndex(session, model="test")
+    assert len(idx.search([0.1] * 8, 10, team.id)) == 3
+
+    _chunk_ekle(session, team.id, 2, ofset=3)  # indeks büyüdü
+    # Önbellek geçersiz kılınmazsa yeni kayıtlar görünmez.
+    assert len(idx.search([0.1] * 8, 10, team.id)) == 3
+    index_mod.invalidate_cache()
+    assert len(idx.search([0.1] * 8, 10, team.id)) == 5

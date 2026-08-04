@@ -72,6 +72,7 @@ def test_kart_atamasi_uye_adiyla_gelir(monkeypatch):
         "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
         "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "DEVELOPMENT"}]),
         "/boards/b1/members": _FakeResp(200, [{"id": "m1", "fullName": "Ayşe Yılmaz"}]),
+        "/boards/b1/actions": _FakeResp(200, []),
         "/boards/b1/cards": _FakeResp(200, [
             {"id": "c1", "name": "Kart", "idList": "l1", "idMembers": ["m1"], "labels": []},
             {"id": "c2", "name": "Sahipsiz", "idList": "l1", "idMembers": [], "labels": []},
@@ -95,6 +96,7 @@ def test_uye_listesi_okunamazsa_kartlar_yine_gelir(monkeypatch):
     p = _provider(monkeypatch, {
         "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
         "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "DEVELOPMENT"}]),
+        "/boards/b1/actions": _FakeResp(200, []),
         "/boards/b1/cards": _FakeResp(200, [
             {"id": "c1", "name": "Kart", "idList": "l1", "idMembers": ["m1"], "labels": []},
         ]),
@@ -352,6 +354,7 @@ def test_kart_numarasi_ve_adresi_cekilir(monkeypatch):
         "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
         "/boards/b1/members": _FakeResp(200, []),
         "/boards/b1/lists": _FakeResp(200, [{"id": "l1", "name": "Bitti"}]),
+        "/boards/b1/actions": _FakeResp(200, []),
         "/boards/b1/cards": _FakeResp(200, [{
             "id": "6a607d6760ba225667be389e", "name": "rapor ekrani",
             "idList": "l1", "idShort": 42, "shortLink": "aBcD1234",
@@ -373,6 +376,7 @@ def test_kart_numarasi_yoksa_uydurulmaz(monkeypatch):
         "/boards/b1": _FakeResp(200, {"name": "Takım Panosu"}),
         "/boards/b1/members": _FakeResp(200, []),
         "/boards/b1/lists": _FakeResp(200, []),
+        "/boards/b1/actions": _FakeResp(200, []),
         "/boards/b1/cards": _FakeResp(200, [
             {"id": "c1", "name": "numarasiz kart", "idList": "l1", "labels": []},
         ]),
@@ -392,6 +396,7 @@ def test_board_adi_okunamazsa_kartlarin_takimsiz_kalacagi_soylenir(monkeypatch):
         "/boards/b1": _FakeResp(200, {}),          # ad YOK
         "/boards/b1/members": _FakeResp(200, []),
         "/boards/b1/lists": _FakeResp(200, []),
+        "/boards/b1/actions": _FakeResp(200, []),
         "/boards/b1/cards": _FakeResp(200, [
             {"id": "c1", "name": "kart", "idList": "l1", "labels": []},
         ]),
@@ -402,3 +407,81 @@ def test_board_adi_okunamazsa_kartlarin_takimsiz_kalacagi_soylenir(monkeypatch):
 
     assert tasks[0].team_name is None
     assert any("takıma bağlanamaz" in w for w in p.warnings)
+
+
+# --- İŞ-19: aynı insanın iki geliştirici kaydı --------------------------------
+# Canlı DB'de team 7'nin iki üyesi de aynı insandı (biri kişisel e-postayla, biri
+# GitHub noreply adresiyle) → member_count 2, kişi başı WIP yarıya iniyor ve
+# metrik olduğundan İYİ görünüyordu. Mevcut uyarı (_unlinked_identity_warnings)
+# yalnız "git kimliği HİÇ olmayan" kişiyi yakalıyordu.
+#
+# OTOMATİK BİRLEŞTİRME YOK: burada yalnız ADAY üretilir, karar insanındır.
+
+def _dev(session, ad, ids):
+    from app.models import Developer
+
+    d = Developer(display_name=ad, external_ids=ids)
+    session.add(d)
+    session.flush()
+    return d
+
+
+def test_github_noreply_ikizi_yakalanir(session):
+    from app.services.ingest import duplicate_identity_pairs
+
+    _dev(session, "Ayşe Yılmaz", {"git": "ayse@sirket.com"})
+    _dev(session, "ayse", {"git": "12345+ayse@users.noreply.github.com"})
+    session.commit()
+
+    ciftler = duplicate_identity_pairs(session)
+
+    assert len(ciftler) == 1
+    assert "noreply" in ciftler[0][2]
+
+
+def test_ayni_gorunen_ad_farkli_git_kimligi_yakalanir(session):
+    from app.services.ingest import duplicate_identity_pairs
+
+    _dev(session, "Mehmet Kaya", {"git": "mehmet@eski.com"})
+    _dev(session, "Mehmet Kaya", {"git": "mehmet.kaya@yeni.com"})
+    session.commit()
+
+    ciftler = duplicate_identity_pairs(session)
+    assert len(ciftler) == 1
+    assert "görünen ad" in ciftler[0][2]
+
+
+def test_ayni_trello_kimligi_yakalanir(session):
+    from app.services.ingest import duplicate_identity_pairs
+
+    _dev(session, "A", {"git": "a@x.com", "trello": "m1"})
+    _dev(session, "B", {"git": "b@x.com", "trello": "m1"})
+    session.commit()
+
+    ciftler = duplicate_identity_pairs(session)
+    assert len(ciftler) == 1
+    assert "trello" in ciftler[0][2]
+
+
+def test_farkli_kisiler_ikiz_sayilmaz(session):
+    """Yanlış pozitif, İK bağlamında gerçek bir zarardır: iki ayrı insanı
+    birleştirmeye davet etmemeli."""
+    from app.services.ingest import duplicate_identity_pairs
+
+    _dev(session, "Ali", {"git": "ali@x.com", "trello": "m1"})
+    _dev(session, "Veli", {"git": "veli@x.com", "trello": "m2"})
+    session.commit()
+
+    assert duplicate_identity_pairs(session) == []
+
+
+def test_ikiz_uyarisi_metrik_etkisini_soyler(session):
+    from app.services.ingest import _duplicate_identity_warnings
+
+    _dev(session, "Ayşe Yılmaz", {"git": "ayse@sirket.com"})
+    _dev(session, "ayse", {"git": "12345+ayse@users.noreply.github.com"})
+    session.commit()
+
+    uyarilar = _duplicate_identity_warnings(session)
+    assert uyarilar and "WIP" in uyarilar[0]
+    assert "otomatik birleştirme yapılmaz" in uyarilar[0].lower()

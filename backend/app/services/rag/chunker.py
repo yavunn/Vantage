@@ -129,7 +129,10 @@ def task_chunks(session: Session, cfg: Config) -> list[Chunk]:
     """Task → başlık + statü + geçiş zinciri. Atanan kişi ALINMAZ."""
     teams = {t.id: t.name for t in session.scalars(select(Team))}
     out: list[Chunk] = []
-    for t in session.scalars(select(Task)):
+    # Kaynakta artık olmayan kayıt indekslenmez: silinmiş bir kartın metnini
+    # cevaba kaynak göstermek sistemin yalan söylemesi olurdu (indexer.py'deki
+    # 'stale chunk' gerekçesiyle aynı ilke).
+    for t in session.scalars(select(Task).where(Task.missing_since.is_(None))):
         bits = [(t.title or "").strip(), f"Statü: {t.status or 'belirsiz'}"]
         transitions = sorted(t.transitions, key=lambda tr: tr.changed_at)
         if transitions:

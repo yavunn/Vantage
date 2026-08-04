@@ -117,4 +117,9 @@ def reindex(session: Session, cfg: Config,
     stats["removed"] = len(stale)
 
     session.commit()
+    # Arama önbelleği bayat kalmasın: indeks değişti, eski vektörlerle cevap
+    # üretmek silinmiş/eskimiş bir kaydı kaynak göstermek olurdu.
+    from app.services.rag.index import invalidate_cache
+
+    invalidate_cache()
     return stats

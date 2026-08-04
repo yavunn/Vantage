@@ -54,6 +54,14 @@ class SourcesUpdate(BaseModel):
     jira_token: str | None = None
     # Jira proje anahtarları (ör. ["ENG", "OPS"]). Sır değil → config'e yazılır.
     jira_projects: list[str] | None = None
+    # Jira kimlik/uç ayarları. Panelden girilebilmeleri ŞART: Jira CLOUD
+    # e-posta + API token ile BASIC auth ister ve eski arama ucu Cloud'da
+    # kaldırıldı. Bunlar yalnız YAML'dan ayarlanabilir kalsaydı, "gerçek
+    # kurulumda çalışsın" düzeltmesi pratikte kullanılamazdı.
+    jira_auth: str | None = None            # basic | bearer
+    jira_email: str | None = None           # basic auth kullanıcı adı
+    jira_api_style: str | None = None       # auto | cloud | server
+    jira_story_points_field: str | None = None
     # GitLab hedefleri artık ORTAK `repos` listesinden okunur (repo→takım eşlemesi
     # oradan geliyor). Bu alan eski kurulumların listesini düzenleyebilmek için
     # duruyor; panel kullanmaz.
@@ -134,6 +142,10 @@ def get_sources(
             "provider": cfg.sources.tasks.provider,
             "jira_base_url": cfg.sources.tasks.jira.base_url,
             "jira_projects": list(cfg.sources.tasks.jira.projects),
+            "jira_auth": cfg.sources.tasks.jira.auth,
+            "jira_email": cfg.sources.tasks.jira.email,
+            "jira_api_style": cfg.sources.tasks.jira.api_style,
+            "jira_story_points_field": cfg.sources.tasks.jira.story_points_field,
             "token": _env_status(cfg.sources.tasks.jira.token_env),
             "trello": {
                 "boards": cfg.sources.tasks.trello.boards,
@@ -176,6 +188,23 @@ def update_sources(
         raw["sources"]["git"]["gitlab"]["base_url"] = body.gitlab_base_url
     if body.jira_base_url is not None:
         raw["sources"]["tasks"]["jira"]["base_url"] = body.jira_base_url
+    if body.jira_auth is not None:
+        secim = body.jira_auth.strip().lower()
+        if secim not in ("basic", "bearer"):
+            raise HTTPException(422, "jira_auth 'basic' ya da 'bearer' olmalı.")
+        raw["sources"]["tasks"]["jira"]["auth"] = secim
+    if body.jira_email is not None:
+        # E-posta sır DEĞİLDİR (token sırdır) → config'e yazılabilir.
+        raw["sources"]["tasks"]["jira"]["email"] = body.jira_email.strip()
+    if body.jira_api_style is not None:
+        secim = body.jira_api_style.strip().lower()
+        if secim not in ("auto", "cloud", "server"):
+            raise HTTPException(422, "jira_api_style 'auto', 'cloud' ya da 'server' olmalı.")
+        raw["sources"]["tasks"]["jira"]["api_style"] = secim
+    if body.jira_story_points_field is not None:
+        # Boş bırakmak bilinçli tercihtir: alan hiç okunmaz, uyarı da üretilmez.
+        raw["sources"]["tasks"]["jira"]["story_points_field"] = \
+            body.jira_story_points_field.strip()
     if body.sync_interval_minutes is not None:
         raw["sync"]["interval_minutes"] = max(0, body.sync_interval_minutes)
     if body.trello_boards is not None:
@@ -565,6 +594,35 @@ def set_developer_task_identity(
     }
 
 
+@router.get("/developers/duplicate-candidates")
+def duplicate_candidates(
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin),
+):
+    """Aynı insan olma ihtimali yüksek kişi çiftleri + gerekçeleri.
+
+    OTOMATİK BİRLEŞTİRME YOK — burada yalnız ADAY listelenir, kararı insan
+    verir (POST /developers/{id}/merge). Bu bir gözetim özelliği değil, VERİ
+    KALİTESİ uyarısıdır: ikiz kayıtlar takım kadrosunu şişirir ve kişi başı
+    metrikler (WIP) olduğundan İYİ görünür.
+
+    Uyarı senkron sonucunda da çıkar ama orada kaybolur; eşleme ekranının
+    listeyi doğrudan gösterebilmesi gerekiyordu.
+    """
+    from app.services.ingest import duplicate_identity_pairs
+
+    out = []
+    for a, b, sebep in duplicate_identity_pairs(session):
+        out.append({
+            "reason": sebep,
+            "a": {"id": a.id, "name": a.display_name,
+                  "external_ids": {k: v for k, v in (a.external_ids or {}).items()}},
+            "b": {"id": b.id, "name": b.display_name,
+                  "external_ids": {k: v for k, v in (b.external_ids or {}).items()}},
+        })
+    return {"candidates": out, "count": len(out)}
+
+
 class DeveloperMerge(BaseModel):
     duplicate_id: int
 
@@ -696,12 +754,40 @@ def run_code_analysis_developer(dev_id: int, _: User = Depends(require_admin)):
 
 
 @router.post("/sync")
-def trigger_sync(_: User = Depends(require_admin)):
-    """Elle senkron: kaynaklardan çek + metrik hesapla + öneri üret."""
-    from app.services.pipeline import run_pipeline
+def trigger_sync(full: bool = False, user: User = Depends(require_admin)):
+    """Elle senkron BAŞLATIR ve hemen döner (arka planda çalışır).
 
-    stats = run_pipeline()
-    return {"ok": True, "stats": stats}
+    Eskiden pipeline istek içinde koşuyordu: gerçek kaynakla dakikalar sürüyor,
+    tarayıcı/proxy zaman aşımına düşüyor ve ilerleme görünmüyordu. Durum
+    GET /api/admin/sync/{job_id} (ya da /sync/status) ile izlenir.
+
+    full=true: son senkron damgasını yok sayıp tam çekim yapar."""
+    from app.services import sync_job
+
+    job, sebep = sync_job.baslat(triggered_by=user.email, incremental=not full)
+    if job is None:
+        # 409: istek geçerli ama şu an çalıştırılamaz — kullanıcı tekrar dener.
+        raise HTTPException(409, sebep or "Senkron başlatılamadı.")
+    return {"ok": True, "job": job.payload()}
+
+
+@router.get("/sync/status")
+def sync_status(_: User = Depends(require_admin)):
+    """Son senkronun durumu (çalışıyor / bitti / hata + uyarılar)."""
+    from app.services import sync_job
+
+    job = sync_job.son_is()
+    return {"job": job.payload() if job else None}
+
+
+@router.get("/sync/{job_id}")
+def sync_job_durumu(job_id: str, _: User = Depends(require_admin)):
+    from app.services import sync_job
+
+    job = sync_job.is_getir(job_id)
+    if job is None:
+        raise HTTPException(404, "Senkron işi bulunamadı.")
+    return {"job": job.payload()}
 
 
 @router.post("/sources/test")
@@ -720,6 +806,11 @@ def test_sources(_: User = Depends(require_admin)):
         if provider is None:
             return {"ok": False, "provider": None,
                     "detail": f"{label} sağlayıcısı yok (provider: none/tanımsız)."}
+        # Sağlayıcı uyarı sözleşmesini uyguluyor mu? Uygulamıyorsa "uyarı yok"
+        # bilgi DEĞİL, sessizliktir: eskiden böyle bir sağlayıcı (Jira) 401 alsa
+        # bile bu uç ok:true, count:0 diyor ve kullanıcı "bağlantı çalışıyor,
+        # henüz kayıt yok" sanıyordu. Tam da bunu engellemek için yazılmış bir uç.
+        uyari_destegi = hasattr(provider, "warnings")
         try:
             items = fetch(provider)
         except Exception as e:  # noqa: BLE001 — test ucu asla 500 vermemeli
@@ -727,8 +818,29 @@ def test_sources(_: User = Depends(require_admin)):
                     "detail": f"{label} okunamadı: {type(e).__name__}.",
                     "warnings": list(getattr(provider, "warnings", []))}
         warnings = list(getattr(provider, "warnings", []))
-        return {"ok": not warnings, "provider": type(provider).__name__,
-                "count": len(items), "warnings": warnings}
+        out = {"provider": type(provider).__name__, "count": len(items),
+               "warnings": warnings}
+        if not uyari_destegi:
+            out["ok"] = False
+            out["detail"] = (
+                f"{label} sağlayıcısı ({type(provider).__name__}) hata bildirimi "
+                "desteklemiyor — sonucun doğruluğu doğrulanamıyor."
+            )
+            return out
+        if warnings:
+            out["ok"] = False
+            return out
+        if not items:
+            # "0 kayıt + uyarı yok" bir başarı değildir: filtre/proje/board ayarı
+            # yanlış olabilir ve bunu ancak kullanıcı bilir.
+            out["ok"] = False
+            out["detail"] = (
+                f"{label} bağlantısı kuruldu ama hiç kayıt gelmedi — proje/board "
+                "listesi ve filtre ayarlarını kontrol edin."
+            )
+            return out
+        out["ok"] = True
+        return out
 
     git = build_git_provider(cfg)
     git_res = _probe(git, "Git", lambda p: p.fetch_commits())

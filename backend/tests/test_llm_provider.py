@@ -147,13 +147,27 @@ def test_api_anahtari_config_e_yazilmaz_env_e_yazilir(client, actors, monkeypatc
 
 
 class _CapturingPost:
-    """httpx.post yerine geçer; gönderilen başlıkları saklar, ağa çıkmaz."""
+    """httpx.post yerine geçer; gönderilen istek bilgisini saklar, ağa çıkmaz.
 
-    def __init__(self):
+    İstek artık app/llm/local_client.py'de kurulduğu için yama HEDEFİ orasıdır
+    (advisor/analyzer kendi httpx çağrılarını kurmuyor — bağlam sınırının bir
+    yolda ayarlanıp diğerinde unutulmasını engelleyen tasarım)."""
+
+    def __init__(self, stil: str = "ollama"):
         self.headers: dict | None = None
+        self.url: str | None = None
+        self.json: dict | None = None
+        self._stil = stil
 
     def __call__(self, url, **kwargs):
         self.headers = kwargs.get("headers")
+        self.url = url
+        self.json = kwargs.get("json")
+        govde = (
+            {"message": {"content": "cevap"}, "prompt_eval_count": 10_000}
+            if self._stil == "ollama"
+            else {"choices": [{"message": {"content": "cevap"}}]}
+        )
 
         class _Resp:
             @staticmethod
@@ -162,37 +176,49 @@ class _CapturingPost:
 
             @staticmethod
             def json():
-                return {"choices": [{"message": {"content": "cevap"}}]}
+                return govde
 
         return _Resp()
 
 
-def _local_cfg(api_key_env: str):
+def _local_cfg(api_key_env: str, **local_kwargs):
     from types import SimpleNamespace
 
-    return SimpleNamespace(llm=SimpleNamespace(
-        enabled=True, provider="local",
-        local=SimpleNamespace(
-            base_url="http://uc.local", model="m", api_key_env=api_key_env,
-        ),
-    ))
+    from app.core.config import LLMLocal
+
+    local = LLMLocal(
+        base_url="http://uc.local", model="m", api_key_env=api_key_env, **local_kwargs
+    )
+    return SimpleNamespace(llm=SimpleNamespace(enabled=True, provider="local", local=local))
+
+
+def _patch_post(monkeypatch, stil: str = "ollama") -> _CapturingPost:
+    from app.llm import local_client
+
+    post = _CapturingPost(stil)
+    monkeypatch.setattr(local_client.httpx, "post", post)
+    return post
 
 
 def test_yerel_advisor_anahtar_varsa_authorization_gonderir(monkeypatch):
+    from app.core.config import LLMLocal
     from app.llm import advisor as advisor_mod
 
-    post = _CapturingPost()
-    monkeypatch.setattr(advisor_mod.httpx, "post", post)
-    advisor_mod.LocalAdvisor("http://uc.local", "m", "sk-yerel").chat("sistem", "soru")
+    post = _patch_post(monkeypatch)
+    advisor_mod.LocalAdvisor(
+        LLMLocal(base_url="http://uc.local", model="m"), "sk-yerel"
+    ).chat("sistem", "soru")
     assert post.headers == {"Authorization": "Bearer sk-yerel"}
 
 
 def test_yerel_advisor_anahtarsiz_ucta_baslik_gondermez(monkeypatch):
+    from app.core.config import LLMLocal
     from app.llm import advisor as advisor_mod
 
-    post = _CapturingPost()
-    monkeypatch.setattr(advisor_mod.httpx, "post", post)
-    advisor_mod.LocalAdvisor("http://uc.local", "m").chat("sistem", "soru")
+    post = _patch_post(monkeypatch)
+    advisor_mod.LocalAdvisor(LLMLocal(base_url="http://uc.local", model="m")).chat(
+        "sistem", "soru"
+    )
     # Ollama anahtar istemez; boş Bearer göndermek bazı uçlarda 401 sebebidir.
     assert post.headers == {}
 
@@ -201,8 +227,7 @@ def test_build_advisor_yerel_anahtari_ortamdan_okur(monkeypatch):
     from app.llm import advisor as advisor_mod
 
     monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
-    post = _CapturingPost()
-    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    post = _patch_post(monkeypatch)
     advisor_mod.build_advisor(_local_cfg("TEST_LOCAL_LLM_KEY")).chat("", "soru")
     assert post.headers == {"Authorization": "Bearer sk-ortam"}
 
@@ -212,8 +237,7 @@ def test_yerel_advisor_rag_sohbetiyle_ayni_yolu_kullanir(monkeypatch):
     from app.llm import advisor as advisor_mod
 
     monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
-    post = _CapturingPost()
-    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    post = _patch_post(monkeypatch)
     advisor_mod.build_advisor(_local_cfg("TEST_LOCAL_LLM_KEY")).advise("Takım", "metrik")
     assert post.headers == {"Authorization": "Bearer sk-ortam"}
 
@@ -223,12 +247,10 @@ def test_commit_degerlendirmesi_de_yerel_anahtari_gonderir(monkeypatch):
     sessizce atlanıyordu: anahtar isteyen bir yerel uçta kod analizi ve asistan
     çalışırken commit değerlendirmesi 401 alıp KURALA düşüyor, düşüş sessiz
     olduğu için kullanıcı bunu 'AI bu özellikte kapalı' sanıyordu."""
-    from app.llm import advisor as advisor_mod
     from app.services import commit_review
 
     monkeypatch.setenv("TEST_LOCAL_LLM_KEY", "sk-ortam")
-    post = _CapturingPost()
-    monkeypatch.setattr(advisor_mod.httpx, "post", post)
+    post = _patch_post(monkeypatch)
 
     commit_review._ai_call(_local_cfg("TEST_LOCAL_LLM_KEY"), "- feat: x")
 
@@ -239,13 +261,13 @@ def test_commit_degerlendirmesi_ai_dusunce_kurala_duser(monkeypatch):
     """AI başarısızsa özellik ÇÖKMEZ: kural tabanlı sonuç döner."""
     import httpx
 
-    from app.llm import advisor as advisor_mod
+    from app.llm import local_client
     from app.services import commit_review
 
     def _patla(url, **kwargs):
         raise httpx.ConnectError("uç kapalı")
 
-    monkeypatch.setattr(advisor_mod.httpx, "post", _patla)
+    monkeypatch.setattr(local_client.httpx, "post", _patla)
     cfg = _local_cfg("TEST_LOCAL_LLM_KEY")
 
     assert commit_review._ai_call(cfg, "- feat: x") is None

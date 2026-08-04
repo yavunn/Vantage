@@ -21,6 +21,7 @@ from datetime import datetime
 import httpx
 
 from app.adapters.base import NormalizedCommit, NormalizedPR, NormalizedReview
+from app.adapters.http_retry import get_with_backoff
 
 
 def _dt(value: str | None) -> datetime | None:
@@ -52,13 +53,22 @@ def parse_project_path(value: str) -> str | None:
 
 
 class GitLabProvider:
+    # CI/kalite botları MR'lara `system: false` yorum bırakır. Bunlar review
+    # sayılırsa review_latency olduğundan İYİ görünür — bot yorumu insan
+    # incelemesi değildir. Kullanıcı adı bu parçaları içeren hesaplar elenir.
+    BOT_ISARETLERI = ("bot", "ci-", "-ci", "sonar", "danger", "renovate", "dependabot")
+
     def __init__(self, base_url: str, token_env: str, projects: list[str],
-                 repos: list[dict] | None = None):
+                 repos: list[dict] | None = None, detail_limit: int = 150,
+                 max_notes_pages: int = 3, bot_users: list[str] | None = None):
         self.base_url = base_url.rstrip("/")
         self.token = os.environ.get(token_env, "")
         self.token_env = token_env
         self.projects = projects  # eski biçim: düz "grup/proje" listesi
         self.repos = repos or []  # yeni biçim: [{name, slug, team}]
+        self.detail_limit = max(0, detail_limit)
+        self.max_notes_pages = max(1, max_notes_pages)
+        self.bot_users = {b.strip().lower() for b in (bot_users or []) if b and b.strip()}
         self.warnings: list[str] = []
 
     def _uyar(self, mesaj: str) -> None:
@@ -121,11 +131,11 @@ class GitLabProvider:
         return f"Proje '{ad}': GitLab API hatası ({resp.status_code})."
 
     def _paged(self, client: httpx.Client, url: str, params: dict,
-               ad: str = "") -> list[dict]:
+               ad: str = "", max_pages: int | None = None) -> list[dict]:
         items: list[dict] = []
         page = 1
-        while True:
-            resp = client.get(url, params={**params, "per_page": 100, "page": page})
+        while max_pages is None or page <= max_pages:
+            resp = get_with_backoff(client, url, {**params, "per_page": 100, "page": page})
             if resp.status_code != 200:
                 # Tek proje hatası senkronu durdurmaz ama SESSİZ de kalmaz.
                 self._uyar(self._hata_uyarisi(ad or url, resp))
@@ -150,22 +160,114 @@ class GitLabProvider:
         with self._client() as client:
             for ad, proj in hedefler:
                 pid = str(proj).replace("/", "%2F")
-                for c in self._paged(client, f"/projects/{pid}/repository/commits",
-                                     params, ad):
+                ham = self._paged(client, f"/projects/{pid}/repository/commits", params, ad)
+                # Dosya listesi commit LİSTESİ ucunda gelmez, ayrı istek ister.
+                # None bırakmak üç özelliği sessizce öldürüyordu: rework metriği
+                # kalıcı "veri yetersiz", hotspot kuralı hiç tetiklenmiyor,
+                # mesaj-kod uyum analizi her commit için "kontrol edilemedi".
+                # Oran sınırını korumak için yalnız en yeni detail_limit commit
+                # zenginleştirilir (GitHub adaptöründeki desenin aynısı).
+                detayli = 0
+                for c in ham:
                     stats = c.get("stats") or {}
+                    sha = c.get("id", "")
+                    dosyalar = None
+                    if detayli < self.detail_limit and sha:
+                        dosyalar = self._commit_dosyalari(client, pid, sha)
+                        if dosyalar is not None:
+                            detayli += 1
                     out.append(
                         NormalizedCommit(
                             repo_name=ad,
-                            sha=c.get("id", ""),
+                            sha=sha,
                             author_key=c.get("author_email"),
                             author_name=c.get("author_name"),
                             committed_at=_dt(c.get("committed_date")),
                             message=c.get("title"),
-                            changed_files=None,  # ayrı istek gerekir; opsiyonel bırakıldı
+                            changed_files=dosyalar,
                             additions=stats.get("additions"),
                             deletions=stats.get("deletions"),
                         )
                     )
+                if len(ham) > self.detail_limit:
+                    self._uyar(
+                        f"Proje '{ad}': {len(ham)} commit'in ilk {self.detail_limit} tanesi "
+                        "için dosya listesi çekildi (oran sınırı). Rework metriği bu "
+                        "örneklem üzerinden hesaplanır, tamlık oranı buna göre düşer."
+                    )
+        return out
+
+    def _commit_dosyalari(self, client: httpx.Client, pid: str, sha: str) -> list[str] | None:
+        """Commit'in değiştirdiği dosya yolları. Hata olursa None (o commit
+        zenginleşmez, koşu sürer)."""
+        try:
+            resp = client.get(f"/projects/{pid}/repository/commits/{sha}/diff")
+        except httpx.HTTPError:
+            return None
+        if resp.status_code != 200:
+            return None
+        yollar = [
+            (f.get("new_path") or f.get("old_path"))
+            for f in (resp.json() or [])
+            if f.get("new_path") or f.get("old_path")
+        ]
+        return yollar or None
+
+    def _bot_mu(self, kullanici: str | None) -> bool:
+        ad = (kullanici or "").lower()
+        if not ad:
+            return False
+        if ad in self.bot_users:
+            return True
+        return any(isaret in ad for isaret in self.BOT_ISARETLERI)
+
+    def _onaylar(self, client, pid, iid, ad, author) -> list[NormalizedReview]:
+        """MR onayları — GERÇEK review sinyali. Onay verisi yoksa boş liste."""
+        if iid is None:
+            return []
+        try:
+            resp = client.get(f"/projects/{pid}/merge_requests/{iid}/approvals")
+        except httpx.HTTPError:
+            return []
+        if resp.status_code != 200:
+            # 404 = onay özelliği kapalı/erişilemez; bu bir hata değil, yorum
+            # yoluna düşülür. Uyarı üretmek sağlam projeyi bozukmuş gibi gösterirdi.
+            return []
+        data = resp.json() or {}
+        out: list[NormalizedReview] = []
+        for a in data.get("approved_by") or []:
+            kullanici = ((a.get("user") or {}).get("username")) or a.get("username")
+            if not kullanici or kullanici == author.get("username") or self._bot_mu(kullanici):
+                continue
+            # Onay zamanı bu uçta yoktur; MR'ın onaylanma damgası varsa kullanılır.
+            ts = _dt(data.get("updated_at") or data.get("created_at"))
+            if ts:
+                out.append(NormalizedReview(reviewer_key=kullanici, reviewed_at=ts))
+        out.sort(key=lambda r: r.reviewed_at)
+        return out
+
+    def _yorum_reviewlari(self, client, pid, iid, ad, author) -> list[NormalizedReview]:
+        """FALLBACK: onay verisi yoksa insan yorumları zayıf review sinyalidir.
+
+        Sayfa sayısı sınırlı: aranan İLK review'dır, tüm tartışma değil —
+        yüzlerce MR'lı projede tüm notları çekmek gereksiz ağır."""
+        if iid is None:
+            return []
+        notes = self._paged(
+            client, f"/projects/{pid}/merge_requests/{iid}/notes",
+            {"sort": "asc"}, ad, max_pages=self.max_notes_pages,
+        )
+        out: list[NormalizedReview] = []
+        for note in notes:
+            if note.get("system"):
+                continue
+            kullanici = (note.get("author") or {}).get("username")
+            if not kullanici or kullanici == author.get("username") or self._bot_mu(kullanici):
+                continue
+            ts = _dt(note.get("created_at"))
+            if ts:
+                out.append(NormalizedReview(reviewer_key=kullanici, reviewed_at=ts))
+        out.sort(key=lambda r: r.reviewed_at)
         return out
 
     def fetch_pull_requests(self, since: datetime | None = None) -> list[NormalizedPR]:
@@ -182,26 +284,18 @@ class GitLabProvider:
                 for mr in self._paged(client, f"/projects/{pid}/merge_requests",
                                       params, ad):
                     author = mr.get("author") or {}
-                    # İlk review yaklaşımı: notes API'sinden ilk insan yorumu
-                    first_review_at = None
-                    reviews: list[NormalizedReview] = []
-                    notes = self._paged(
-                        client,
-                        f"/projects/{pid}/merge_requests/{mr.get('iid')}/notes",
-                        {"sort": "asc"},
-                        ad,
-                    )
-                    for note in notes:
-                        if note.get("system"):
-                            continue
-                        note_author = (note.get("author") or {}).get("username")
-                        if note_author == author.get("username"):
-                            continue  # yazarın kendi yorumu review sayılmaz
-                        ts = _dt(note.get("created_at"))
-                        if ts:
-                            reviews.append(NormalizedReview(reviewer_key=note_author, reviewed_at=ts))
-                            if first_review_at is None:
-                                first_review_at = ts
+                    iid = mr.get("iid")
+                    # Review sinyali ÖNCE gerçek onay verisinden alınır. Eskiden
+                    # yalnız "ilk system olmayan yorum" review sayılıyordu; CI ve
+                    # kalite botları da yorum bıraktığı için review_latency
+                    # olduğundan iyi görünüyor ve "review yapıldı" sinyali sahte
+                    # oluyordu. Yorum yolu artık yalnızca FALLBACK.
+                    reviews = self._onaylar(client, pid, iid, ad, author)
+                    layer = "approval"
+                    if not reviews:
+                        reviews = self._yorum_reviewlari(client, pid, iid, ad, author)
+                        layer = "comment"
+                    first_review_at = reviews[0].reviewed_at if reviews else None
                     out.append(
                         NormalizedPR(
                             repo_name=ad,
@@ -214,6 +308,7 @@ class GitLabProvider:
                             merged_at=_dt(mr.get("merged_at")),
                             closed_at=_dt(mr.get("closed_at")),
                             reviews=reviews,
+                            review_source=layer if reviews else None,
                         )
                     )
         return out

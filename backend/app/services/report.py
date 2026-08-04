@@ -23,12 +23,11 @@ from app.metrics.engine import (
     METRIC_FUNCS,
     TeamData,
     _deploy_events,
-    _in,
-    _is_done,
     _revert_target_sha,
     _task_done_at,
     _task_started_at,
     as_utc,
+    is_in_flow,
     load_team_data,
 )
 from app.models import Recommendation, Team
@@ -229,9 +228,9 @@ def _breakdown_wip(data: TeamData) -> list[dict]:
     for t in data.tasks:
         # Statü kategorileri data.statuses'tan (config + varsayılan) gelir —
         # burada ikinci bir gömülü liste tutmak drilldown'ın metrikle
-        # çelişmesine yol açıyordu.
-        if t.status is None or _is_done(t.status, data.statuses) \
-                or _in(t.status, data.statuses["backlog"]):
+        # çelişmesine yol açıyordu. Akış tanımı da metrikle AYNI (is_in_flow):
+        # eşlenmemiş kolon WIP'e girmiyorsa drilldown'da da görünmemeli.
+        if t.status is None or not is_in_flow(t.status, data.statuses):
             continue
         rows.append({
             "label": t.title or f"Task #{t.external_id}",

@@ -18,14 +18,16 @@ def init_db() -> None:
     print("Şema oluşturuldu.")
 
 
-def sync() -> None:
+def sync(full: bool = False) -> None:
+    """python -m app.cli sync [full] — 'full' son senkron damgasını yok sayıp
+    tam çekim yapar (kaynak tarafında bir sorun düzeltildikten sonra)."""
     from app.services.pipeline import run_pipeline
 
     # Yeni tablolar (bildirim/audit vb.) migration'sız ortamda da hazır olsun.
     Base.metadata.create_all(get_engine())
     ensure_schema_patches()
-    stats = run_pipeline()
-    print("Senkron tamam:", stats)
+    stats = run_pipeline(incremental=not full)
+    print(("Tam senkron" if full else "Senkron") + " tamam:", stats)
 
 
 def analyze_code() -> None:
@@ -126,4 +128,8 @@ if __name__ == "__main__":
     # varsayılanına (sqlite) düşer ve yanlış veritabanına yazardı.
     from app.core.secrets import load_secrets
     load_secrets()
-    COMMANDS[cmd]()
+    # `sync full` → artımlı damgayı yok say, tam çekim yap.
+    if cmd == "sync":
+        sync(full=(len(sys.argv) > 2 and sys.argv[2].lower() == "full"))
+    else:
+        COMMANDS[cmd]()

@@ -118,3 +118,52 @@ def test_saglikli_takimda_kural_tetiklenmez(session):
     run_rules(session, _cfg())
     recs = session.scalars(select(Recommendation)).all()
     assert recs == []
+
+
+def test_trello_takiminda_estimate_onerisi_uretilmez(session):
+    """İŞ-07: Trello'da estimate ALANI YOKTUR. Metrik motoru bunu zaten
+    dışlıyordu (SOURCES_WITHOUT_ESTIMATE) ama kural dışlamıyordu; sonuç,
+    takımın hiçbir zaman kapatamayacağı kalıcı bir öneriydi."""
+    from app.models import Task
+    from app.rules.engine import rule_low_process_hygiene
+
+    team, repo, devs, _ = make_team(session)
+    for i in range(5):
+        session.add(Task(source="trello", external_id=f"T-{i}", team_id=team.id,
+                         status="DEVELOPMENT", estimate_hours=None))
+    session.commit()
+    assert rule_low_process_hygiene(_data(session, team), _cfg()) is None
+
+
+def test_estimate_destekleyen_kaynakta_oneri_hala_uretilir(session):
+    """Jira'da alan VAR — doldurulmaması gerçek bir görünürlük kaybıdır;
+    düzeltme bu sinyali susturmamalı."""
+    from app.models import Task
+    from app.rules.engine import rule_low_process_hygiene
+
+    team, repo, devs, _ = make_team(session)
+    for i in range(5):
+        session.add(Task(source="jira", external_id=f"J-{i}", team_id=team.id,
+                         status="To Do", estimate_hours=None))
+    session.commit()
+    finding = rule_low_process_hygiene(_data(session, team), _cfg())
+    assert finding is not None
+    assert "estimate" in finding.message.lower()
+
+
+def test_karisik_kaynakta_payda_yalniz_estimate_destekleyenler(session):
+    """Trello kartları paydayı şişirip oranı yapay yükseltmemeli."""
+    from app.models import Task
+    from app.rules.engine import rule_low_process_hygiene
+
+    team, repo, devs, _ = make_team(session)
+    # 8 Trello (alan yok) + 4 Jira'nın 3'ünde estimate dolu → estimable %25 eksik
+    for i in range(8):
+        session.add(Task(source="trello", external_id=f"T-{i}", team_id=team.id,
+                         status="DEVELOPMENT", estimate_hours=None))
+    for i in range(4):
+        session.add(Task(source="jira", external_id=f"J-{i}", team_id=team.id,
+                         status="To Do", estimate_hours=None if i == 0 else 5.0))
+    session.commit()
+    # %25 < %70 eşiği → öneri yok. Trello'lar paydaya girseydi %75 çıkıp tetiklerdi.
+    assert rule_low_process_hygiene(_data(session, team), _cfg()) is None

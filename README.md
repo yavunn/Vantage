@@ -121,6 +121,10 @@ python -m venv .venv
 # 3) Demo verisi (sentetik kirli veri) + ilk senkron
 .venv\Scripts\python scripts\seed_dirty_data.py
 .venv\Scripts\python -m app.cli sync
+#    Senkron ARTIMLIDIR: son başarılı çekimden sonrasını alır (git tarafında;
+#    görev kaynakları tam çekilir — tam görüntü olmadan "kaynakta silinmiş"
+#    tespiti yanlış kayıtları kayıp sayardı). Tam çekim gerekirse:
+#    .venv\Scripts\python -m app.cli sync full
 
 # 4) Frontend build
 cd ..\frontend
@@ -158,6 +162,14 @@ Modeller yoksa senkron çökmez ama indeksleme atlanır ve şu uyarıyı verir:
 ucu da cevap üretemez. Veri dışarı çıkmaz — her iki model de yereldir.
 
 Testler: `cd backend; .venv\Scripts\python -m pytest tests`
+
+Ölçüm betikleri (üretim veritabanına yazmaz, geçici DB kurup siler):
+
+```powershell
+.venv\Scripts\python scripts\load_test.py 50000 5000   # metrik motoru ölçeği
+.venv\Scripts\python scriptsag_scale_test.py         # asistan indeksi ölçeği
+.venv\Scripts\python scriptsag_eval.py --model bge-m3  # retrieval kalitesi + eşik
+```
 
 ## Hesap yönetimi ve ek modüller
 
@@ -218,7 +230,11 @@ değildir** (İlke B):
 | `app.anonymize_individuals` | `true` → takım-agregat mod: isimler maskeli, bireysel uçlar kapalı |
 | `app.individual_view_enabled` | bireysel görünümü tümden aç/kapat |
 | `sources.git.provider` · `sources.tasks.provider` | adaptör seçimi: `git_log`/`gitlab`, `jira`/`trello`; `fixture` = sentetik demo verisi, `none` = kaynak yok |
-| `sources.tasks.status_mapping` | kaynaktaki serbest metinli kolon/statü adlarını `backlog`/`in_progress`/`done`'a eşler (ör. "Araştırma Konuları" → backlog). **Yalnız bu dosyadan yönetilir** — panelde düzenleme ekranı yoktur, akış zaten kartın Trello'daki listesiyle belirlenir. Eşlenmeyen kolon "akıştaki iş" sayılır ve WIP'i şişirir |
+| `sources.tasks.status_mapping` | kaynaktaki serbest metinli kolon/statü adlarını `backlog`/`in_progress`/`done`'a eşler (ör. "Araştırma Konuları" → backlog). **Yalnız bu dosyadan yönetilir** — panelde düzenleme ekranı yoktur, akış zaten kartın Trello'daki listesiyle belirlenir. Eşlenmeyen kolon **WIP'e sayılmaz** (bilinmeyen, "akışta" değildir) ama veri tamlığını düşürür ve senkron bunu uyarı olarak bildirir |
+| `sources.tasks.jira.auth` / `.email` / `.api_style` | Jira **Cloud** e-posta + API token ile `basic` auth ister ve yeni arama ucunu kullanır; `bearer` yalnız Server/Data Center içindir. `api_style: auto` adresten karar verir. Panelden de girilebilir |
+| `sources.tasks.jira.story_points_field` | story point alan kimliği kurulumdan kuruluma değişir; bulunamazsa senkron uyarı verir. Boş bırakılırsa alan hiç okunmaz |
+| `sources.git.scan_all_branches` | `git_log`: yalnız HEAD (varsayılan) ya da `--all` ile tüm dallar |
+| `llm.local.api_style` / `.context_tokens` | `ollama` → `/api/chat` + `num_ctx` (bağlam gerçekten ayarlanır); `openai` → `/v1/chat/completions` (vLLM/OpenRouter). Bütçeyi aşan prompt gönderilmeden kırpılır ve kırpıldığı beyan edilir |
 | `metrics.<ad>.enabled` | metriği aç/kapat — kapalıysa hesaplanmaz, kartı bile görünmez |
 | `metrics.cycle_time.source/fallback` | veri katmanı zinciri (`jira_status` → `pr_merge`) |
 | `health_thresholds` | yeşil/kırmızı eşikleri + `data_completeness_min` (altında "veri yetersiz") |

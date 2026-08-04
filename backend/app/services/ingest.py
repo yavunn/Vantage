@@ -7,6 +7,7 @@ Kirli veri stratejisi tek yerdedir:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -191,6 +192,7 @@ class Ingestor:
 
     def ingest_tasks(self, tasks: list[NormalizedTask]) -> int:
         count = 0
+        now = datetime.now(timezone.utc)
         for t in tasks:
             row = self.session.scalar(
                 select(Task).where(Task.source == t.source, Task.external_id == t.external_id)
@@ -208,6 +210,10 @@ class Ingestor:
             row.title = t.title
             row.type = t.type
             row.status = t.status
+            row.archived = bool(t.archived)
+            # Kaynakta görüldü: kaybolma damgası varsa temizlenir (kayıt geri geldi).
+            row.last_seen_at = now
+            row.missing_since = None
             row.created_at = t.created_at
             row.estimate_hours = t.estimate_hours
             row.due_date = t.due_date
@@ -227,12 +233,46 @@ class Ingestor:
         self.session.flush()
         return count
 
+    def mark_missing_tasks(self, sources: set[str], gorulen_ids: set[tuple[str, str]]) -> int:
+        """Bu senkronda kaynakta GÖRÜLMEYEN task'ları 'kayıp' damgalar.
+
+        YALNIZCA çekimi eksiksiz olan kaynaklar için çağrılmalıdır: kaynak hata
+        verdiyse ya da oran sınırına takıldıysa gelmeyen kayıt "silinmiş" değil
+        "okunamamış"tır ve damgalamak gerçek veri kaybı olurdu.
+
+        Kalıcı silme yapılmaz — kayıt saklanır, yalnız metrik ve indeksten çıkar.
+        """
+        if not sources:
+            return 0
+        now = datetime.now(timezone.utc)
+        sayi = 0
+        for row in self.session.scalars(select(Task).where(Task.source.in_(sources))):
+            if (row.source, row.external_id) in gorulen_ids:
+                continue
+            if row.missing_since is None:
+                row.missing_since = now
+                sayi += 1
+        self.session.flush()
+        return sayi
+
+
+def _sync_state(session: Session, kind: str):
+    from app.models import SyncState
+
+    row = session.scalar(select(SyncState).where(SyncState.source_kind == kind))
+    if row is None:
+        row = SyncState(source_kind=kind)
+        session.add(row)
+        session.flush()
+    return row
+
 
 def run_ingest(
     session: Session,
     git: GitProvider | None,
     tasks: TaskProvider | None,
     repo_team_map: dict[str, str] | None = None,
+    incremental: bool = True,
 ) -> dict[str, Any]:
     """Tüm kaynaklardan çek + normalize et + yaz. Kaynak yoksa atlanır.
     repo_team_map: repo adı → takım adı (config'ten; commit/PR kaynağı takım
@@ -244,10 +284,24 @@ def run_ingest(
     ing = Ingestor(session, repo_team_map=repo_team_map)
     stats: dict[str, Any] = {"commits": 0, "pull_requests": 0, "tasks": 0, "team_members": 0}
     warnings: list[str] = []
+    now = datetime.now(timezone.utc)
     if git is not None:
-        stats["commits"] = ing.ingest_commits(git.fetch_commits())
-        stats["pull_requests"] = ing.ingest_pull_requests(git.fetch_pull_requests())
-        warnings.extend(getattr(git, "warnings", []))
+        # Artımlı çekim YALNIZ git tarafında: asıl maliyet orada (GitHub'da
+        # repo başına ~350 istek/saat). Görev kaynakları bilinçle TAM çekilir —
+        # Trello `since`'i zaten yok sayar ve tam görüntü olmadan "kaynakta yok"
+        # tespiti (mark_missing_tasks) yanlış kayıtları kayıp sayardı.
+        git_state = _sync_state(session, "git")
+        since_git = git_state.last_success_at if incremental else None
+        stats["git_since"] = since_git.isoformat() if since_git else None
+        stats["commits"] = ing.ingest_commits(git.fetch_commits(since_git))
+        stats["pull_requests"] = ing.ingest_pull_requests(git.fetch_pull_requests(since_git))
+        git_warnings = list(getattr(git, "warnings", []))
+        # Damga yalnız EKSİKSİZ çekimden sonra ilerler: kısmi başarıda
+        # ilerletmek, alınamayan commit'leri kalıcı olarak atlamak demektir.
+        if not git_warnings:
+            git_state.last_success_at = now
+            git_state.updated_at = now
+        warnings.extend(git_warnings)
     if tasks is not None:
         # Kadro ÖNCE: board üye listesi görünen adı taşır, kart ataması taşımaz.
         # Bu sırayla kişi "Ayşe Yılmaz" olarak açılır, ham kaynak id'siyle değil.
@@ -255,14 +309,107 @@ def run_ingest(
         members = tasks.fetch_team_members() if hasattr(tasks, "fetch_team_members") else []
         stats["team_members"] = ing.ingest_team_members(members)
         warnings.extend(getattr(tasks, "warnings", []))
-        stats["tasks"] = ing.ingest_tasks(tasks.fetch_tasks())
-        warnings.extend(getattr(tasks, "warnings", []))
+        cekilen = tasks.fetch_tasks()
+        # Çekim uyarısızsa EKSİKSİZ sayılır; ancak o zaman "kaynakta yok"
+        # damgası vurulabilir. Hatalı/kısmi çekimde damgalamak, okunamayan
+        # kaydı silinmiş sanmak olurdu — gerçek veri kaybı.
+        cekim_uyarilari = list(getattr(tasks, "warnings", []))
+        stats["tasks"] = ing.ingest_tasks(cekilen)
+        if not cekim_uyarilari:
+            kayip = ing.mark_missing_tasks(
+                {t.source for t in cekilen if t.source},
+                {(t.source, t.external_id) for t in cekilen},
+            )
+            stats["tasks_missing"] = kayip
+            if kayip:
+                warnings.append(
+                    f"{kayip} kayıt kaynakta bulunamadı (silinmiş ya da artık "
+                    "çekilmeyen bir board'dan) — metriklerden ve asistan indeksinden "
+                    "çıkarıldı. Kayıtlar silinmedi, yalnız hesaplardan düşürüldü."
+                )
+        warnings.extend(cekim_uyarilari)
         warnings.extend(_unlinked_identity_warnings(session))
+        warnings.extend(_duplicate_identity_warnings(session))
     session.commit()
     # Aynı uyarı iki kez toplanabilir (kadro ve görev çekimi aynı board'a bakar);
     # tekrarı göstermek gürültü, sırayı bozmak bilgi kaybı — sırayı koruyup tekille.
     stats["warnings"] = list(dict.fromkeys(warnings))
     return stats
+
+
+def _github_noreply_yerel(eposta: str) -> str | None:
+    """'12345+kullanici@users.noreply.github.com' → 'kullanici'.
+
+    GitHub'ın gizlilik e-postası gerçek kurulumlarda çok yaygın: aynı insan bir
+    commit'te kişisel e-postasıyla, diğerinde bu adresle görünür ve ingest iki
+    AYRI geliştirici kaydı açar."""
+    e = (eposta or "").strip().lower()
+    if not e.endswith("@users.noreply.github.com"):
+        return None
+    yerel = e.split("@", 1)[0]
+    return yerel.split("+", 1)[1] if "+" in yerel else yerel
+
+
+def duplicate_identity_pairs(session: Session) -> list[tuple[Developer, Developer, str]]:
+    """Aynı kişi olma ihtimali yüksek geliştirici çiftleri + gerekçesi.
+
+    OTOMATİK BİRLEŞTİRME YOK — kimlik kararı insanındır. Burada yalnız aday
+    üretilir; onay Entegrasyon panelindeki birleştirme akışından geçer.
+
+    Etik sınır: bu bir gözetim özelliği değil, VERİ KALİTESİ uyarısıdır. Kişi
+    kıyası üreten hiçbir çıktı vermez.
+    """
+    devs = list(session.scalars(select(Developer)))
+    adaylar: list[tuple[Developer, Developer, str]] = []
+    for i, a in enumerate(devs):
+        for b in devs[i + 1:]:
+            a_git = (a.external_ids or {}).get("git", "") or ""
+            b_git = (b.external_ids or {}).get("git", "") or ""
+            if not a_git or not b_git or a_git.lower() == b_git.lower():
+                continue
+            a_kul, b_kul = _github_noreply_yerel(a_git), _github_noreply_yerel(b_git)
+            # 1) GitHub noreply ↔ kişisel e-posta: kullanıcı adı, diğerinin
+            #    e-posta yerel kısmıyla ya da görünen adıyla eşleşiyor mu?
+            for kul, oteki_git, oteki_ad in ((a_kul, b_git, b.display_name),
+                                             (b_kul, a_git, a.display_name)):
+                if not kul:
+                    continue
+                yerel = oteki_git.split("@", 1)[0].lower()
+                ad = (oteki_ad or "").strip().lower().replace(" ", "")
+                if kul == yerel or (ad and kul == ad):
+                    adaylar.append((a, b, f"GitHub noreply e-postası '{kul}' ile eşleşiyor"))
+                    break
+            else:
+                # 2) Aynı görünen ad + farklı git kimliği.
+                ad_a = (a.display_name or "").strip().lower()
+                ad_b = (b.display_name or "").strip().lower()
+                if ad_a and ad_a == ad_b:
+                    adaylar.append((a, b, "görünen ad aynı"))
+                    continue
+                # 3) Kaynak-dışı bir anahtar aynı (ör. aynı Trello üye id'si).
+                ortak = {
+                    k for k in (a.external_ids or {})
+                    if k != "git" and (a.external_ids or {}).get(k)
+                    and (a.external_ids or {}).get(k) == (b.external_ids or {}).get(k)
+                }
+                if ortak:
+                    adaylar.append((a, b, f"aynı {', '.join(sorted(ortak))} kimliği"))
+    return adaylar
+
+
+def _duplicate_identity_warnings(session: Session) -> list[str]:
+    adaylar = duplicate_identity_pairs(session)
+    if not adaylar:
+        return []
+    ornekler = "; ".join(
+        f"{a.display_name} ↔ {b.display_name} ({sebep})" for a, b, sebep in adaylar[:3]
+    )
+    return [
+        f"{len(adaylar)} kişi çifti aynı insan olabilir ({ornekler}"
+        f"{'…' if len(adaylar) > 3 else ''}) — takım üye sayısı şişer ve kişi başı "
+        "metrikler (WIP) olduğundan İYİ görünür. Entegrasyon → Kimlik eşleme "
+        "bölümünden birleştirin (otomatik birleştirme yapılmaz)."
+    ]
 
 
 def _unlinked_identity_warnings(session: Session) -> list[str]:

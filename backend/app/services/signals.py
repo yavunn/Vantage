@@ -18,7 +18,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.metrics.engine import TeamData, _in, _is_done, as_utc
+from app.metrics.engine import TeamData, as_utc, is_in_flow
 from app.models import Leave, TeamMembership
 
 
@@ -86,7 +86,9 @@ def wip_concentration(data: TeamData) -> dict:
         seen_any = True
         # Statü kategorileri config'ten çözümlenmiş eşlemeden gelir; burada
         # gömülü liste tutmak sinyalin WIP metriğiyle çelişmesine yol açıyordu.
-        if _is_done(t.status, data.statuses) or _in(t.status, data.statuses["backlog"]):
+        # Akış tanımı da WIP metriğiyle AYNI olmalı (is_in_flow): eşlenmemiş
+        # kolon orada sayılmıyorsa burada da sayılmamalı.
+        if not is_in_flow(t.status, data.statuses):
             continue
         if t.assignee_id is not None:
             open_by_assignee[t.assignee_id] = open_by_assignee.get(t.assignee_id, 0) + 1

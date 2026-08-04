@@ -17,7 +17,8 @@ from typing import Protocol, runtime_checkable
 
 import httpx
 
-from app.core.config import Config
+from app.core.config import Config, LLMLocal
+from app.llm.local_client import local_chat
 
 PROMPT_TEMPLATE = """Sen bir yazılım süreç danışmanısın. Aşağıda bir takımın
 mühendislik sağlığı metrikleri var. Suçlayıcı olmayan, destek dilli, somut
@@ -50,9 +51,10 @@ class LocalAdvisor:
     yaşatırdı.
     """
 
-    def __init__(self, base_url: str, model: str, api_key: str | None = None):
-        self.base_url = base_url.rstrip("/")
-        self.model = model
+    def __init__(self, local: LLMLocal, api_key: str | None = None):
+        self.local = local
+        self.base_url = local.base_url.rstrip("/")
+        self.model = local.model
         self._api_key = api_key or None
 
     def advise(self, team_name: str, metrics_block: str) -> str:
@@ -60,19 +62,12 @@ class LocalAdvisor:
         return self.chat("", prompt)
 
     def chat(self, system: str, user: str) -> str:
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": user})
-        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
-        resp = httpx.post(
-            f"{self.base_url}/v1/chat/completions",
-            json={"model": self.model, "messages": messages},
-            headers=headers,
-            timeout=120,
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        # İstek kurulumu (uç stili, num_ctx, anahtar, bütçe) TEK yerde:
+        # app/llm/local_client.py. Burada kendi httpx çağrısını kurmak, bağlam
+        # sınırının bir çağrı yolunda ayarlanıp diğerinde unutulmasına yol açıyordu.
+        return local_chat(
+            self.local, system, user, api_key=self._api_key, timeout=120,
+        ).text
 
 
 class ClaudeAdvisor:
@@ -115,11 +110,7 @@ def build_advisor(cfg: Config) -> LLMAdvisor | None:
     if not cfg.llm.enabled:
         return None
     if cfg.llm.provider == "local":
-        return LocalAdvisor(
-            cfg.llm.local.base_url,
-            cfg.llm.local.model,
-            os.environ.get(cfg.llm.local.api_key_env),
-        )
+        return LocalAdvisor(cfg.llm.local, os.environ.get(cfg.llm.local.api_key_env))
     if cfg.llm.provider == "claude":
         return ClaudeAdvisor(cfg.llm.claude.model, cfg.llm.claude.api_key_env)
     return None

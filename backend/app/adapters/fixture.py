@@ -42,6 +42,10 @@ def _load(path: Path) -> list[dict]:
 class FixtureGitProvider:
     def __init__(self, fixture_dir: str | Path):
         self.dir = Path(fixture_dir)
+        # Uyarı sözleşmesi (bkz. base.py): fixture kaynağı okunamayan bir şey
+        # üretmez ama sözleşmeyi taşımayan sağlayıcı "sessiz başarısızlık"
+        # sayıldığı için liste burada da bulunur.
+        self.warnings: list[str] = []
 
     def fetch_commits(self, since: datetime | None = None) -> list[NormalizedCommit]:
         return [
@@ -83,6 +87,7 @@ class FixtureGitProvider:
 class FixtureTaskProvider:
     def __init__(self, fixture_dir: str | Path):
         self.dir = Path(fixture_dir)
+        self.warnings: list[str] = []
 
     def fetch_tasks(self, since: datetime | None = None) -> list[NormalizedTask]:
         return [

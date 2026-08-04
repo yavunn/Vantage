@@ -175,8 +175,16 @@ rag:
     # Ölçüm (scripts/rag_eval.py, bge-m3): ilgili kayıt 8 sorunun 8'inde de
     # 1. sırada. 3 = cevabın kendisi + 2 destekleyici kayıt.
     top_k: 3
-    # Alakasız soruların aldığı en yüksek skor 0.4681, ilgili kayıtların en
-    # düşüğü 0.5134. Eşik bu boşluğun ortasında: ilgiliyi kesmiyor, alakasızı
-    # geçirmiyor. Modeli değiştirirsen bu sayı GEÇERSİZDİR — yeniden ölç.
-    min_score: 0.49
+    # ÖLÇÜM (scripts/rag_eval.py, bge-m3, 2026-08-04, güncel korpus):
+    #   ilgili kayıtların en düşük skoru   : 0.5456   (hit@1: 8/8 = %100)
+    #   alakasız soruların en yüksek skoru : 0.4885
+    # Eşik bu boşluğun ortasında: ilgiliyi kesmiyor, alakasızı geçirmiyor.
+    #
+    # ÖNCEKİ ölçüm (0.4681 / 0.5134) ile eşik 0.49'du; korpus değiştiği için
+    # boşluk kaydı ve 0.49 alakasız banda 0.0015 kalıyordu — yani neredeyse
+    # sıfır pay. Korpusu değiştiren iki iş: commit GÖVDELERİNİN indekse
+    # girmesi ve kaynakta olmayan kayıtların indeksten çıkarılması.
+    #
+    # Modeli YA DA korpusu belirgin değiştirirsen bu sayı GEÇERSİZDİR: ölç.
+    min_score: 0.517
   index: auto                # auto | memory (pgvector bu kurulumda yok)

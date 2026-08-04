@@ -46,6 +46,20 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
         # Döngü açılışında dondurulan soru snapshot'ı (JSON metni).
         "questions_json": "TEXT",
     },
+    "tasks": {
+        # Kaynakta arşivlenmiş kart (Trello 'closed') — WIP'e sayılmaz.
+        "archived": "BOOLEAN DEFAULT FALSE",
+        # Kaynakta son görülme / kayıp damgası (kalıcı silme yok).
+        "last_seen_at": "TIMESTAMP WITH TIME ZONE",
+        "missing_since": "TIMESTAMP WITH TIME ZONE",
+    },
+    "code_analyses": {
+        # Diff, modelin bağlam penceresine sığmadığı için kırpıldı mı.
+        "truncated": "BOOLEAN DEFAULT FALSE",
+    },
+    "code_analysis_audit": {
+        "truncated": "BOOLEAN DEFAULT FALSE",
+    },
 }
 
 

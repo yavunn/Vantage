@@ -77,6 +77,10 @@ def app_env(tmp_path, monkeypatch):
     # denemeleri sonraki testleri 429'a düşürür.
     from app.api.auth import _login_attempts
     _login_attempts.clear()
+    # Senkron işi de modül seviyesinde durum tutuyor: bir testin arka plan
+    # senkronu bitmeden diğeri başlarsa uç 409 döner (aynı anda tek senkron).
+    from app.services.sync_job import sifirla as _sync_sifirla
+    _sync_sifirla()
     yield cfg_file
     reset_engine()
     reset_config_cache()

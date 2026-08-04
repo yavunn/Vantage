@@ -671,6 +671,10 @@ def ask_team(
         "status": result.status,
         "answer": result.answer,
         "reason": result.reason,
+        # İndeks ölçek sınırı gibi uyarılar kullanıcıya ULAŞMALI: cevap üretilir
+        # ama sistemin yavaşlama sebebini bilmek kullanıcının hakkı (sessiz
+        # bozulma, sebebi görünmeyen bozulmadır).
+        "warnings": result.warnings,
         "sources": [
             {"n": s.n, "kind": s.source_kind, "id": s.source_id, "score": s.score}
             for s in result.sources
