@@ -676,6 +676,43 @@ class RagQueryAudit(Base):
     asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class PasswordResetCode(Base):
+    """"Şifremi unuttum" akışının 6 haneli doğrulama kodu.
+
+    SIR SAKLANMAZ: kodun kendisi değil yalnızca HASH'i tutulur (code_hash) —
+    veritabanını okuyabilen biri kodu öğrenip hesabı ele geçiremesin. Aynı
+    sebeple `reset_token_hash` de hash'lidir: kod doğrulandıktan sonra verilen
+    tek kullanımlık jeton da bir sırdır.
+
+    İKİ AŞAMALI: kod doğrulanınca (verify) kısa ömürlü bir reset jetonu üretilir
+    ve son adımda (reset) kod tekrar sorulmaz. Böylece kullanıcı parolayı
+    yazarken kodu elinde tutmak zorunda kalmaz.
+
+    attempts: her hatalı denemede artar; eşiğe ulaşınca kod iptal edilir
+    (used_at damgalanır) — kaba kuvvetle 6 hane denenmesin.
+    """
+
+    __tablename__ = "password_reset_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64))       # sha256 hexdigest
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    # Kod tüketildi/iptal edildi damgası. NULL = hâlâ kullanılabilir.
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Kod doğrulandıktan sonra verilen tek kullanımlık jeton (hash'li) + ömrü.
+    reset_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reset_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Notification(Base):
     """Kullanıcıya gösterilecek bildirim (trend alarmı, sistem olayı).
     Etik: bildirim de gözetim aracı değil — takım sağlığı sinyali ("kırmızıya

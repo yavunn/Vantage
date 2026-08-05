@@ -451,3 +451,21 @@ export function getSurveyStatus() {
 export function genSurveyKey() {
   return apiPost("/api/survey/genkey", {});
 }
+
+// --- şifremi unuttum (giriş öncesi, kimlik gerektirmez) ----------------------
+// 3 adım: kod iste → kodu doğrula (jeton al) → jetonla parolayı belirle.
+// Kod yalnız kullanıcının POSTA KUTUSUNA gider; yanıtta dönmez.
+export function requestPasswordCode(email) {
+  return apiPost("/api/auth/forgot-password", { email });
+}
+
+export function verifyResetCode(email, code) {
+  return apiPost("/api/auth/verify-reset-code", { email, code });
+}
+
+export function resetPassword(resetToken, newPassword) {
+  return apiPost("/api/auth/reset-password", {
+    reset_token: resetToken,
+    new_password: newPassword,
+  });
+}

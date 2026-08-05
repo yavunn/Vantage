@@ -805,3 +805,29 @@ table.score-breakdown tr.muted td { color: var(--muted); }
 }
 .link-btn:hover { opacity: 0.85; }
 .link-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+.link-btn:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
+
+/* --- Şifremi unuttum: 6 haneli kod girişi -----------------------------------
+   Kutular tek satırda eşit paylaşır (sabit genişlik değil): dar ekranda taşıp
+   yatay kaydırma yaratmasınlar. Rakamlar monospace + ortalı — kod okunurken
+   göz kayması olmasın. */
+.code-input { display: flex; gap: 0.5rem; }
+.code-box {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.7rem 0;
+  text-align: center;
+  font-size: 1.35rem;
+  font-family: Consolas, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.code-box:disabled { opacity: 0.6; }
+
+/* Geri sayım: normalde sessiz, süre dolunca uyarı rengine döner. */
+.forgot-countdown {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+}
+.forgot-countdown.expired { color: var(--status-critical); }

@@ -3,6 +3,9 @@
 - POST /api/auth/login                 : email + parola -> JWT
 - GET  /api/auth/me                    : token sahibinin bilgisi
 - POST /api/auth/change-password       : çalışan kendi parolasını değiştirir
+- POST /api/auth/forgot-password       : kimliksiz — 6 haneli kodu maille yollar
+- POST /api/auth/verify-reset-code     : kimliksiz — kodu doğrular, jeton döner
+- POST /api/auth/reset-password        : kimliksiz — jetonla parolayı günceller
 - GET  /api/auth/employees             : (admin) hesap listesi
 - POST /api/auth/employees             : (admin) yeni çalışan + hesap oluştur
 - POST /api/auth/employees/{id}/password : (admin) bir çalışanın parolasını sıfırla
@@ -15,6 +18,9 @@ kimlik yalnız JWT'den gelir — eski X-Dev-Id katmanı kaldırıldı.
 """
 from __future__ import annotations
 
+import hashlib
+import logging
+import secrets as _secrets
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -32,6 +38,7 @@ from app.core.security import (
 from app.models import (
     Commit,
     Developer,
+    PasswordResetCode,
     PRReview,
     PullRequest,
     Task,
@@ -41,6 +48,10 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/auth")
+
+# Mail gönderim hatası kullanıcıya GENEL mesajla döner (hangi adımın patladığı
+# sızmasın); sebebin kendisi yöneticinin görebilmesi için loga yazılır.
+logger = logging.getLogger(__name__)
 
 # Login brute-force koruması: ardışık N başarısız denemeden sonra hesap
 # M dakika geçici kilitlenir. Kilit süresi dolunca sayaç sıfırlanır.
@@ -88,6 +99,63 @@ def _record_failed_login(ip: str, now: datetime) -> None:
         pencere = now - timedelta(minutes=LOGIN_RATE_WINDOW_MIN)
         for k in [k for k, v in _login_attempts.items() if not any(t > pencere for t in v)]:
             _login_attempts.pop(k, None)
+
+
+# --- "şifremi unuttum" akışı sabitleri ---------------------------------------
+
+RESET_CODE_TTL_MINUTES = 10      # 6 haneli kodun ömrü
+RESET_TOKEN_TTL_MINUTES = 15     # kod doğrulanınca verilen jetonun ömrü
+RESET_MAX_ATTEMPTS = 5           # bu kadar hatalı denemede kod tamamen iptal
+
+# Sıfırlama uçları için ayrı, daha dar sınır. Giriş sayacından AYRIDIR: bu uçlar
+# parola denemiyor ama sınırsız bırakılırsa mail bombardımanı ve kod tahmini
+# ucuzlar. Hem IP hem E-POSTA başına sayılır — tek IP'den çok hesabı denemek de,
+# çok IP'den tek hesabı denemek de sınırlansın.
+RESET_RATE_WINDOW_MIN = 15
+# forgot-password: her istek BİR MAİL gönderttiği için pahalı → sıkı sınır.
+RESET_RATE_MAX = 5
+# verify-reset-code: ucuz bir uç, burada asıl koruma RESET_MAX_ATTEMPTS'tir
+# (5 hatalı kodda kod tamamen yakılır). Bu sayaç yalnızca "hamur gibi dövmeyi"
+# engelleyen emniyet frenidir ve BİLEREK daha gevşektir:
+#   - forgot ile AYNI kovayı paylaşsaydı, 1 kod isteği + 5 deneme = 6 istek
+#     olur, sınır 5'te dolar ve deneme sayacı hiç 5'e ULAŞAMAZDI (ölü kod).
+#   - Kodu iki kez yanlış yazan meşru kullanıcı 15 dk kilitlenirdi.
+VERIFY_RATE_MAX = 15
+_reset_attempts: dict[str, list[datetime]] = {}
+
+
+def _reset_rate_limited(anahtarlar: list[str], now: datetime, ust_sinir: int) -> bool:
+    """Verilen anahtarlardan (ip / email) herhangi biri eşiği aştı mı?
+
+    Sayaç, sonucundan bağımsız olarak HER istekte artar: başarılı istek de
+    maliyetlidir. Anahtarlar uç adıyla ön eklendiği için forgot ve verify
+    kovaları birbirini tüketmez."""
+    asildi = False
+    pencere = now - timedelta(minutes=RESET_RATE_WINDOW_MIN)
+    for k in anahtarlar:
+        denemeler = [t for t in _reset_attempts.get(k, []) if t > pencere]
+        if len(denemeler) >= ust_sinir:
+            asildi = True
+        denemeler.append(now)
+        _reset_attempts[k] = denemeler
+    if len(_reset_attempts) > 5000:
+        for k in [k for k, v in _reset_attempts.items() if not any(t > pencere for t in v)]:
+            _reset_attempts.pop(k, None)
+    return asildi
+
+
+def _hash_secret(deger: str) -> str:
+    """Kod/jeton için sha256. Parolalar için DEĞİL — onlar bcrypt (yavaş hash)
+    ister. Buradakiler yüksek entropili, kısa ömürlü sırlar; sha256 yeterli ve
+    sabit zamanlı karşılaştırmayı ucuzlatır."""
+    return hashlib.sha256(deger.encode("utf-8")).hexdigest()
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Naive datetime'ı UTC kabul eder. SQLite (testler + taşınabilir demo)
+    saat dilimini saklamaz; aware `now` ile karşılaştırma yoksa TypeError olur.
+    Aynı düzeltme login'deki kilit kontrolünde de satır içi yapılıyor."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 # --- şemalar ------------------------------------------------------------------
@@ -355,6 +423,235 @@ def change_password(
     session.commit()
     # Bu oturum devam etsin diye YENİ token ver (aksi halde kendi kendini düşürür).
     return {"ok": True, "access_token": create_access_token(user.id, user.role, user.token_version)}
+
+
+# --- "şifremi unuttum": 3 adım (kod iste → kodu doğrula → parolayı belirle) ---
+#
+# GİZLİLİK: üç uç da hangi adımın patladığını SIZDIRMAZ. forgot-password,
+# e-posta kayıtlı olsun ya da olmasın aynı yanıtı döner (kullanıcı
+# numaralandırma); verify/reset ise "kod yanlış / süresi dolmuş / zaten
+# kullanılmış / hiç kod yok" ayrımını yapmadan tek bir genel mesaj verir.
+
+# Adım ayrımı yapmayan tek mesaj — kaynağı tek yerde tut ki ileride biri
+# yanlışlıkla ayrıntılı bir varyant yazmasın.
+_GENERIC_CODE_ERROR = "Kod geçersiz ya da süresi dolmuş. Lütfen yeni bir kod isteyin."
+
+
+class ForgotPasswordBody(BaseModel):
+    email: str
+
+
+class VerifyResetCodeBody(BaseModel):
+    email: str
+    code: str
+
+
+class ResetPasswordBody(BaseModel):
+    reset_token: str
+    # Parola kuralı, hesap oluşturma ve parola değiştirme ile AYNI kaynaktan
+    # gelir (MIN_PASSWORD_LENGTH) — üç yerde ayrı kural olmasın.
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
+
+
+def _aktif_kodlari_iptal_et(session: Session, user_id: int, now: datetime) -> None:
+    """Kullanıcının açık tüm kodlarını kapatır. Yeni kod isteyince çağrılır:
+    aynı anda birden çok geçerli kod dolaşması, saldırganın deneme yüzeyini
+    büyütürdü."""
+    acik = session.scalars(
+        select(PasswordResetCode).where(
+            PasswordResetCode.user_id == user_id,
+            PasswordResetCode.used_at.is_(None),
+        )
+    ).all()
+    for k in acik:
+        k.used_at = now
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    body: ForgotPasswordBody,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """1/3 — 6 haneli kod üretir ve kullanıcının kendi adresine MAİLLER.
+
+    Kod yanıtta ASLA dönmez: postayı alabilmek, isteği gerçekten hesap
+    sahibinin yaptığını doğrulayan tek adımdır.
+
+    SIRA ÖNEMLİ: önce mail gönderilir, ancak gönderim başarılıysa kod
+    kaydedilir. Tersi sırada kullanıcı asla eline geçmeyecek bir kodu beklerdi.
+    """
+    from app.services.mail_templates import reset_code_email
+    from app.services.mailer import MailError, is_configured, send_email
+
+    now = datetime.now(timezone.utc)
+    email = (body.email or "").strip().lower()
+    if _reset_rate_limited(
+        [f"forgot:ip:{_client_ip(request)}", f"forgot:mail:{email}"], now, RESET_RATE_MAX
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Çok fazla istek. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+        )
+
+    # Mail hiç yapılandırılmamışsa akış çalışamaz. Bu, hesabın varlığından
+    # BAĞIMSIZ bir kurulum hatasıdır — numaralandırma sızdırmaz.
+    if not is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="E-posta gönderimi yapılandırılmamış. Lütfen yöneticinize başvurun.",
+        )
+
+    user = session.scalar(select(User).where(User.email == email)) if email else None
+    if user is not None and user.is_active:
+        # crypto-secure, baştaki sıfırlar korunacak şekilde 6 hane.
+        code = f"{_secrets.randbelow(1_000_000):06d}"
+        try:
+            send_email(
+                user.email,
+                "Vantage — parola sıfırlama kodunuz",
+                reset_code_email(code, RESET_CODE_TTL_MINUTES),
+            )
+        except MailError as e:
+            logger.error("Parola sıfırlama kodu gönderilemedi: %s", e)
+            raise HTTPException(
+                status_code=502,
+                detail="E-posta gönderilemedi. Lütfen yöneticinize başvurun.",
+            ) from e
+        # Mail gitti — kodu ancak şimdi kalıcılaştır.
+        _aktif_kodlari_iptal_et(session, user.id, now)
+        session.add(PasswordResetCode(
+            user_id=user.id,
+            code_hash=_hash_secret(code),   # düz metin ASLA saklanmaz
+            expires_at=now + timedelta(minutes=RESET_CODE_TTL_MINUTES),
+            attempts=0,
+            created_at=now,
+        ))
+        session.commit()
+
+    # Yanıt her koşulda aynı — hesabın var olup olmadığı sızmaz. TTL sabit bir
+    # yapılandırma değeridir, hesabın varlığına göre değişmez; arayüz geri
+    # sayımı buradan kurar (istemcide ikinci bir sabit tutmayalım).
+    return {
+        "ok": True,
+        "expires_in_minutes": RESET_CODE_TTL_MINUTES,
+        "message": (
+            "Hesabınız varsa doğrulama kodu e-posta adresinize gönderildi. "
+            "Gelen kutunuzu (ve spam klasörünü) kontrol edin."
+        ),
+    }
+
+
+@router.post("/verify-reset-code")
+def verify_reset_code(
+    body: VerifyResetCodeBody,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """2/3 — kodu doğrular, tek kullanımlık `reset_token` döner.
+
+    Jeton sayesinde son adımda kod tekrar sorulmaz. Yanlış denemeler sayılır;
+    RESET_MAX_ATTEMPTS'e ulaşınca kod tamamen iptal edilir (kaba kuvvet).
+    """
+    now = datetime.now(timezone.utc)
+    email = (body.email or "").strip().lower()
+    if _reset_rate_limited(
+        [f"verify:ip:{_client_ip(request)}", f"verify:mail:{email}"], now, VERIFY_RATE_MAX
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Çok fazla istek. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+        )
+
+    user = session.scalar(select(User).where(User.email == email)) if email else None
+    kayit = None
+    if user is not None:
+        kayit = session.scalar(
+            select(PasswordResetCode)
+            .where(
+                PasswordResetCode.user_id == user.id,
+                PasswordResetCode.used_at.is_(None),
+            )
+            .order_by(PasswordResetCode.id.desc())
+        )
+    # Hesap yok / kod yok / süresi dolmuş — hepsi AYNI yanıt.
+    if kayit is None or _as_utc(kayit.expires_at) <= now:
+        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+
+    girilen = (body.code or "").strip()
+    # Sabit zamanlı karşılaştırma: yanıt süresinden kod tahmin edilemesin.
+    if not _secrets.compare_digest(_hash_secret(girilen), kayit.code_hash):
+        kayit.attempts = (kayit.attempts or 0) + 1
+        if kayit.attempts >= RESET_MAX_ATTEMPTS:
+            kayit.used_at = now  # kod yakıldı; kullanıcı yenisini istemeli
+        session.commit()
+        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+
+    # Doğru kod: tek kullanımlık jeton üret. Jeton da HASH'li saklanır — o da
+    # parolayı değiştirmeye yeten bir sırdır.
+    reset_token = _secrets.token_urlsafe(32)
+    kayit.reset_token_hash = _hash_secret(reset_token)
+    kayit.reset_token_expires_at = now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+    session.commit()
+    return {
+        "ok": True,
+        "reset_token": reset_token,
+        "expires_in_minutes": RESET_TOKEN_TTL_MINUTES,
+    }
+
+
+@router.post("/reset-password")
+def reset_password(
+    body: ResetPasswordBody,
+    session: Session = Depends(get_session),
+):
+    """3/3 — jetonu doğrular, parolayı günceller, tüm oturumları sonlandırır."""
+    from app.services.mail_templates import password_changed_email
+    from app.services.mailer import MailError, send_email
+
+    now = datetime.now(timezone.utc)
+    token = (body.reset_token or "").strip()
+    kayit = session.scalar(
+        select(PasswordResetCode).where(
+            PasswordResetCode.reset_token_hash == _hash_secret(token),
+            PasswordResetCode.used_at.is_(None),
+        )
+    ) if token else None
+    if (
+        kayit is None
+        or kayit.reset_token_expires_at is None
+        or _as_utc(kayit.reset_token_expires_at) <= now
+    ):
+        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+
+    user = session.get(User, kayit.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+
+    user.password_hash = hash_password(body.new_password)
+    # Kullanıcı parolayı KENDİ seçti — admin'in verdiği geçici parola değil,
+    # dolayısıyla ilk girişte tekrar değiştirmesi istenmez.
+    user.must_change_password = False
+    # Diğer tüm oturumları/JWT'leri düşür: parola sızmış olabilir.
+    user.token_version = (user.token_version or 0) + 1
+    user.updated_at = now
+    # Kod + jeton tek seferliktir: ikisini birden yak.
+    kayit.used_at = now
+    from app.services.audit import record_audit
+    # Parolanın KENDİSİ asla kaydedilmez — yalnız "kendi sıfırladı" olgusu.
+    # actor=None: oturum açmış bir yönetici değil, hesabın sahibi.
+    record_audit(session, None, "self_reset_password", target_user_id=user.id,
+                 target_email=user.email)
+    session.commit()
+
+    # Bilgilendirme maili BEST-EFFORT: parola çoktan değişti, mail gitmedi diye
+    # işlemi geri almak kullanıcıyı kilitler. Hata yalnız loglanır.
+    try:
+        send_email(user.email, "Vantage — parolanız değiştirildi", password_changed_email())
+    except MailError as e:
+        logger.error("Parola değişikliği bildirimi gönderilemedi: %s", e)
+
+    return {"ok": True}
 
 
 @router.get("/employees")

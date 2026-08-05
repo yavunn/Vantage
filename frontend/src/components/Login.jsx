@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { login } from "../api.js";
 import { LANGS, useLang } from "../i18n.jsx";
+import { toast } from "../toast.js";
+import ForgotPassword from "./ForgotPassword.jsx";
 
 // Giriş ekranı. Marka: "Vantage" — sürece tek bir bakış noktasından bakar;
 // gözetim değil, ekibin iyiliği için. Çerçeve (İlke E) burada da görünür.
@@ -54,6 +56,7 @@ export default function Login({ onSuccess }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("login"); // login | forgot
 
   async function submit(e) {
     e.preventDefault();
@@ -81,6 +84,18 @@ export default function Login({ onSuccess }) {
             doğrudan çocuk yapıldığında kartın SOLUNA düşüp yetim görünüyordu. */}
         <div className="login-stack">
           <LangSwitch />
+          {mode === "forgot" ? (
+            <ForgotPassword
+              onBack={() => setMode("login")}
+              onDone={() => {
+                // Parola değişti; kullanıcı YENİ parolasıyla giriş yapsın.
+                setMode("login");
+                setPassword("");
+                setError(null);
+                toast(t("forgot.success"), "ok");
+              }}
+            />
+          ) : (
           <form className="login-card" onSubmit={submit}>
             <h2>{t("login.title")}</h2>
             <p className="login-sub">{t("login.subtitle")}</p>
@@ -115,7 +130,12 @@ export default function Login({ onSuccess }) {
             <button type="submit" className="login-btn" disabled={busy}>
               {busy ? t("login.busy") : t("login.submit")}
             </button>
+
+            <button type="button" className="link-btn" onClick={() => setMode("forgot")}>
+              {t("login.forgot")}
+            </button>
           </form>
+          )}
         </div>
       </div>
     </div>

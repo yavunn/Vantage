@@ -139,13 +139,30 @@ cd ..\backend
 > Bu repo, demo için `.pgsql/` altında taşınabilir bir PostgreSQL ile geliştirildi
 > (kurulum gerektirmez): `.pgsql\pgsql\bin\pg_ctl -D .pgsql\data -o "-p 5433" start`
 
-### Parolasını unutan kullanıcı
+### Şifremi unuttum
 
-Kendi kendine sıfırlama YOKTUR — bu bilinçli bir sadelik kararıdır (mail
-altyapısı gerektirmemek için). Parolayı **yönetici sıfırlar**: Yönetici
-paneli → Hesaplar → ilgili satırda **Parola sıfırla**. Verilen geçici parola
-`must_change_password` ile işaretlenir; kullanıcı ilk girişte kendi parolasını
-belirler.
+Giriş ekranındaki **"Şifremi unuttum"** üç adımlı çalışır:
+
+1. Kullanıcı e-postasını girer → 6 haneli kod **maille** gönderilir (10 dk).
+2. Kodu girer → doğrulanırsa tek kullanımlık bir jeton verilir (15 dk).
+3. Yeni parolasını belirler → parola güncellenir, **diğer tüm oturumları
+   düşer** ve "parolanız değiştirildi" bilgilendirmesi gider.
+
+Güvenlik:
+- Kod ve jeton veritabanında **hash'li** tutulur (düz metin asla saklanmaz);
+  karşılaştırma sabit zamanlıdır.
+- 5 hatalı denemede kod tamamen iptal edilir; yeni kod istemek gerekir.
+- Yeni kod istendiğinde eski kodlar geçersizleşir.
+- Uç, e-postanın kayıtlı olup olmadığını **sızdırmaz**; hata mesajları hangi
+  adımın patladığını belli etmez.
+- Hız sınırı (IP + e-posta başına, 15 dk): kod isteme 5, kod doğrulama 15.
+  İkisi ayrı kovadadır — aksi hâlde kod isteği deneme hakkını yer ve "5 hatalı
+  deneme" kuralına hiç ulaşılamazdı.
+
+**Kurulum:** `RESEND_API_KEY` gerekir (bkz. `.env.example`). Tanımlı değilse
+akış 503 döner — kodu iletemeden parola sıfırlamak kullanıcıyı kilitlerdi.
+O durumda sıfırlamayı yönetici yapar: Yönetici paneli → Hesaplar →
+**Parola sıfırla** (bu yol her hâlükârda çalışır).
 
 ### Yerel modeller (LLM + RAG kullanacaksanız)
 
