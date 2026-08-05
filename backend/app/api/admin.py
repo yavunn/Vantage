@@ -433,6 +433,112 @@ def update_llm_provider(body: LlmProviderUpdate, _: User = Depends(require_owner
     return {"ok": True}
 
 
+# --- E-posta (SMTP) ayarları --------------------------------------------------
+# Tek kullanıcısı "şifremi unuttum": yeni parola kullanıcının kendi kutusuna
+# gönderilir. Kapalıysa sıfırlama da kapalıdır (parolayı iletemeden değiştirmek
+# kullanıcıyı kilitlerdi). Parola config.yaml'a YAZILMAZ — .secrets.env'e gider.
+
+SMTP_SECURITY = ["starttls", "ssl", "none"]
+
+
+class SmtpUpdate(BaseModel):
+    enabled: bool | None = None
+    host: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    security: str | None = None       # starttls | ssl | none
+    username: str | None = None
+    password: str | None = None       # sır → .secrets.env (config'e YAZILMAZ)
+    from_address: str | None = None
+    from_name: str | None = None
+
+
+@router.get("/smtp")
+def get_smtp(_: User = Depends(require_admin)):
+    """Giden e-posta yapılandırması. Parolanın KENDİSİ dönülmez — yalnız
+    'tanımlı mı' durumu. `ready`, şifremi-unuttum akışının çalışıp
+    çalışmayacağını söyler."""
+    from app.services.mailer import is_configured
+
+    cfg = get_config()
+    return {
+        "enabled": cfg.smtp.enabled,
+        "host": cfg.smtp.host,
+        "port": cfg.smtp.port,
+        "security": cfg.smtp.security,
+        "security_options": SMTP_SECURITY,
+        "username": cfg.smtp.username,
+        "from_address": cfg.smtp.from_address,
+        "from_name": cfg.smtp.from_name,
+        "password": _env_status(cfg.smtp.password_env),
+        "ready": is_configured(cfg),
+    }
+
+
+@router.put("/smtp")
+def update_smtp(body: SmtpUpdate, _: User = Depends(require_admin)):
+    """SMTP ayarlarını yazar. Parola .secrets.env'e (+ canlı ortama) gider;
+    boş gönderilirse TEMİZLENİR, hiç gönderilmezse dokunulmaz."""
+    from app.core.secrets import set_secret
+
+    if body.security is not None and body.security not in SMTP_SECURITY:
+        raise HTTPException(422, detail=f"security yalnızca {', '.join(SMTP_SECURITY)} olabilir")
+
+    raw = {}
+    if active_config_path().exists():
+        with open(active_config_path(), encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    smtp = raw.setdefault("smtp", {})
+
+    if body.enabled is not None:
+        smtp["enabled"] = body.enabled
+    if body.host is not None:
+        smtp["host"] = body.host.strip()
+    if body.port is not None:
+        smtp["port"] = body.port
+    if body.security is not None:
+        smtp["security"] = body.security
+    if body.username is not None:
+        smtp["username"] = body.username.strip()
+    if body.from_address is not None:
+        smtp["from_address"] = body.from_address.strip()
+    if body.from_name is not None:
+        smtp["from_name"] = body.from_name.strip()
+
+    cfg = get_config()
+    if body.password is not None:
+        set_secret(cfg.smtp.password_env, body.password.strip())
+
+    active_config_path().parent.mkdir(parents=True, exist_ok=True)
+    with open(active_config_path(), "w", encoding="utf-8") as f:
+        yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+    reset_config_cache()
+    return {"ok": True}
+
+
+class SmtpTestBody(BaseModel):
+    to: str
+
+
+@router.post("/smtp/test")
+def test_smtp(body: SmtpTestBody, admin: User = Depends(require_admin)):
+    """Deneme e-postası gönderir. Ayarları kaydettikten SONRA çalıştırılmalı:
+    kaydedilmiş yapılandırmayı kullanır. Hata metni burada AÇIKÇA dönülür —
+    bu uç yalnız yöneticiye açıktır ve teşhis için sebebi görmek gerekir."""
+    from app.services.mailer import MailError, send_email
+
+    hedef = (body.to or "").strip() or admin.email
+    try:
+        send_email(
+            hedef,
+            "Vantage — SMTP deneme e-postası",
+            "Bu bir deneme e-postasıdır. Bu mesajı aldıysanız giden e-posta "
+            "yapılandırmanız çalışıyor demektir.\n",
+        )
+    except MailError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return {"ok": True, "to": hedef}
+
+
 @router.post("/code-analysis/run")
 def run_code_analysis_now(_: User = Depends(require_admin)):
     """Elle AI kod analizi çalıştır (git_log repoları, tüm yazarlar)."""

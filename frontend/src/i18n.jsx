@@ -66,22 +66,15 @@ const STRINGS = {
     // --- şifremi unuttum ---
     "forgot.title": "Şifremi unuttum",
     "forgot.lede":
-      "E-postanı gir. Hesabın varsa yeni bir geçici parola hemen oluşturulur; " +
-      "aşağıdan kendi e-postana gönderebilir ya da kopyalayabilirsin. İlk girişte " +
-      "kendi parolanı belirlersin.",
+      "E-postanı gir. Hesabın varsa yeni bir geçici parola oluşturulup " +
+      "e-posta adresine gönderilir. İlk girişte kendi parolanı belirlersin.",
     "forgot.emailLabel": "Hesabınızın e-postası",
     "forgot.submit": "Parolamı sıfırla",
-    "forgot.busy": "Sıfırlanıyor…",
-    "forgot.doneTitle": "Yeni parolan hazır",
-    "forgot.doneLede":
-      "Bu parolayı e-postana gönder ya da kopyala. İlk girişte kendi parolanı belirleyeceksin.",
-    "forgot.emailButton": "E-postama gönder",
-    "forgot.mailSubject": "Vantage — yeni parolan",
-    "forgot.mailBody":
-      "Yeni geçici parolan: {password}\n\nGiriş yaptığında kendi parolanı belirlemen istenecek.",
-    "forgot.notFoundTitle": "Hesap bulunamadı",
-    "forgot.notFoundLede":
-      "Bu e-postayla eşleşen bir hesap yok. Adresi kontrol edip tekrar dene ya da yöneticine başvur.",
+    "forgot.busy": "Gönderiliyor…",
+    "forgot.sentTitle": "E-postanı kontrol et",
+    "forgot.sentLede":
+      "Hesabın varsa yeni parolan e-posta adresine gönderildi. " +
+      "Gelen kutunu (ve spam klasörünü) kontrol et.",
 
     // --- gezinme ---
     "nav.aria": "Ana gezinme",
@@ -137,21 +130,14 @@ const STRINGS = {
     "forgot.title": "Forgot your password?",
     "forgot.lede":
       "Enter your email. If the account exists, a new temporary password is " +
-      "generated right away — email it to yourself or copy it below. " +
-      "You'll set your own password on first sign-in.",
+      "generated and emailed to you. You'll set your own password on first sign-in.",
     "forgot.emailLabel": "Email on your account",
     "forgot.submit": "Reset my password",
-    "forgot.busy": "Resetting…",
-    "forgot.doneTitle": "Your new password is ready",
-    "forgot.doneLede":
-      "Email this password to yourself or copy it. You'll set your own password on first sign-in.",
-    "forgot.emailButton": "Email it to myself",
-    "forgot.mailSubject": "Vantage — your new password",
-    "forgot.mailBody":
-      "Your new temporary password: {password}\n\nYou'll be asked to set your own password when you sign in.",
-    "forgot.notFoundTitle": "No account found",
-    "forgot.notFoundLede":
-      "No account matches this email. Check the address and try again, or contact your administrator.",
+    "forgot.busy": "Sending…",
+    "forgot.sentTitle": "Check your email",
+    "forgot.sentLede":
+      "If the account exists, your new password has been emailed to you. " +
+      "Check your inbox (and spam folder).",
 
     // --- navigation ---
     "nav.aria": "Main navigation",

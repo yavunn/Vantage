@@ -141,27 +141,41 @@ cd ..\backend
 
 ### Şifremi unuttum
 
-Giriş ekranındaki **"Şifremi unuttum"**, e-postayla sıfırlama LİNKİ göndermez —
-bu kurulum on-prem ve mail altyapısı (SMTP) yoktur. Bunun yerine akış tamamen
-kendi kendine işler:
+Giriş ekranındaki **"Şifremi unuttum"**, yeni geçici parolayı kullanıcının
+**kendi e-posta adresine gönderir** — ekranda göstermez:
 
 1. Kullanıcı giriş ekranından e-postasını girer.
-2. Sunucu hesabı bulur, **yeni bir geçici parolayı hemen üretip uygular**
-   (`must_change_password` işaretlenir, eski oturumlar düşer).
-3. Yeni parola ekranda gösterilir; kullanıcı **kopyalayabilir** ya da
-   **"E-postama gönder"** ile kendi e-posta istemcisinde önceden doldurulmuş
-   bir taslak açar (`mailto:` — sunucu e-posta göndermez, taslağı göndermek
-   kullanıcıya kalır).
+2. Sunucu hesabı bulur, yeni bir geçici parola üretir ve **e-postayla yollar**.
+3. Mail **gittiyse** parola kaydedilir (`must_change_password` işaretlenir,
+   eski oturumlar düşer). Sıra bilinçlidir: mail gidemezse parola hiç
+   değişmez — aksi hâlde kullanıcı yeni parolayı öğrenemeden kilitlenirdi.
 4. Kullanıcı ilk girişte kendi parolasını belirler.
 
-Güvenlik notu (bilinçli tasarım ödünü): bu uç artık hesap numaralandırmayı
-**önlemez** ve ikinci bir kimlik doğrulama adımı (e-postaya gönderilen
-link/kod) içermez — yalnızca e-posta adresini bilen biri o hesabın parolasını
-sıfırlayıp yeni değeri görebilir. Kapalı, tek kuruluşluk, on-prem bir araç için
-kabul edilmiş bir risktir; internete açık bir kurulumda **kullanılmamalıdır**.
-IP bazlı hız sınırı (15 dk / 5 istek) yalnızca toplu e-posta taramasını
-yavaşlatır, bu ödünü ortadan kaldırmaz. Yönetici panelindeki hesap oluşturma
-ve parola sıfırlama akışları bundan bağımsız, değişmeden çalışmaya devam eder.
+Güvenlik:
+- Parola **yalnızca posta kutusuna** gider; API yanıtında dönmez. Postayı
+  alabilmek, isteği gerçekten hesap sahibinin yaptığını doğrulayan adımdır.
+- Uç, e-postanın sistemde olup olmadığını **sızdırmaz** — yanıt her koşulda
+  aynıdır (hesap numaralandırma).
+- IP bazlı hız sınırı: 15 dk / 5 istek.
+- **SMTP kapalıysa bu akış da kapalıdır** (503) — parolayı iletemeden
+  değiştirmek kullanıcıyı kilitlerdi. Bu durumda sıfırlamayı yönetici yapar.
+
+Yönetici panelindeki hesap oluşturma ve parola sıfırlama akışları bundan
+bağımsız, değişmeden çalışır.
+
+### E-posta (SMTP) kurulumu
+
+**Yönetici paneli → Entegrasyon → E-posta (SMTP)** altından yapılandırılır:
+sunucu, port, güvenlik (`starttls` / `ssl` / `none`), kullanıcı adı, parola,
+gönderen adresi/adı. Ayarları kaydettikten sonra **"Deneme e-postası gönder"**
+ile doğrulayın.
+
+- SMTP **parolası** `config.yaml`'a yazılmaz; diğer sırlar gibi gitignore'lu
+  `.secrets.env`'e (`SMTP_PASSWORD`) gider.
+- Kimlik doğrulaması isteğe bağlıdır: kimlik istemeyen bir kurum içi relay için
+  kullanıcı adı/parolayı boş bırakıp `security: none` seçin.
+- Gönderen adresi boşsa kullanıcı adı kullanılır.
+- Yeni bağımlılık yoktur — Python'un standart `smtplib` modülü kullanılır.
 - Tabloda sır saklanmaz: token yok, parola yok.
 
 ### Yerel modeller (LLM + RAG kullanacaksanız)
