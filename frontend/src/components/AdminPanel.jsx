@@ -9,7 +9,6 @@ import {
   updateEmployee,
 } from "../api.js";
 import AuditPanel from "./AuditPanel.jsx";
-import PasswordRequests from "./PasswordRequests.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import TaskLinksPanel from "./TaskLinksPanel.jsx";
@@ -257,12 +256,6 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
 
       {(hrMode || subtab === "accounts") && (
         <>
-          {/* Bekleyen "şifremi unuttum" talepleri hesap listesinin ÜSTÜNDE:
-              yönetici paneli açtığında ilk göreceği şey, birinin girememesi. */}
-          <section className="section">
-            <PasswordRequests />
-          </section>
-
           <section className="section">
             <h2>{t("Yeni çalışan ekle")}</h2>
             <form className="admin-form" onSubmit={submit}>

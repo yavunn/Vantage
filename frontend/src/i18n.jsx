@@ -66,15 +66,22 @@ const STRINGS = {
     // --- şifremi unuttum ---
     "forgot.title": "Şifremi unuttum",
     "forgot.lede":
-      "Bu sistem şirket içinde çalışır ve parola sıfırlama bağlantısı e-postayla gönderilmez. " +
-      "Talebiniz yöneticinize iletilir; size geçici bir parola verilir ve ilk girişte kendi " +
-      "parolanızı belirlersiniz.",
+      "E-postanı gir. Hesabın varsa yeni bir geçici parola hemen oluşturulur; " +
+      "aşağıdan kendi e-postana gönderebilir ya da kopyalayabilirsin. İlk girişte " +
+      "kendi parolanı belirlersin.",
     "forgot.emailLabel": "Hesabınızın e-postası",
-    "forgot.noteLabel": "Not (isteğe bağlı)",
-    "forgot.notePlaceholder": "Yöneticinize kısa bir not bırakabilirsiniz",
-    "forgot.submit": "Talep gönder",
-    "forgot.busy": "Gönderiliyor…",
-    "forgot.sentTitle": "Talebiniz iletildi",
+    "forgot.submit": "Parolamı sıfırla",
+    "forgot.busy": "Sıfırlanıyor…",
+    "forgot.doneTitle": "Yeni parolan hazır",
+    "forgot.doneLede":
+      "Bu parolayı e-postana gönder ya da kopyala. İlk girişte kendi parolanı belirleyeceksin.",
+    "forgot.emailButton": "E-postama gönder",
+    "forgot.mailSubject": "Vantage — yeni parolan",
+    "forgot.mailBody":
+      "Yeni geçici parolan: {password}\n\nGiriş yaptığında kendi parolanı belirlemen istenecek.",
+    "forgot.notFoundTitle": "Hesap bulunamadı",
+    "forgot.notFoundLede":
+      "Bu e-postayla eşleşen bir hesap yok. Adresi kontrol edip tekrar dene ya da yöneticine başvur.",
 
     // --- gezinme ---
     "nav.aria": "Ana gezinme",
@@ -101,22 +108,6 @@ const STRINGS = {
       "Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı, " +
       "\"takım zorlanıyor, yardım gerekebilir\" demektir; ceza sinyali değildir.",
     "top.anonymized": " · Anonim mod açık (takım-agregat).",
-
-    // --- yönetici: parola talepleri ---
-    "reqs.title": "Parola sıfırlama talepleri",
-    "reqs.empty": "Bekleyen talep yok.",
-    "reqs.lede":
-      "Kullanıcı giriş ekranından talep bıraktı. Parolayı sıfırlamak ayrı ve " +
-      "bilinçli bir adımdır — bu listeden talebi kapatmak parolayı DEĞİŞTİRMEZ.",
-    "reqs.email": "E-posta",
-    "reqs.note": "Not",
-    "reqs.when": "Tarih",
-    "reqs.account": "Hesap",
-    "reqs.accountYes": "var",
-    "reqs.accountNo": "bu e-postayla hesap yok",
-    "reqs.resolve": "Kapat (çözüldü)",
-    "reqs.dismiss": "Yok say",
-    "reqs.pending": "bekliyor",
   },
 
   en: {
@@ -145,15 +136,22 @@ const STRINGS = {
     // --- forgot password ---
     "forgot.title": "Forgot your password?",
     "forgot.lede":
-      "This system runs inside your company and does not email reset links. " +
-      "Your request goes to an administrator; you will be given a temporary " +
-      "password and set your own on first sign-in.",
+      "Enter your email. If the account exists, a new temporary password is " +
+      "generated right away — email it to yourself or copy it below. " +
+      "You'll set your own password on first sign-in.",
     "forgot.emailLabel": "Email on your account",
-    "forgot.noteLabel": "Note (optional)",
-    "forgot.notePlaceholder": "Leave a short note for your administrator",
-    "forgot.submit": "Send request",
-    "forgot.busy": "Sending…",
-    "forgot.sentTitle": "Request sent",
+    "forgot.submit": "Reset my password",
+    "forgot.busy": "Resetting…",
+    "forgot.doneTitle": "Your new password is ready",
+    "forgot.doneLede":
+      "Email this password to yourself or copy it. You'll set your own password on first sign-in.",
+    "forgot.emailButton": "Email it to myself",
+    "forgot.mailSubject": "Vantage — your new password",
+    "forgot.mailBody":
+      "Your new temporary password: {password}\n\nYou'll be asked to set your own password when you sign in.",
+    "forgot.notFoundTitle": "No account found",
+    "forgot.notFoundLede":
+      "No account matches this email. Check the address and try again, or contact your administrator.",
 
     // --- navigation ---
     "nav.aria": "Main navigation",
@@ -180,22 +178,6 @@ const STRINGS = {
       "Process health dashboard — not a personal performance tool. Red means " +
       "\"the team is struggling, support may help\"; it is not a penalty signal.",
     "top.anonymized": " · Anonymous mode on (team aggregate).",
-
-    // --- admin: password requests ---
-    "reqs.title": "Password reset requests",
-    "reqs.empty": "No pending requests.",
-    "reqs.lede":
-      "The user submitted this from the sign-in screen. Resetting the password " +
-      "is a separate, deliberate step — closing a request here does NOT change it.",
-    "reqs.email": "Email",
-    "reqs.note": "Note",
-    "reqs.when": "Date",
-    "reqs.account": "Account",
-    "reqs.accountYes": "exists",
-    "reqs.accountNo": "no account with this email",
-    "reqs.resolve": "Close (resolved)",
-    "reqs.dismiss": "Dismiss",
-    "reqs.pending": "pending",
   },
 };
 

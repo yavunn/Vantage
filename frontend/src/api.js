@@ -452,18 +452,10 @@ export function genSurveyKey() {
   return apiPost("/api/survey/genkey", {});
 }
 
-// --- parola sıfırlama talebi (giriş öncesi, kimlik gerektirmez) --------------
-// E-postayla sıfırlama LİNKİ göndermiyoruz: bu kurulum on-prem ve mail
-// altyapısı yok. Talep yönetici kuyruğuna düşer. Yanıt, e-posta sistemde olsa
-// da olmasa da AYNIDIR (kullanıcı numaralandırma).
-export function requestPasswordReset(email, note) {
-  return apiPost("/api/auth/forgot-password", { email, note: note || null });
-}
-
-export function listPasswordRequests(status = "pending") {
-  return api(`/api/auth/password-requests?status=${encodeURIComponent(status)}`);
-}
-
-export function decidePasswordRequest(id, status) {
-  return apiPatch(`/api/auth/password-requests/${id}`, { status });
+// --- kendi kendine parola sıfırlama (giriş öncesi, kimlik gerektirmez) -------
+// Hesap e-postayla bulunur, yeni geçici parola DOĞRUDAN uygulanır ve yanıtla
+// birlikte döner; arayüz bunu gösterir + mailto ile e-postaya göndermeyi önerir
+// (bu kurulumda SMTP yok). Bkz. backend app/api/auth.py::forgot_password.
+export function requestPasswordReset(email) {
+  return apiPost("/api/auth/forgot-password", { email });
 }

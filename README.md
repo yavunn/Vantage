@@ -142,21 +142,26 @@ cd ..\backend
 ### Şifremi unuttum
 
 Giriş ekranındaki **"Şifremi unuttum"**, e-postayla sıfırlama LİNKİ göndermez —
-bu kurulum on-prem ve mail altyapısı yoktur; olmayan bir SMTP'yi varmış gibi
-kurgulamak yerine talep bir kuyruğa düşer:
+bu kurulum on-prem ve mail altyapısı (SMTP) yoktur. Bunun yerine akış tamamen
+kendi kendine işler:
 
-1. Kullanıcı giriş ekranından e-postasını (ve isterse kısa bir not) bırakır.
-2. Talep **Yönetici paneli → Hesaplar** üstünde görünür (İK de görür).
-3. Yönetici hesap satırından parolayı sıfırlar → geçici parola verilir →
-   kullanıcı **ilk girişte kendi parolasını belirler** (`must_change_password`).
-4. Yönetici talebi "çözüldü" ya da "yok say" ile kapatır.
+1. Kullanıcı giriş ekranından e-postasını girer.
+2. Sunucu hesabı bulur, **yeni bir geçici parolayı hemen üretip uygular**
+   (`must_change_password` işaretlenir, eski oturumlar düşer).
+3. Yeni parola ekranda gösterilir; kullanıcı **kopyalayabilir** ya da
+   **"E-postama gönder"** ile kendi e-posta istemcisinde önceden doldurulmuş
+   bir taslak açar (`mailto:` — sunucu e-posta göndermez, taslağı göndermek
+   kullanıcıya kalır).
+4. Kullanıcı ilk girişte kendi parolasını belirler.
 
-Güvenlik notları:
-- Uç, e-postanın sistemde olup olmadığını **sızdırmaz** — yanıt her koşulda
-  aynıdır (hesap numaralandırma). Hesabın varlığı yalnız yöneticinin gördüğü
-  kayda yazılır.
-- Talep ucu IP bazlı hız sınırlıdır (15 dk / 5 talep): kuyruk spam'lenemez.
-- Talebi kapatmak parolayı **DEĞİŞTİRMEZ**; sıfırlama ayrı ve bilinçli bir adımdır.
+Güvenlik notu (bilinçli tasarım ödünü): bu uç artık hesap numaralandırmayı
+**önlemez** ve ikinci bir kimlik doğrulama adımı (e-postaya gönderilen
+link/kod) içermez — yalnızca e-posta adresini bilen biri o hesabın parolasını
+sıfırlayıp yeni değeri görebilir. Kapalı, tek kuruluşluk, on-prem bir araç için
+kabul edilmiş bir risktir; internete açık bir kurulumda **kullanılmamalıdır**.
+IP bazlı hız sınırı (15 dk / 5 istek) yalnızca toplu e-posta taramasını
+yavaşlatır, bu ödünü ortadan kaldırmaz. Yönetici panelindeki hesap oluşturma
+ve parola sıfırlama akışları bundan bağımsız, değişmeden çalışmaya devam eder.
 - Tabloda sır saklanmaz: token yok, parola yok.
 
 ### Yerel modeller (LLM + RAG kullanacaksanız)

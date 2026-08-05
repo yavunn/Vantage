@@ -512,33 +512,6 @@ class CodeAnalysisAudit(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-class PasswordResetRequest(Base):
-    """Kullanıcının "şifremi unuttum" talebi.
-
-    NEDEN TOKEN'LI E-POSTA DEĞİL: bu kurulum on-prem ve mail altyapısı YOK.
-    Sıfırlama linki göndermek, var olmayan bir SMTP'yi varmış gibi kurgulamak
-    olurdu. Bunun yerine talep bir kuyruğa düşer; yönetici/İK panelde görür ve
-    ZATEN VAR OLAN sıfırlama akışını kullanır (geçici parola →
-    must_change_password → kullanıcı ilk girişte kendi parolasını belirler).
-
-    GİZLİLİK: burada sır saklanmaz — token yok, parola yok. Yalnız "şu e-posta
-    için talep geldi" olgusu. Uç, e-postanın sistemde OLUP OLMADIĞINI de
-    sızdırmaz: her iki durumda da aynı yanıtı döner (kullanıcı numaralandırma).
-    """
-
-    __tablename__ = "password_reset_requests"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), index=True)
-    # Hesap gerçekten var mı — YALNIZ yönetici görür, uç yanıtında dönmez.
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | resolved | dismissed
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)  # kullanıcının kısa notu
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-
-
 class SyncState(Base):
     """Kaynak bazında son BAŞARILI senkron zamanı (artımlı çekim için).
 

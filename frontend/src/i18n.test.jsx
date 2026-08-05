@@ -38,9 +38,9 @@ describe("çeviri", () => {
     // Sözlükte yalnız TR'de olan bir anahtar taklit edilemez; davranışı
     // doğrudan sözleşme üzerinden sınıyoruz: EN'de olmayan bir anahtar için
     // TR karşılığı dönmeli.
-    const trOnly = translate("tr", "reqs.pending");
+    const trOnly = translate("tr", "top.pending");
     expect(trOnly).not.toBe("");
-    expect(translate("en", "reqs.pending")).not.toBe("");
+    expect(translate("en", "top.pending")).not.toBe("");
   });
 });
 

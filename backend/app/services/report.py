@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Config
+from app.core.i18n import DEFAULT_LANG, metric_meta, status_labels
 from app.metrics.engine import (
     HOTFIX_HINTS,
     METRIC_FUNCS,
@@ -30,7 +31,6 @@ from app.metrics.engine import (
     is_in_flow,
     load_team_data,
 )
-from app.core.i18n import DEFAULT_LANG, metric_meta, status_labels
 from app.models import Recommendation, Team
 from app.services.health import METRIC_THRESHOLD_MAP, health_status
 from app.services.signals import compute_signals
