@@ -73,9 +73,13 @@ const STRINGS = {
     "forgot.submit": "Parolamı sıfırla",
     "forgot.busy": "Sıfırlanıyor…",
     "forgot.doneTitle": "Yeni parolan hazır",
-    "forgot.doneLede":
-      "Bu parolayı e-postana gönder ya da kopyala. İlk girişte kendi parolanı belirleyeceksin.",
-    "forgot.emailButton": "E-postama gönder",
+    "forgot.doneLede": "Önce kopyala — bu her zaman çalışır.",
+    "forgot.mailHint":
+      "İstersen e-postana da gönderebilirsin (kendi kullandığın servisi seç; " +
+      "hiçbiri açılmazsa kopyaladığın parolayı yapıştırman yeterli):",
+    "forgot.gmailButton": "Gmail'de gönder",
+    "forgot.outlookButton": "Outlook'ta gönder",
+    "forgot.emailButton": "Mail uygulamamda aç",
     "forgot.mailSubject": "Vantage — yeni parolan",
     "forgot.mailBody":
       "Yeni geçici parolan: {password}\n\nGiriş yaptığında kendi parolanı belirlemen istenecek.",
@@ -143,9 +147,13 @@ const STRINGS = {
     "forgot.submit": "Reset my password",
     "forgot.busy": "Resetting…",
     "forgot.doneTitle": "Your new password is ready",
-    "forgot.doneLede":
-      "Email this password to yourself or copy it. You'll set your own password on first sign-in.",
-    "forgot.emailButton": "Email it to myself",
+    "forgot.doneLede": "Copy it first — that always works.",
+    "forgot.mailHint":
+      "You can also email it to yourself (pick whichever you use; if none " +
+      "of these open anything, just paste the password you copied):",
+    "forgot.gmailButton": "Send via Gmail",
+    "forgot.outlookButton": "Send via Outlook",
+    "forgot.emailButton": "Open in my mail app",
     "forgot.mailSubject": "Vantage — your new password",
     "forgot.mailBody":
       "Your new temporary password: {password}\n\nYou'll be asked to set your own password when you sign in.",

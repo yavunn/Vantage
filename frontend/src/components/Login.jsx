@@ -53,9 +53,15 @@ function BrandArt() {
  *
  * Sunucu mail göndermez (SMTP yok — bilinçli olarak kurulmadı). Hesap
  * e-postayla bulunur, yeni bir geçici parola DOĞRUDAN üretilip uygulanır ve
- * ekranda gösterilir; kullanıcı "E-postama gönder" ile kendi e-posta
- * istemcisinde önceden doldurulmuş bir taslak açar (mailto — istemci
- * tarafında, sunucu göndermez). İlk girişte kendi parolasını belirler.
+ * ekranda gösterilir. Kopyalamak HER ZAMAN çalışır — birincil yol budur.
+ *
+ * mailto: TEK BAŞINA güvenilmez: OS'ta varsayılan bir masaüstü mail programı
+ * tanımlı değilse (yaygın durum — çoğu kişi web tabanlı posta kullanır)
+ * tarayıcı sessizce hiçbir şey açmaz ya da anlamsız bir "uygulama seç"
+ * diyaloğu çıkar (Chrome bir mail istemcisi değildir, seçilecek doğru bir
+ * şey yoktur). Bu yüzden Gmail/Outlook web compose bağlantıları da sunulur —
+ * bunlar düz https adresleridir, OS ayarına bağlı değildir, her tarayıcıda
+ * çalışır. mailto yalnız üçüncü, en zayıf seçenek olarak kalır.
  *
  * GÜVENLİK ÖDÜNÜ (bilinçli): bu ekran "hesap var mı" bilgisini SIZDIRIR —
  * e-postayı bilen biri parolayı sıfırlayıp yeni değeri görebilir. Kapalı,
@@ -93,10 +99,14 @@ function ForgotForm({ onBack }) {
   }
 
   if (result?.account_exists) {
-    const mailto =
-      `mailto:${encodeURIComponent(result.email)}` +
-      `?subject=${encodeURIComponent(t("forgot.mailSubject"))}` +
-      `&body=${encodeURIComponent(t("forgot.mailBody", { password: result.new_password }))}`;
+    const subject = t("forgot.mailSubject");
+    const body = t("forgot.mailBody", { password: result.new_password });
+    const to = encodeURIComponent(result.email);
+    // Gmail/Outlook: düz https compose sayfaları — OS'ta mail istemcisi tanımlı
+    // olmasa da her tarayıcıda çalışır. mailto en zayıf halka, en sona konur.
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const outlookUrl = `https://outlook.office.com/mail/deeplink/compose?to=${to}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const mailto = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     return (
       <div className="login-card">
         <h2>{t("forgot.doneTitle")}</h2>
@@ -107,9 +117,18 @@ function ForgotForm({ onBack }) {
             {copied ? t("Kopyalandı") : t("Kopyala")}
           </button>
         </div>
-        <a className="login-btn" href={mailto} style={{ textAlign: "center" }}>
-          {t("forgot.emailButton")}
-        </a>
+        <p className="login-sub">{t("forgot.mailHint")}</p>
+        <div className="cred-row">
+          <a className="mini" href={gmailUrl} target="_blank" rel="noreferrer">
+            {t("forgot.gmailButton")}
+          </a>
+          <a className="mini" href={outlookUrl} target="_blank" rel="noreferrer">
+            {t("forgot.outlookButton")}
+          </a>
+          <a className="mini ghost" href={mailto}>
+            {t("forgot.emailButton")}
+          </a>
+        </div>
         <button type="button" className="link-btn" onClick={onBack}>
           {t("login.backToLogin")}
         </button>
