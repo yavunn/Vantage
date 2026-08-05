@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { addMembership, removeMembership } from "../api.js";
 import Modal from "./Modal.jsx";
+import { useT } from "../i18n.jsx";
 
 // Bir çalışanın takım üyeliklerini yönetir: ekle (rol seçerek), çıkar.
 export default function TeamEditor({ user, teams, onClose, onChanged }) {
+  const t = useT();
   const [current, setCurrent] = useState(user.teams || []);
   const [teamId, setTeamId] = useState("");
   const [role, setRole] = useState("member");
   const [error, setError] = useState(null);
 
-  const memberTeamIds = new Set(current.map((t) => t.team_id));
-  const available = teams.filter((t) => !memberTeamIds.has(t.id));
+  const memberTeamIds = new Set(current.map((tm) => tm.team_id));
+  const available = teams.filter((tm) => !memberTeamIds.has(tm.id));
 
   async function add() {
     if (!teamId) return;
@@ -38,22 +40,22 @@ export default function TeamEditor({ user, teams, onClose, onChanged }) {
   }
 
   return (
-    <Modal title={`Takımlar — ${user.display_name}`} onClose={onClose}>
+    <Modal title={t("Takımlar — {name}", { name: user.display_name })} onClose={onClose}>
       {user.developer_id == null ? (
-        <p className="desc">Bu hesap bir geliştiriciye bağlı değil; takım atanamaz.</p>
+        <p className="desc">{t("Bu hesap bir geliştiriciye bağlı değil; takım atanamaz.")}</p>
       ) : (
         <>
           {current.length === 0 ? (
-            <p className="desc">Henüz takım yok.</p>
+            <p className="desc">{t("Henüz takım yok.")}</p>
           ) : (
             <ul className="team-list">
-              {current.map((t) => (
-                <li key={t.team_id}>
+              {current.map((tm) => (
+                <li key={tm.team_id}>
                   <span>
-                    {t.team_name}
-                    <span className="role-tag">{t.role === "manager" ? "yönetici" : "üye"}</span>
+                    {tm.team_name}
+                    <span className="role-tag">{tm.role === "manager" ? t("yönetici") : t("üye")}</span>
                   </span>
-                  <button className="mini danger" onClick={() => remove(t.team_id)}>Çıkar</button>
+                  <button className="mini danger" onClick={() => remove(tm.team_id)}>{t("Çıkar")}</button>
                 </li>
               ))}
             </ul>
@@ -62,23 +64,23 @@ export default function TeamEditor({ user, teams, onClose, onChanged }) {
           {available.length > 0 && (
             <div className="team-add">
               <select value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-                <option value="">Takım seç…</option>
-                {available.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                <option value="">{t("Takım seç…")}</option>
+                {available.map((tm) => (
+                  <option key={tm.id} value={tm.id}>{tm.name}</option>
                 ))}
               </select>
               <select value={role} onChange={(e) => setRole(e.target.value)}>
-                <option value="member">Üye</option>
-                <option value="manager">Yönetici</option>
+                <option value="member">{t("Üye")}</option>
+                <option value="manager">{t("Yönetici")}</option>
               </select>
-              <button className="mini" onClick={add} disabled={!teamId}>Ekle</button>
+              <button className="mini" onClick={add} disabled={!teamId}>{t("Ekle")}</button>
             </div>
           )}
           {error && <div className="login-error">{error}</div>}
         </>
       )}
       <div className="modal-actions">
-        <button className="login-btn" onClick={onClose}>Kapat</button>
+        <button className="login-btn" onClick={onClose}>{t("Kapat")}</button>
       </div>
     </Modal>
   );

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Sparkline from "./Sparkline.jsx";
+import { useT } from "../i18n.jsx";
 
 // İK-dostu sade açıklamalar: metrik ne ölçer, iyi/kötü ne demek. Teknik
 // olmayan kullanıcı "?" ile görür. (Ölçümü değiştirmez, yalnızca anlatır.)
@@ -76,10 +77,10 @@ const LOW_SAMPLE = 5;
 
 // stats dağılımı gösterilen (ortalama yanıltıcı olabilen) süre metrikleri.
 // Birim gün olanlarda 1 ondalık, saat (mttr) olanda tam sayı okunur.
-function fmtStat(key, v) {
+function fmtStat(t, key, v) {
   if (v == null) return "–";
-  if (key === "mttr") return `${v.toFixed(0)} saat`;
-  return `${v.toFixed(1)} gün`;
+  if (key === "mttr") return `${v.toFixed(0)} ${t("saat")}`;
+  return `${v.toFixed(1)} ${t("gün")}`;
 }
 
 const PERCENT_METRICS = new Set(["change_failure_rate", "rework", "process_hygiene"]);
@@ -95,23 +96,25 @@ export function formatValue(key, value) {
 // KÖTÜ (kırmızı), azalış iyi. direction='higher' (deploy sıklığı) → tersi.
 // Renk yönü metriğe göre ayrı kurulur; ok her zaman gerçek yönü gösterir.
 function Delta({ metric, previous }) {
+  const t = useT();
   if (previous == null || metric.value == null || previous === 0) return null;
   const pct = ((metric.value - previous) / Math.abs(previous)) * 100;
   if (!isFinite(pct)) return null;
   const rounded = Math.round(pct);
-  if (rounded === 0) return <span className="delta flat">≈ değişim yok</span>;
+  if (rounded === 0) return <span className="delta flat">{t("≈ değişim yok")}</span>;
   const up = pct > 0;
   const direction = metric.direction || "lower";
   // Yükselmesi iyi mi? higher metrikte artış iyi; lower metrikte azalış iyi.
   const good = direction === "higher" ? up : !up;
   return (
-    <span className={`delta ${good ? "good" : "bad"}`} title="Önceki eş döneme göre">
+    <span className={`delta ${good ? "good" : "bad"}`} title={t("Önceki eş döneme göre")}>
       {up ? "↑" : "↓"} %{Math.abs(rounded)}
     </span>
   );
 }
 
 export default function MetricCard({ metric, previous, onClick, series }) {
+  const t = useT();
   const insufficient = metric.status === "insufficient_data";
   const color = STATUS_COLOR[metric.status];
   const completenessPct = Math.round(metric.data_completeness * 100);
@@ -128,7 +131,7 @@ export default function MetricCard({ metric, previous, onClick, series }) {
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === "Enter") onClick(); } : undefined}
-      title={clickable ? "Detay için tıkla (hangi kayıtlar bu sayıyı oluşturuyor)" : undefined}
+      title={clickable ? t("Detay için tıkla (hangi kayıtlar bu sayıyı oluşturuyor)") : undefined}
     >
       <div className="metric-head">
         <span className="dot" style={{ background: color }} aria-hidden="true" />
@@ -136,7 +139,7 @@ export default function MetricCard({ metric, previous, onClick, series }) {
         {meta && (
           <button
             className="info-btn"
-            aria-label="Bu metrik ne anlama geliyor?"
+            aria-label={t("Bu metrik ne anlama geliyor?")}
             aria-expanded={info}
             onClick={(e) => { e.stopPropagation(); setInfo((v) => !v); }}
           >?</button>
@@ -145,37 +148,37 @@ export default function MetricCard({ metric, previous, onClick, series }) {
       </div>
       {info && meta && (
         <div className="metric-info" onClick={(e) => e.stopPropagation()}>
-          <p><strong>Ne ölçer:</strong> {meta.means}</p>
-          <p className="mi-good"><strong>İyi:</strong> {meta.good}</p>
-          <p className="mi-watch"><strong>Dikkat:</strong> {meta.watch}</p>
+          <p><strong>{t("Ne ölçer:")}</strong> {t(meta.means)}</p>
+          <p className="mi-good"><strong>{t("İyi:")}</strong> {t(meta.good)}</p>
+          <p className="mi-watch"><strong>{t("Dikkat:")}</strong> {t(meta.watch)}</p>
         </div>
       )}
       <div className="value">
         {insufficient ? (
-          "Veri yetersiz"
+          t("Veri yetersiz")
         ) : (
           <>
             {formatValue(metric.key, metric.value)}
-            {UNITS[metric.key] && <span className="unit">{UNITS[metric.key]}</span>}
+            {UNITS[metric.key] && <span className="unit">{t(UNITS[metric.key])}</span>}
           </>
         )}
       </div>
       {!insufficient && series && series.points && (
-        <div className="card-spark" title="Son dönemlerin seyri (ayrıntı için alttaki trend grafiği)">
+        <div className="card-spark" title={t("Son dönemlerin seyri (ayrıntı için alttaki trend grafiği)")}>
           <Sparkline points={series.points} color={color} />
         </div>
       )}
       {!metric.direction && previous != null && metric.value != null && (
         <div className="prev">
-          Kendi geçmişiniz (önceki dönem): {formatValue(metric.key, previous)}
+          {t("Kendi geçmişiniz (önceki dönem):")} {formatValue(metric.key, previous)}
         </div>
       )}
       {!insufficient && metric.stats && (
         // Ortalama tek başına yanıltıcı: medyan + p90 yanına eklenir (İlke:
         // istatistiksel dürüstlük). Ortalama üstteki büyük değerdir.
-        <div className="dist" title="Ortalama yanıltıcı olabilir; medyan ve p90 dağılımı gösterilir">
-          <span>medyan {fmtStat(metric.key, metric.stats.median)}</span>
-          <span>p90 {fmtStat(metric.key, metric.stats.p90)}</span>
+        <div className="dist" title={t("Ortalama yanıltıcı olabilir; medyan ve p90 dağılımı gösterilir")}>
+          <span>{t("medyan")} {fmtStat(t, metric.key, metric.stats.median)}</span>
+          <span>p90 {fmtStat(t, metric.key, metric.stats.p90)}</span>
         </div>
       )}
       <p className="desc">{metric.description}</p>
@@ -183,16 +186,16 @@ export default function MetricCard({ metric, previous, onClick, series }) {
         <span className="status-label" style={{ color }}>
           {STATUS_ICON[metric.status]} {metric.status_label}
         </span>
-        <span title="Bu metriğin dayandığı kayıtların ne kadarında gerekli alanlar vardı">
-          veri tamlığı %{completenessPct}
+        <span title={t("Bu metriğin dayandığı kayıtların ne kadarında gerekli alanlar vardı")}>
+          {t("veri tamlığı %{pct}", { pct: completenessPct })}
           {metric.source_layer ? ` · ${metric.source_layer}` : ""}
         </span>
       </div>
       {!insufficient && metric.sample_size != null && (
         <div className={`sample${metric.sample_size < LOW_SAMPLE ? " low" : ""}`}>
           {metric.sample_size < LOW_SAMPLE
-            ? `⚠ yalnızca ${metric.sample_size} kayıt — az örneklem, dikkatli yorumla`
-            : `${metric.sample_size} kayıt üzerinden`}
+            ? t("⚠ yalnızca {n} kayıt — az örneklem, dikkatli yorumla", { n: metric.sample_size })
+            : t("{n} kayıt üzerinden", { n: metric.sample_size })}
         </div>
       )}
     </div>

@@ -27,6 +27,16 @@ DIM_LABELS = {
     "conventions": "Konvansiyon Uyumu",
 }
 
+DIM_LABELS_EN = {
+    "readability": "Readability",
+    "complexity": "Complexity",
+    "maintainability": "Maintainability",
+    "test_adequacy": "Test Adequacy",
+    "security": "Security",
+    "code_smells": "Code Smells",
+    "conventions": "Convention Compliance",
+}
+
 
 def _status(composite: float | None) -> str:
     if composite is None:
@@ -44,6 +54,42 @@ STATUS_LABELS = {
     "red": "Zorlanıyor — yardım gerekebilir",
     "insufficient_data": "Analiz bekliyor",
 }
+
+STATUS_LABELS_EN = {
+    "green": "Healthy",
+    "yellow": "Worth watching",
+    "red": "Struggling — support may help",
+    "insufficient_data": "Awaiting analysis",
+}
+
+NAME_EN = {
+    "Kod Sağlığı (şirket geneli)": "Code Health (company-wide)",
+    "Kod Sağlığı (kişi)": "Code Health (individual)",
+    "Kod Sağlığı": "Code Health",
+}
+
+_DESC_EN = {
+    "AI kod analizi composite skoru (repo/modül düzeyi)":
+        "AI code analysis composite score (repo/module level)",
+    "AI kod analizi composite skoru (repo/modül düzeyi, kişi değil)":
+        "AI code analysis composite score (repo/module level, not per person)",
+    "Haftalık AI kod analizi composite trendi": "Weekly AI code analysis composite trend",
+}
+
+_NOTE_EN = "AI code analysis is off (llm.enabled + code_analysis.enabled)."
+
+
+def _dim_labels(lang: str) -> dict:
+    return DIM_LABELS_EN if lang == "en" else DIM_LABELS
+
+def _status_labels(lang: str) -> dict:
+    return STATUS_LABELS_EN if lang == "en" else STATUS_LABELS
+
+def _tr(text: str, lang: str) -> str:
+    return NAME_EN.get(text, text) if lang == "en" else text
+
+def _desc(text: str, lang: str) -> str:
+    return _DESC_EN.get(text, text) if lang == "en" else text
 
 
 def _module_of(file_path: str) -> str:
@@ -91,27 +137,29 @@ def _latest_per_repo_file(rows: list[CodeAnalysis]) -> list[CodeAnalysis]:
     return [r for r in latest.values() if r.composite is not None]
 
 
-def company_code_health(session: Session, cfg: Config) -> dict:
+def company_code_health(session: Session, cfg: Config, lang: str = "tr") -> dict:
     """Tüm şirketin genel AI kod sağlığı (tüm repo/dosya). Admin görünümü."""
     enabled = cfg.llm.enabled and cfg.code_analysis.enabled
     files = _latest_per_repo_file(list(session.scalars(select(CodeAnalysis))))
-    return _health_payload(files, enabled, "Kod Sağlığı (şirket geneli)")
+    return _health_payload(files, enabled, _tr("Kod Sağlığı (şirket geneli)", lang), lang)
 
 
-def company_code_health_breakdown(session: Session) -> dict:
-    return _breakdown_payload(_latest_per_repo_file(list(session.scalars(select(CodeAnalysis)))))
+def company_code_health_breakdown(session: Session, lang: str = "tr") -> dict:
+    return _breakdown_payload(_latest_per_repo_file(list(session.scalars(select(CodeAnalysis)))), lang)
 
 
-def _health_payload(files: list[CodeAnalysis], enabled: bool, name: str) -> dict:
+def _health_payload(files: list[CodeAnalysis], enabled: bool, name: str, lang: str = "tr") -> dict:
     """Ortak composite + modül kırılımı üretici (takım ve kişi paylaşır)."""
+    dim_labels = _dim_labels(lang)
+    status_labels = _status_labels(lang)
     if not files:
         return {
             "key": "code_health", "name": name,
-            "description": "AI kod analizi composite skoru (repo/modül düzeyi)",
+            "description": _desc("AI kod analizi composite skoru (repo/modül düzeyi)", lang),
             "value": None, "status": "insufficient_data",
-            "status_label": STATUS_LABELS["insufficient_data"],
+            "status_label": status_labels["insufficient_data"],
             "sample_size": 0, "data_completeness": 0.0, "enabled": enabled,
-            "note": None if enabled else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
+            "note": None if enabled else _NOTE_EN if lang == "en" else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
             "modules": [],
         }
     composite = sum(f.composite for f in files) / len(files)
@@ -129,48 +177,50 @@ def _health_payload(files: list[CodeAnalysis], enabled: bool, name: str) -> dict
         worst_dim = min(DIMENSIONS, key=lambda d: sum(getattr(x, d) for x in mfiles) / len(mfiles))
         modules.append({
             "module": mod, "composite": round(mcomp, 1), "files": len(mfiles),
-            "status": _status(mcomp), "worst_dimension": DIM_LABELS[worst_dim],
+            "status": _status(mcomp), "worst_dimension": dim_labels[worst_dim],
         })
     modules.sort(key=lambda m: m["composite"])
     status = _status(composite)
     return {
         "key": "code_health", "name": name,
-        "description": "AI kod analizi composite skoru (repo/modül düzeyi)",
+        "description": _desc("AI kod analizi composite skoru (repo/modül düzeyi)", lang),
         "value": round(composite, 1), "status": status,
-        "status_label": STATUS_LABELS[status],
+        "status_label": status_labels[status],
         "sample_size": len(files), "data_completeness": 1.0, "enabled": enabled, "note": None,
-        "dimension_averages": {DIM_LABELS[d]: dim_avgs[d] for d in DIMENSIONS},
+        "dimension_averages": {dim_labels[d]: dim_avgs[d] for d in DIMENSIONS},
         "modules": modules,
     }
 
 
-def developer_code_health(session: Session, developer_id: int, cfg: Config) -> dict:
+def developer_code_health(session: Session, developer_id: int, cfg: Config, lang: str = "tr") -> dict:
     """Kişinin KENDİ kodunun AI sağlığı (git yazarı atfı). Kıyas yok, kendi
     kodunun geri bildirimi. Kapalı/veri yoksa 'analiz bekliyor'."""
     enabled = cfg.llm.enabled and cfg.code_analysis.enabled
     files = _latest_per_file(_dev_analyses(session, developer_id))
-    return _health_payload(files, enabled, "Kod Sağlığı (kişi)")
+    return _health_payload(files, enabled, _tr("Kod Sağlığı (kişi)", lang), lang)
 
 
-def developer_code_health_breakdown(session: Session, developer_id: int) -> dict:
-    return _breakdown_payload(_latest_per_file(_dev_analyses(session, developer_id)))
+def developer_code_health_breakdown(session: Session, developer_id: int, lang: str = "tr") -> dict:
+    return _breakdown_payload(_latest_per_file(_dev_analyses(session, developer_id)), lang)
 
 
-def team_code_health(session: Session, team_id: int, cfg: Config) -> dict:
+def team_code_health(session: Session, team_id: int, cfg: Config, lang: str = "tr") -> dict:
     """Takımın composite kod sağlığı + modül kırılımı. AI kapalı ya da veri
     yoksa 'analiz bekliyor' (uydurma skor yok)."""
     enabled = cfg.llm.enabled and cfg.code_analysis.enabled
     files = _latest_per_file(_team_analyses(session, team_id))
+    dim_labels = _dim_labels(lang)
+    status_labels = _status_labels(lang)
 
     if not files:
         return {
-            "key": "code_health", "name": "Kod Sağlığı",
-            "description": "AI kod analizi composite skoru (repo/modül düzeyi, kişi değil)",
+            "key": "code_health", "name": _tr("Kod Sağlığı", lang),
+            "description": _desc("AI kod analizi composite skoru (repo/modül düzeyi, kişi değil)", lang),
             "value": None, "status": "insufficient_data",
-            "status_label": STATUS_LABELS["insufficient_data"],
+            "status_label": status_labels["insufficient_data"],
             "sample_size": 0, "data_completeness": 0.0,
             "enabled": enabled,
-            "note": None if enabled else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
+            "note": None if enabled else _NOTE_EN if lang == "en" else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
             "modules": [],
         }
 
@@ -197,25 +247,26 @@ def team_code_health(session: Session, team_id: int, cfg: Config) -> dict:
         modules.append({
             "module": mod, "composite": round(mcomp, 1), "files": len(mfiles),
             "status": _status(mcomp),
-            "worst_dimension": DIM_LABELS[worst_dim],
+            "worst_dimension": dim_labels[worst_dim],
         })
     modules.sort(key=lambda m: m["composite"])  # en çok yardım isteyen üstte
 
     status = _status(composite)
     return {
-        "key": "code_health", "name": "Kod Sağlığı",
-        "description": "AI kod analizi composite skoru (repo/modül düzeyi, kişi değil)",
+        "key": "code_health", "name": _tr("Kod Sağlığı", lang),
+        "description": _desc("AI kod analizi composite skoru (repo/modül düzeyi, kişi değil)", lang),
         "value": round(composite, 1), "status": status,
-        "status_label": STATUS_LABELS[status],
+        "status_label": status_labels[status],
         "sample_size": len(files), "data_completeness": 1.0,
         "enabled": enabled, "note": None,
-        "dimension_averages": {DIM_LABELS[d]: dim_avgs[d] for d in DIMENSIONS},
+        "dimension_averages": {dim_labels[d]: dim_avgs[d] for d in DIMENSIONS},
         "modules": modules,
     }
 
 
-def _breakdown_payload(files: list[CodeAnalysis]) -> dict:
+def _breakdown_payload(files: list[CodeAnalysis], lang: str = "tr") -> dict:
     """Dosya bazlı drill-down (takım ve kişi paylaşır). En düşük composite üstte."""
+    dim_labels = _dim_labels(lang)
     files = sorted(files, key=lambda f: f.composite)
     rows = []
     for f in files:
@@ -224,7 +275,7 @@ def _breakdown_payload(files: list[CodeAnalysis]) -> dict:
             "module": _module_of(f.file_path),
             "composite": round(f.composite, 1),
             "status": _status(f.composite),
-            "dimensions": {DIM_LABELS[d]: getattr(f, d) for d in DIMENSIONS},
+            "dimensions": {dim_labels[d]: getattr(f, d) for d in DIMENSIONS},
             "summary": f.summary,
             "suggestions": [s.get("text") for s in (f.suggestions or [])],
             "analyzed_at": f.analyzed_at.isoformat() if f.analyzed_at else None,
@@ -232,12 +283,12 @@ def _breakdown_payload(files: list[CodeAnalysis]) -> dict:
     return {"count": len(rows), "rows": rows}
 
 
-def team_code_health_breakdown(session: Session, team_id: int) -> dict:
+def team_code_health_breakdown(session: Session, team_id: int, lang: str = "tr") -> dict:
     """Drill-down: en çok dikkat isteyen dosyalar + AI önerileri (kişi yok)."""
-    return _breakdown_payload(_latest_per_file(_team_analyses(session, team_id)))
+    return _breakdown_payload(_latest_per_file(_team_analyses(session, team_id)), lang)
 
 
-def team_code_health_series(session: Session, team_id: int, cfg: Config) -> dict:
+def team_code_health_series(session: Session, team_id: int, cfg: Config, lang: str = "tr") -> dict:
     """Haftalık kod sağlığı trendi (analyzed_at kovaları). Kova composite'i o
     hafta analiz edilen dosyaların ortalaması."""
     rows = [r for r in _team_analyses(session, team_id) if r.composite is not None and r.analyzed_at]
@@ -260,6 +311,6 @@ def team_code_health_series(session: Session, team_id: int, cfg: Config) -> dict
         })
         b_start = b_end
     return {
-        "metric": "code_health", "name": "Kod Sağlığı",
-        "description": "Haftalık AI kod analizi composite trendi", "points": points,
+        "metric": "code_health", "name": _tr("Kod Sağlığı", lang),
+        "description": _desc("Haftalık AI kod analizi composite trendi", lang), "points": points,
     }

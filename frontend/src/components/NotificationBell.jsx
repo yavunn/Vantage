@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from "../api.js";
 import { toast } from "../toast.js";
+import { useLang, useT } from "../i18n.jsx";
 
 // Bildirim zili: okunmamış sayacı + açılır liste. Trend alarmları burada görünür.
 // Etik: içerik takım sağlığı sinyali; kişi kıyası/ceza dili yok (backend garantiler).
 export default function NotificationBell({ onNavigate }) {
+  const t = useT();
+  const { lang } = useLang();
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
@@ -43,7 +46,7 @@ export default function NotificationBell({ onNavigate }) {
       try {
         await markNotificationRead(n.id);
       } catch (err) {
-        toast(`Bildirim okundu işaretlenemedi: ${err.message}`, "error");
+        toast(t("Bildirim okundu işaretlenemedi: {msg}", { msg: err.message }), "error");
       }
       refresh();
     }
@@ -64,31 +67,31 @@ export default function NotificationBell({ onNavigate }) {
     try {
       await markAllNotificationsRead();
     } catch (err) {
-      toast(`Bildirimler okundu işaretlenemedi: ${err.message}`, "error");
+      toast(t("Bildirimler okundu işaretlenemedi: {msg}", { msg: err.message }), "error");
     }
     refresh();
   }
 
   return (
     <div className="notif-bell" ref={ref}>
-      <button className="mini ghost notif-trigger" onClick={() => { setOpen((o) => !o); }} aria-label="Bildirimler" title="Bildirimler">
+      <button className="mini ghost notif-trigger" onClick={() => { setOpen((o) => !o); }} aria-label={t("Bildirimler")} title={t("Bildirimler")}>
         🔔{unread > 0 && <span className="notif-badge">{unread > 9 ? "9+" : unread}</span>}
       </button>
       {open && (
         <div className="notif-panel" role="menu">
           <div className="notif-head">
-            <strong>Bildirimler</strong>
-            {unread > 0 && <button className="mini ghost" onClick={readAll}>Tümünü okundu yap</button>}
+            <strong>{t("Bildirimler")}</strong>
+            {unread > 0 && <button className="mini ghost" onClick={readAll}>{t("Tümünü okundu yap")}</button>}
           </div>
           {items.length === 0 ? (
-            <p className="desc notif-empty">Bildirim yok.</p>
+            <p className="desc notif-empty">{t("Bildirim yok.")}</p>
           ) : (
             <ul className="notif-list">
               {items.map((n) => (
                 <li key={n.id} className={`notif-item ${n.is_read ? "read" : "unread"} sev-${n.severity}`} onClick={() => readOne(n)}>
                   <div className="notif-title">{n.title}</div>
                   {n.body && <div className="notif-body">{n.body}</div>}
-                  <div className="notif-time">{n.created_at ? new Date(n.created_at).toLocaleString("tr-TR") : ""}</div>
+                  <div className="notif-time">{n.created_at ? new Date(n.created_at).toLocaleString(lang === "en" ? "en-US" : "tr-TR") : ""}</div>
                 </li>
               ))}
             </ul>

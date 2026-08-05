@@ -75,8 +75,11 @@ def app_env(tmp_path, monkeypatch):
     # Giriş hız sınırı modül seviyesinde sayaç tutar; TestClient'ın IP'si her
     # testte aynı ("testclient"). Sıfırlanmazsa bir testin başarısız giriş
     # denemeleri sonraki testleri 429'a düşürür.
-    from app.api.auth import _login_attempts
+    from app.api.auth import _login_attempts, _reset_attempts
     _login_attempts.clear()
+    # Parola sıfırlama TALEBİ sayacı da aynı sebeple sıfırlanır: bir testin
+    # talepleri sonraki testi 429'a düşürüyordu.
+    _reset_attempts.clear()
     # Senkron işi de modül seviyesinde durum tutuyor: bir testin arka plan
     # senkronu bitmeden diğeri başlarsa uç 409 döner (aynı anda tek senkron).
     from app.services.sync_job import sifirla as _sync_sifirla

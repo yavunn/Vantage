@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
+import { useT } from "../i18n.jsx";
 
 // Erişilebilir modal: Esc ile kapanır, odak içeride tutulur (focus-trap),
 // aria-modal + role=dialog + başlık ilişkilendirmesi. Backdrop tıklaması kapatır.
 export default function Modal({ title, onClose, children }) {
+  const t = useT();
   const ref = useRef(null);
   const titleId = "modal-title";
 
@@ -56,7 +58,7 @@ export default function Modal({ title, onClose, children }) {
       >
         <div className="modal-head">
           <h2 id={titleId}>{title}</h2>
-          <button className="mini ghost" aria-label="Kapat" onClick={onClose}>✕</button>
+          <button className="mini ghost" aria-label={t("Kapat")} onClick={onClose}>✕</button>
         </div>
         {children}
       </div>

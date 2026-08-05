@@ -5,6 +5,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setupStatus } from "./api.js";
 import { toast } from "./toast.js";
 import { applyTheme, RANGE_OPTIONS, readNav, writeNav } from "./nav.js";
+import { useT } from "./i18n.jsx";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
 import SurveyBanner from "./components/SurveyBanner.jsx";
@@ -31,13 +32,17 @@ const ProjectsPanel = lazy(() => import("./components/ProjectsPanel.jsx"));
 const Settings = lazy(() => import("./components/Settings.jsx"));
 const SurveyForm = lazy(() => import("./components/SurveyForm.jsx"));
 
-const LazyFallback = <div className="app">Yükleniyor…</div>;
+function LazyFallback() {
+  const t = useT();
+  return <div className="app">{t("Yükleniyor…")}</div>;
+}
 
 
 
 
 
 export default function App() {
+  const t = useT();
   const [authReady, setAuthReady] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [user, setUser] = useState(null);
@@ -173,7 +178,7 @@ export default function App() {
       // Bu çağrı takım ekleme/silme/yeniden adlandırma sonrası çalışır: sessizce
       // yutulursa yönetici işlemin başarısız olduğunu değil, listenin eski
       // kaldığını görür ve aynı takımı tekrar yaratmayı dener.
-      .catch((e) => toast(`Takım listesi yenilenemedi: ${e.message}`, "error"));
+      .catch((e) => toast(t("Takım listesi yenilenemedi: {msg}", { msg: e.message }), "error"));
   }
 
   // Giriş sonrası çekirdek veriyi yükle (parola değiştirme beklemiyorsa).
@@ -244,12 +249,12 @@ export default function App() {
   function cycleTheme() {
     setTheme((t) => (t === "auto" ? "light" : t === "light" ? "dark" : "auto"));
   }
-  const themeLabel = theme === "auto" ? "Tema: Oto" : theme === "light" ? "Tema: Açık" : "Tema: Koyu";
+  const themeLabel = theme === "auto" ? t("Tema: Oto") : theme === "light" ? t("Tema: Açık") : t("Tema: Koyu");
 
   function exportCsv() {
     if (!summary) return;
-    const teamName = teams.find((t) => t.id === teamId)?.name || "takim";
-    const rows = [["Metrik", "Değer", "Birim", "Durum", "Veri tamlığı"]];
+    const teamName = teams.find((tm) => tm.id === teamId)?.name || t("takim");
+    const rows = [[t("Metrik"), t("Değer"), t("Birim"), t("Durum"), t("Veri tamlığı")]];
     summary.metrics.forEach((m) => {
       rows.push([
         m.title || m.key,
@@ -269,7 +274,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  if (!authReady) return <div className="app">Yükleniyor…</div>;
+  if (!authReady) return <div className="app">{t("Yükleniyor…")}</div>;
   if (needsSetup) return <Setup onSuccess={(u) => { setNeedsSetup(false); setUser(u); }} />;
   // Yeni oturum, önceki oturumun hatasını miras almaz.
   if (!user) return <Login onSuccess={(u) => { setError(null); setUser(u); }} />;
@@ -282,8 +287,8 @@ export default function App() {
     );
   }
 
-  if (error) return <div className="error-box">Hata: {error.message}</div>;
-  if (!uiConfig) return <div className="app">Yükleniyor…</div>;
+  if (error) return <div className="error-box">{t("Hata: {msg}", { msg: error.message })}</div>;
+  if (!uiConfig) return <div className="app">{t("Yükleniyor…")}</div>;
 
   const individualAvailable = uiConfig.individual_view_enabled;
   const isAdmin = user.role === "admin";
@@ -323,7 +328,7 @@ export default function App() {
         />
       )}
 
-      <Suspense fallback={LazyFallback}>
+      <Suspense fallback={<LazyFallback />}>
         {tab === "survey" && (
           <SurveyForm
             survey={survey}
@@ -382,20 +387,20 @@ export default function App() {
       {tab === "team" && summary && (
         <>
           <div className="team-toolbar">
-            <div className="range-picker" role="group" aria-label="Tarih aralığı">
+            <div className="range-picker" role="group" aria-label={t("Tarih aralığı")}>
               {RANGE_OPTIONS.map((d) => (
                 <button
                   key={d}
                   className={`mini${range === d ? " active" : ""}`}
                   onClick={() => setRange(d)}
                 >
-                  {d} gün
+                  {t("{n} gün", { n: d })}
                 </button>
               ))}
             </div>
             <span style={{ flex: 1 }} />
-            <button className="mini" onClick={exportCsv}>CSV indir</button>
-            <button className="mini" onClick={() => window.print()}>Yazdır / PDF</button>
+            <button className="mini" onClick={exportCsv}>{t("CSV indir")}</button>
+            <button className="mini" onClick={() => window.print()}>{t("Yazdır / PDF")}</button>
           </div>
           {(() => {
             const all = [...summary.metrics, ...signals, ...(codeHealth ? [codeHealth] : [])];
@@ -407,15 +412,15 @@ export default function App() {
               <div className="status-band" role="status">
                 <strong>
                   {c.red > 0
-                    ? `${c.red} alan yardım istiyor`
+                    ? t("{n} alan yardım istiyor", { n: c.red })
                     : c.yellow > 0
-                    ? "Takım genel olarak iyi, birkaç alan izlenmeli"
-                    : "Her şey akıyor 🎉"}
+                    ? t("Takım genel olarak iyi, birkaç alan izlenmeli")
+                    : t("Her şey akıyor 🎉")}
                 </strong>
                 <span className="sb-chips">
-                  {c.red > 0 && <span className="sb red">● {c.red} zorlanıyor</span>}
-                  {c.yellow > 0 && <span className="sb yellow">▲ {c.yellow} izlenmeli</span>}
-                  {c.green > 0 && <span className="sb green">✓ {c.green} akıyor</span>}
+                  {c.red > 0 && <span className="sb red">● {t("{n} zorlanıyor", { n: c.red })}</span>}
+                  {c.yellow > 0 && <span className="sb yellow">▲ {t("{n} izlenmeli", { n: c.yellow })}</span>}
+                  {c.green > 0 && <span className="sb green">✓ {t("{n} akıyor", { n: c.green })}</span>}
                 </span>
               </div>
             );
@@ -438,14 +443,14 @@ export default function App() {
 
           {summary.metrics.length > 0 && summary.metrics.every((m) => m.status === "insufficient_data") && (
             <div className="empty-guide">
-              <h3>Bu takım için henüz yeterli veri yok</h3>
+              <h3>{t("Bu takım için henüz yeterli veri yok")}</h3>
               <p>
                 {isAdmin
-                  ? "Gerçek veri için: kaynağı bağla (config.yaml) → senkron çalıştır. Yönetici paneli → Başlangıç adımlarını izle."
-                  : "Veri toplandıkça metrikler burada görünecek. Sorun sürerse yöneticine danış."}
+                  ? t("Gerçek veri için: kaynağı bağla (config.yaml) → senkron çalıştır. Yönetici paneli → Başlangıç adımlarını izle.")
+                  : t("Veri toplandıkça metrikler burada görünecek. Sorun sürerse yöneticine danış.")}
               </p>
               {isAdmin && (
-                <button className="mini" onClick={() => setTab("admin")}>Yönetici paneli → Başlangıç</button>
+                <button className="mini" onClick={() => setTab("admin")}>{t("Yönetici paneli → Başlangıç")}</button>
               )}
             </div>
           )}
@@ -454,7 +459,7 @@ export default function App() {
 
           {summary.recommendations.length > 0 && (
             <section className="section">
-              <h2>Süreç önerileri</h2>
+              <h2>{t("Süreç önerileri")}</h2>
               <div className="recs">
                 {summary.recommendations.map((r) => (
                   <div key={r.rule} className={`rec ${r.severity}`}>
@@ -467,7 +472,7 @@ export default function App() {
           )}
 
           <section className="section">
-            <h2>Trend ({range} gün)</h2>
+            <h2>{t("Trend ({n} gün)", { n: range })}</h2>
             <div className="charts">
               {series.map((s) => (
                 <TrendChart
@@ -490,7 +495,7 @@ export default function App() {
           {/* Yönetici, ekibindeki bir kişiye bakabilir; sunucu yetkiyi zorlar.
               Aranabilir seçici: uzun listede isimle filtre + son bakılanlar. */}
           <div className="indiv-toolbar">
-            <span className="ctx-label">Kişi</span>
+            <span className="ctx-label">{t("Kişi")}</span>
             <PersonPicker
               people={directory}
               value={viewDevId ?? user.developer_id ?? null}
@@ -499,21 +504,21 @@ export default function App() {
             />
             {user.developer_id != null && (viewDevId ?? user.developer_id) !== user.developer_id && (
               <button className="mini ghost" onClick={() => setViewDevId(user.developer_id)}>
-                Bana dön
+                {t("Bana dön")}
               </button>
             )}
           </div>
           {(viewDevId ?? user.developer_id) != null ? (
-            <Suspense fallback={LazyFallback}>
+            <Suspense fallback={<LazyFallback />}>
               <IndividualView devId={viewDevId ?? user.developer_id} />
             </Suspense>
           ) : (
-            <p className="desc">Bu hesap bir geliştiriciye bağlı değil.</p>
+            <p className="desc">{t("Bu hesap bir geliştiriciye bağlı değil.")}</p>
           )}
           {/* "Kodum" AI kod sağlığı: yalnız KENDİNE bakarken (admin başkasına
               bakarken gizli — /api/me yalnız oturum sahibinin kodudur). */}
           {user.developer_id != null && (viewDevId ?? user.developer_id) === user.developer_id && (
-            <Suspense fallback={LazyFallback}>
+            <Suspense fallback={<LazyFallback />}>
               <MyCodeHealth user={user} />
             </Suspense>
           )}
@@ -533,7 +538,7 @@ export default function App() {
       {codeDrill && (
         <CodeHealthDrilldown
           path={`/api/teams/${teamId}/code-health/breakdown`}
-          title="Kod Sağlığı — dikkat isteyen bölümler (takım)"
+          title={t("Kod Sağlığı — dikkat isteyen bölümler (takım)")}
           onClose={() => setCodeDrill(false)}
         />
       )}
@@ -542,19 +547,19 @@ export default function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         tabs={isHr ? [
-          { key: "hr", label: "İK Panosu" },
-          { key: "leaves", label: "İzinler" },
-          { key: "accounts", label: "Hesaplar" },
-          ...(surveyRespondent ? [{ key: "survey", label: "Anket" }] : []),
-          { key: "settings", label: "Ayarlar" },
+          { key: "hr", label: t("nav.hr") },
+          { key: "leaves", label: t("nav.leaves") },
+          { key: "accounts", label: t("nav.accounts") },
+          ...(surveyRespondent ? [{ key: "survey", label: t("nav.survey") }] : []),
+          { key: "settings", label: t("nav.settings") },
         ] : [
-          { key: "team", label: "Takım görünümü" },
-          ...(individualAvailable ? [{ key: "me", label: "Bireysel görünüm" }] : []),
-          { key: "projects", label: "Projelerim" },
-          { key: "leaves", label: "İzinler" },
-          ...(surveyRespondent ? [{ key: "survey", label: "Anket" }] : []),
-          ...(isAdmin ? [{ key: "admin", label: "Yönetici paneli" }] : []),
-          { key: "settings", label: "Ayarlar" },
+          { key: "team", label: t("nav.team") },
+          ...(individualAvailable ? [{ key: "me", label: t("nav.me") }] : []),
+          { key: "projects", label: t("nav.projects") },
+          { key: "leaves", label: t("nav.leaves") },
+          ...(surveyRespondent ? [{ key: "survey", label: t("nav.survey") }] : []),
+          ...(isAdmin ? [{ key: "admin", label: t("nav.admin") }] : []),
+          { key: "settings", label: t("nav.settings") },
         ]}
         teams={isHr ? [] : teams}
         people={!isHr && individualAvailable ? directory : []}

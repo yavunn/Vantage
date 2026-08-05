@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n.jsx";
 
 // Global hızlı arama (Ctrl+K / Cmd+K): sekme, takım ve kişi tek kutudan.
 // İK akışında en büyük hızlandırıcı — "kişiye bak" 1 tuş + 2 harf.
 export default function CommandPalette({ open, onClose, tabs, teams, people, onGoTab, onGoTeam, onGoPerson }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef(null);
 
   const items = useMemo(() => {
     const all = [
-      ...tabs.map((t) => ({ kind: "Sekme", label: t.label, run: () => onGoTab(t.key) })),
-      ...teams.map((t) => ({ kind: "Takım", label: t.name, run: () => onGoTeam(t.id) })),
-      ...people.map((p) => ({ kind: "Kişi", label: p.display_name, run: () => onGoPerson(p.id) })),
+      ...tabs.map((tb) => ({ kind: t("Sekme"), label: tb.label, run: () => onGoTab(tb.key) })),
+      ...teams.map((tm) => ({ kind: t("Takım"), label: tm.name, run: () => onGoTeam(tm.id) })),
+      ...people.map((p) => ({ kind: t("Kişi"), label: p.display_name, run: () => onGoPerson(p.id) })),
     ];
     const q = query.trim().toLocaleLowerCase("tr");
     if (!q) return all.slice(0, 12);
     return all.filter((i) => i.label.toLocaleLowerCase("tr").includes(q)).slice(0, 20);
-  }, [query, tabs, teams, people, onGoTab, onGoTeam, onGoPerson]);
+  }, [query, tabs, teams, people, onGoTab, onGoTeam, onGoPerson, t]);
 
   useEffect(() => { setCursor(0); }, [query]);
   useEffect(() => {
@@ -39,18 +41,18 @@ export default function CommandPalette({ open, onClose, tabs, teams, people, onG
 
   return (
     <div className="cmdk-backdrop" onClick={onClose}>
-      <div className="cmdk" role="dialog" aria-modal="true" aria-label="Hızlı arama" onClick={(e) => e.stopPropagation()}>
+      <div className="cmdk" role="dialog" aria-modal="true" aria-label={t("Hızlı arama")} onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           className="cmdk-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKey}
-          placeholder="Sekme, takım veya kişi ara…"
-          aria-label="Hızlı arama"
+          placeholder={t("Sekme, takım veya kişi ara…")}
+          aria-label={t("Hızlı arama")}
         />
         {items.length === 0 ? (
-          <p className="desc cmdk-empty">Sonuç yok.</p>
+          <p className="desc cmdk-empty">{t("Sonuç yok.")}</p>
         ) : (
           <ul className="cmdk-list">
             {items.map((it, i) => (
@@ -69,7 +71,7 @@ export default function CommandPalette({ open, onClose, tabs, teams, people, onG
           </ul>
         )}
         <div className="cmdk-foot">
-          <span>↑↓ gez</span><span>↵ git</span><span>Esc kapat</span>
+          <span>{t("↑↓ gez")}</span><span>{t("↵ git")}</span><span>{t("Esc kapat")}</span>
         </div>
       </div>
     </div>

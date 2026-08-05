@@ -139,6 +139,26 @@ cd ..\backend
 > Bu repo, demo için `.pgsql/` altında taşınabilir bir PostgreSQL ile geliştirildi
 > (kurulum gerektirmez): `.pgsql\pgsql\bin\pg_ctl -D .pgsql\data -o "-p 5433" start`
 
+### Şifremi unuttum
+
+Giriş ekranındaki **"Şifremi unuttum"**, e-postayla sıfırlama LİNKİ göndermez —
+bu kurulum on-prem ve mail altyapısı yoktur; olmayan bir SMTP'yi varmış gibi
+kurgulamak yerine talep bir kuyruğa düşer:
+
+1. Kullanıcı giriş ekranından e-postasını (ve isterse kısa bir not) bırakır.
+2. Talep **Yönetici paneli → Hesaplar** üstünde görünür (İK de görür).
+3. Yönetici hesap satırından parolayı sıfırlar → geçici parola verilir →
+   kullanıcı **ilk girişte kendi parolasını belirler** (`must_change_password`).
+4. Yönetici talebi "çözüldü" ya da "yok say" ile kapatır.
+
+Güvenlik notları:
+- Uç, e-postanın sistemde olup olmadığını **sızdırmaz** — yanıt her koşulda
+  aynıdır (hesap numaralandırma). Hesabın varlığı yalnız yöneticinin gördüğü
+  kayda yazılır.
+- Talep ucu IP bazlı hız sınırlıdır (15 dk / 5 talep): kuyruk spam'lenemez.
+- Talebi kapatmak parolayı **DEĞİŞTİRMEZ**; sıfırlama ayrı ve bilinçli bir adımdır.
+- Tabloda sır saklanmaz: token yok, parola yok.
+
 ### Yerel modeller (LLM + RAG kullanacaksanız)
 
 `config/config.yaml` deposu `llm.provider: local` ve `rag.enabled: true` ile gelir;
@@ -167,8 +187,10 @@ Testler: `cd backend; .venv\Scripts\python -m pytest tests`
 
 ```powershell
 .venv\Scripts\python scripts\load_test.py 50000 5000   # metrik motoru ölçeği
-.venv\Scripts\python scriptsag_scale_test.py         # asistan indeksi ölçeği
-.venv\Scripts\python scriptsag_eval.py --model bge-m3  # retrieval kalitesi + eşik
+.venv\Scripts\python scripts
+ag_scale_test.py         # asistan indeksi ölçeği
+.venv\Scripts\python scripts
+ag_eval.py --model bge-m3  # retrieval kalitesi + eşik
 ```
 
 ## Hesap yönetimi ve ek modüller
@@ -231,6 +253,7 @@ değildir** (İlke B):
 | `app.individual_view_enabled` | bireysel görünümü tümden aç/kapat |
 | `sources.git.provider` · `sources.tasks.provider` | adaptör seçimi: `git_log`/`gitlab`, `jira`/`trello`; `fixture` = sentetik demo verisi, `none` = kaynak yok |
 | `sources.tasks.status_mapping` | kaynaktaki serbest metinli kolon/statü adlarını `backlog`/`in_progress`/`done`'a eşler (ör. "Araştırma Konuları" → backlog). **Yalnız bu dosyadan yönetilir** — panelde düzenleme ekranı yoktur, akış zaten kartın Trello'daki listesiyle belirlenir. Eşlenmeyen kolon **WIP'e sayılmaz** (bilinmeyen, "akışta" değildir) ama veri tamlığını düşürür ve senkron bunu uyarı olarak bildirir |
+| `app` · dil | Arayüz TR/EN — seçim kullanıcıya ait, tarayıcı diline BAKILMAZ (İngilizce OS kullanan Türk çalışana arayüz sormadan İngilizce gösterilmemeli). Seçim `Accept-Language` ile sunucuya da gider: metrik adları ve durum etiketleri API'den geldiği için yalnız arayüzü çevirmek panoyu yarı Türkçe bırakırdı |
 | `sources.tasks.jira.auth` / `.email` / `.api_style` | Jira **Cloud** e-posta + API token ile `basic` auth ister ve yeni arama ucunu kullanır; `bearer` yalnız Server/Data Center içindir. `api_style: auto` adresten karar verir. Panelden de girilebilir |
 | `sources.tasks.jira.story_points_field` | story point alan kimliği kurulumdan kuruluma değişir; bulunamazsa senkron uyarı verir. Boş bırakılırsa alan hiç okunmaz |
 | `sources.git.scan_all_branches` | `git_log`: yalnız HEAD (varsayılan) ya da `--all` ile tüm dallar |

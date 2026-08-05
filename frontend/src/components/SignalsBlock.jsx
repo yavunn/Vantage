@@ -1,3 +1,5 @@
+import { useT } from "../i18n.jsx";
+
 // Sağlık / tükenmişlik sinyalleri. DORA metrikleri değil; "takım zorlanıyor mu"
 // sorusuna yumuşak yanıt. Kırmızı = yardım gerekebilir. Kişi ismi YOK — yalnızca
 // dağılım/oran. Veri yoksa dürüstçe "veri yetersiz".
@@ -9,20 +11,19 @@ const STATUS_COLOR = {
 };
 const STATUS_ICON = { green: "✓", yellow: "▲", red: "●", insufficient_data: "–" };
 
-function fmtSignal(sig) {
-  if (sig.value == null) return "Veri yetersiz";
-  // leave_usage / off_hours / concentration / review_load hepsi oran → yüzde
-  return `%${Math.round(sig.value * 100)}`;
-}
-
 export default function SignalsBlock({ signals }) {
+  const t = useT();
   if (!signals || signals.length === 0) return null;
+  function fmtSignal(sig) {
+    if (sig.value == null) return t("Veri yetersiz");
+    // leave_usage / off_hours / concentration / review_load hepsi oran → yüzde
+    return `%${Math.round(sig.value * 100)}`;
+  }
   return (
     <section className="section">
-      <h2>Sağlık sinyalleri</h2>
+      <h2>{t("Sağlık sinyalleri")}</h2>
       <p className="desc" style={{ marginTop: -6, marginBottom: 12 }}>
-        Süreç metriği değil, takım sağlığına dair yumuşak sinyaller. Kırmızı
-        "zorlanıyor, yardım gerekebilir" demektir; kişi ismi gösterilmez.
+        {t("Süreç metriği değil, takım sağlığına dair yumuşak sinyaller. Kırmızı \"zorlanıyor, yardım gerekebilir\" demektir; kişi ismi gösterilmez.")}
       </p>
       <div className="cards">
         {signals.map((sig) => {
@@ -35,7 +36,7 @@ export default function SignalsBlock({ signals }) {
                 <h3>{sig.name}</h3>
               </div>
               <div className="value">
-                {insufficient ? "Veri yetersiz" : fmtSignal(sig)}
+                {insufficient ? t("Veri yetersiz") : fmtSignal(sig)}
               </div>
               <p className="desc">{sig.description}</p>
               <div className="meta">
@@ -45,8 +46,8 @@ export default function SignalsBlock({ signals }) {
                 {sig.sample_size != null && !insufficient && (
                   <span>
                     {sig.reviewer_count != null
-                      ? `${sig.reviewer_count} kişi · ${sig.sample_size} review`
-                      : `${sig.sample_size} kayıt`}
+                      ? t("{n} kişi · {m} review", { n: sig.reviewer_count, m: sig.sample_size })
+                      : t("{n} kayıt", { n: sig.sample_size })}
                   </span>
                 )}
               </div>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MIN_PASSWORD_LENGTH, changePassword, updateProfile } from "../api.js";
 import { toast } from "../toast.js";
+import { useLang, useT } from "../i18n.jsx";
 
 // Yaygın uygulama zaman dilimleri (kısa liste; kurum içi yeterli).
 const TIMEZONES = [
@@ -9,7 +10,7 @@ const TIMEZONES = [
 ];
 
 // Parola gücü: uzunluk + çeşitlilik. 0..4 skala.
-function passwordStrength(pw) {
+function passwordStrength(t, pw) {
   if (!pw) return { score: 0, label: "" };
   let s = 0;
   if (pw.length >= 8) s++;
@@ -18,16 +19,18 @@ function passwordStrength(pw) {
   if (/\d/.test(pw)) s++;
   if (/[^A-Za-z0-9]/.test(pw)) s++;
   s = Math.min(s, 4);
-  const labels = ["Çok zayıf", "Zayıf", "Orta", "İyi", "Güçlü"];
+  const labels = [t("Çok zayıf"), t("Zayıf"), t("Orta"), t("İyi"), t("Güçlü")];
   return { score: s, label: labels[s] };
 }
 
-function fmtDate(iso) {
+function fmtDate(iso, lang) {
   if (!iso) return "—";
-  try { return new Date(iso).toLocaleString("tr-TR"); } catch { return "—"; }
+  try { return new Date(iso).toLocaleString(lang === "en" ? "en-US" : "tr-TR"); } catch { return "—"; }
 }
 
 export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onProfileUpdated }) {
+  const t = useT();
+  const { lang } = useLang();
   // --- profil formu ---
   const [profile, setProfile] = useState({
     display_name: user.display_name || "",
@@ -51,7 +54,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
 
   async function saveProfile(e) {
     e.preventDefault();
-    if (!profile.display_name.trim()) { toast("Ad boş olamaz", "error"); return; }
+    if (!profile.display_name.trim()) { toast(t("Ad boş olamaz"), "error"); return; }
     setProfBusy(true);
     try {
       const updated = await updateProfile({
@@ -62,7 +65,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
         bio: profile.bio,
       });
       onProfileUpdated?.(updated);
-      toast("Profil güncellendi", "ok");
+      toast(t("Profil güncellendi"), "ok");
     } catch (err) {
       toast(err.message, "error");
     } finally {
@@ -78,13 +81,16 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
   const [pwError, setPwError] = useState(null);
   const [pwOk, setPwOk] = useState(false);
   const [busy, setBusy] = useState(false);
-  const strength = passwordStrength(nw);
+  const strength = passwordStrength(t, nw);
 
   async function submitPw(e) {
     e.preventDefault();
     setPwError(null); setPwOk(false);
-    if (nw.length < MIN_PASSWORD_LENGTH) { setPwError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`); return; }
-    if (nw !== nw2) { setPwError("Yeni parolalar eşleşmiyor"); return; }
+    if (nw.length < MIN_PASSWORD_LENGTH) {
+      setPwError(t("Yeni parola en az {n} karakter olmalı", { n: MIN_PASSWORD_LENGTH }));
+      return;
+    }
+    if (nw !== nw2) { setPwError(t("Yeni parolalar eşleşmiyor")); return; }
     setBusy(true);
     try {
       await changePassword(cur, nw);
@@ -100,7 +106,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
   return (
     <div className="settings-page">
       <section className="section">
-        <h2>Profil</h2>
+        <h2>{t("Profil")}</h2>
         <div className="profile-card">
           <div className="profile-avatar" aria-hidden="true">
             {(profile.display_name || user.email).slice(0, 1).toUpperCase()}
@@ -112,54 +118,54 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
             </div>
             {profile.title && <div className="profile-title">{profile.title}</div>}
             <dl className="profile-fields">
-              <div><dt>E-posta</dt><dd>{user.email}</dd></div>
-              <div><dt>Rol</dt><dd>{user.role === "admin" ? "Yönetici" : "Çalışan"}</dd></div>
+              <div><dt>{t("E-posta")}</dt><dd>{user.email}</dd></div>
+              <div><dt>{t("Rol")}</dt><dd>{user.role === "admin" ? t("Yönetici") : t("Çalışan")}</dd></div>
               <div>
-                <dt>Takımlar</dt>
+                <dt>{t("Takımlar")}</dt>
                 <dd>
                   {user.teams && user.teams.length
-                    ? user.teams.map((t) => `${t.team_name}${t.role === "manager" ? " (yönetici)" : ""}`).join(", ")
+                    ? user.teams.map((tm) => `${tm.team_name}${tm.role === "manager" ? ` (${t("yönetici")})` : ""}`).join(", ")
                     : "—"}
                 </dd>
               </div>
-              <div><dt>Kayıt</dt><dd>{fmtDate(user.created_at)}</dd></div>
-              <div><dt>Son giriş</dt><dd>{fmtDate(user.last_login_at)}</dd></div>
+              <div><dt>{t("Kayıt")}</dt><dd>{fmtDate(user.created_at, lang)}</dd></div>
+              <div><dt>{t("Son giriş")}</dt><dd>{fmtDate(user.last_login_at, lang)}</dd></div>
             </dl>
           </div>
         </div>
 
         <form className="settings-form" onSubmit={saveProfile}>
-          <label>Ad Soyad
+          <label>{t("Ad Soyad")}
             <input value={profile.display_name} onChange={(e) => updP("display_name", e.target.value)} maxLength={200} required />
           </label>
-          <label>Ünvan / Pozisyon
-            <input value={profile.title} onChange={(e) => updP("title", e.target.value)} placeholder="ör. Backend Geliştirici" maxLength={120} />
+          <label>{t("Ünvan / Pozisyon")}
+            <input value={profile.title} onChange={(e) => updP("title", e.target.value)} placeholder={t("ör. Backend Geliştirici")} maxLength={120} />
           </label>
-          <label>Telefon
-            <input value={profile.phone} onChange={(e) => updP("phone", e.target.value)} placeholder="ör. +90 5xx xxx xx xx" maxLength={40} />
+          <label>{t("Telefon")}
+            <input value={profile.phone} onChange={(e) => updP("phone", e.target.value)} placeholder={t("ör. +90 5xx xxx xx xx")} maxLength={40} />
           </label>
-          <label>Zaman dilimi
+          <label>{t("Zaman dilimi")}
             <select value={profile.timezone} onChange={(e) => updP("timezone", e.target.value)}>
-              <option value="">— seçilmedi —</option>
+              <option value="">{t("— seçilmedi —")}</option>
               {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
             </select>
           </label>
-          <label>Hakkında
-            <textarea value={profile.bio} onChange={(e) => updP("bio", e.target.value)} rows={3} maxLength={2000} placeholder="Kısa bir not (opsiyonel)" />
+          <label>{t("Hakkında")}
+            <textarea value={profile.bio} onChange={(e) => updP("bio", e.target.value)} rows={3} maxLength={2000} placeholder={t("Kısa bir not (opsiyonel)")} />
           </label>
           <button type="submit" className="login-btn" disabled={profBusy || !dirty}>
-            {profBusy ? "Kaydediliyor…" : dirty ? "Profili kaydet" : "Kaydedildi"}
+            {profBusy ? t("Kaydediliyor…") : dirty ? t("Profili kaydet") : t("Kaydedildi")}
           </button>
         </form>
       </section>
 
       <section className="section">
-        <h2>Parola değiştir</h2>
+        <h2>{t("Parola değiştir")}</h2>
         <form className="settings-form" onSubmit={submitPw}>
-          <label>Mevcut parola
+          <label>{t("Mevcut parola")}
             <input type={showPw ? "text" : "password"} value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" required />
           </label>
-          <label>Yeni parola
+          <label>{t("Yeni parola")}
             <input type={showPw ? "text" : "password"} value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           {nw && (
@@ -168,29 +174,29 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
               <span className="pw-label">{strength.label}</span>
             </div>
           )}
-          <label>Yeni parola (tekrar)
+          <label>{t("Yeni parola (tekrar)")}
             <input type={showPw ? "text" : "password"} value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           <label className="pw-show">
-            <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> Parolaları göster
+            <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> {t("Parolaları göster")}
           </label>
           {pwError && <div className="login-error">{pwError}</div>}
-          {pwOk && <div className="admin-ok">Parola güncellendi.</div>}
+          {pwOk && <div className="admin-ok">{t("Parola güncellendi.")}</div>}
           <button type="submit" className="login-btn" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Parolayı değiştir"}
+            {busy ? t("Kaydediliyor…") : t("Parolayı değiştir")}
           </button>
         </form>
       </section>
 
       <section className="section">
-        <h2>Görünüm</h2>
-        <p className="desc">Tema tercihi cihazında saklanır.</p>
+        <h2>{t("Görünüm")}</h2>
+        <p className="desc">{t("Tema tercihi cihazında saklanır.")}</p>
         <button className="mini" onClick={onCycleTheme}>{themeLabel}</button>
       </section>
 
       <section className="section">
-        <h2>Oturum</h2>
-        <button className="mini danger" onClick={onLogout}>Oturumu kapat</button>
+        <h2>{t("Oturum")}</h2>
+        <button className="mini danger" onClick={onLogout}>{t("Oturumu kapat")}</button>
       </section>
     </div>
   );

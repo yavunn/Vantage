@@ -4,10 +4,12 @@ import {
   getSurveyStatus, updateSettings, updateSurveyQuestions,
 } from "../api.js";
 import { toast } from "../toast.js";
+import { useT } from "../i18n.jsx";
 
 // Anket ayarları sonuçlarla aynı sekmede durur: ayarı değiştiren kişi etkisini
 // hemen aynı ekranda görür, ikinci bir kopyası başka yerde yaşamaz.
 function SurveySettings({ onSaved }) {
+  const t = useT();
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -26,7 +28,7 @@ function SurveySettings({ onSaved }) {
         survey_interval_days: Number(form.interval_days),
         survey_min_responses: Number(form.min_responses),
       });
-      toast("Anket ayarları kaydedildi", "ok");
+      toast(t("Anket ayarları kaydedildi"), "ok");
       onSaved && onSaved();
     } catch (err) {
       toast(err.message, "error");
@@ -39,34 +41,34 @@ function SurveySettings({ onSaved }) {
 
   return (
     <section className="section">
-      <h2>Anket ayarları</h2>
+      <h2>{t("Anket ayarları")}</h2>
       <form className="settings-admin" onSubmit={save}>
         <label className="switch-row">
           <input type="checkbox" checked={form.enabled}
                  onChange={(e) => upd("enabled", e.target.checked)} />
           <span>
-            <strong>Anket açık</strong>
-            <em>Kapalıyken kimseye anket gösterilmez ve yeni döngü açılmaz.</em>
+            <strong>{t("Anket açık")}</strong>
+            <em>{t("Kapalıyken kimseye anket gösterilmez ve yeni döngü açılmaz.")}</em>
           </span>
         </label>
         <div className="grid-2">
           <label>
-            Döngü aralığı (gün)
+            {t("Döngü aralığı (gün)")}
             <input type="number" min={1} value={form.interval_days}
                    onChange={(e) => upd("interval_days", e.target.value)} />
           </label>
           <label>
-            Asgari yanıt (gizlilik eşiği)
+            {t("Asgari yanıt (gizlilik eşiği)")}
             <input type="number" min={1} value={form.min_responses}
                    onChange={(e) => upd("min_responses", e.target.value)} />
             <span className="field-hint">
-              Bu sayının altında sonuç gösterilmez — tek yanıt ifşa olmasın.
+              {t("Bu sayının altında sonuç gösterilmez — tek yanıt ifşa olmasın.")}
             </span>
           </label>
         </div>
         <div className="settings-actions">
           <button className="login-btn" type="submit" disabled={saving}>
-            {saving ? "Kaydediliyor…" : "Anket ayarlarını kaydet"}
+            {saving ? t("Kaydediliyor…") : t("Anket ayarlarını kaydet")}
           </button>
         </div>
       </form>
@@ -77,6 +79,7 @@ function SurveySettings({ onSaved }) {
 // Admin: anket sonuçları — YALNIZ agrega. Kişi/isim yok; k-eşiği altında gizli.
 // Şifreleme anahtarını yalnız baş yönetici (owner) üretir.
 export default function SurveyAdminPanel({ me }) {
+  const t = useT();
   const isOwner = !!(me && me.is_owner);
   const [status, setStatus] = useState(null);
   const [cycles, setCycles] = useState([]);
@@ -95,7 +98,7 @@ export default function SurveyAdminPanel({ me }) {
   async function makeKey() {
     try {
       const r = await genSurveyKey();
-      toast(r.created ? "Şifreleme anahtarı üretildi" : "Anahtar zaten vardı", "ok");
+      toast(r.created ? t("Şifreleme anahtarı üretildi") : t("Anahtar zaten vardı"), "ok");
       loadStatus();
     } catch (e) { toast(e.message, "error"); }
   }
@@ -103,29 +106,28 @@ export default function SurveyAdminPanel({ me }) {
   return (
     <div>
       <section className="section">
-        <h2>Çalışan Memnuniyeti</h2>
+        <h2>{t("Çalışan Memnuniyeti")}</h2>
         <p className="desc">
-          İki haftada bir anonim anket. Sonuçlar <b>yalnız toplu</b> gösterilir —
-          kim doldurdu asla belli olmaz. Gizlilik için en az{" "}
-          <b>{status?.min_responses ?? 4}</b> cevap gerekir; altındaysa sonuç gizlenir.
+          {t("İki haftada bir anonim anket. Sonuçlar")} <b>{t("yalnız toplu")}</b> {t("gösterilir — kim doldurdu asla belli olmaz. Gizlilik için en az")}{" "}
+          <b>{status?.min_responses ?? 4}</b> {t("cevap gerekir; altındaysa sonuç gizlenir.")}
         </p>
         {status && (
           <div className="ca-status">
-            <span>Modül:{" "}
+            <span>{t("Modül:")}{" "}
               <span className={`key-pill ${status.enabled ? "on" : "off"}`}>
-                {status.enabled ? "açık" : "kapalı"}
+                {status.enabled ? t("açık") : t("kapalı")}
               </span>
             </span>
-            <span>Şifreleme:{" "}
+            <span>{t("Şifreleme:")}{" "}
               <span className={`key-pill ${status.key_configured ? "on" : "off"}`}>
-                {status.key_configured ? "hazır" : "kurulmadı"}
+                {status.key_configured ? t("hazır") : t("kurulmadı")}
               </span>
             </span>
             {!status.key_configured && isOwner && (
-              <button className="mini" onClick={makeKey}>Şifreleme anahtarı üret</button>
+              <button className="mini" onClick={makeKey}>{t("Şifreleme anahtarı üret")}</button>
             )}
             {!status.key_configured && !isOwner && (
-              <span className="muted">· anahtarı baş yönetici üretir</span>
+              <span className="muted">· {t("anahtarı baş yönetici üretir")}</span>
             )}
           </div>
         )}
@@ -137,12 +139,12 @@ export default function SurveyAdminPanel({ me }) {
 
       <section className="section">
         <div className="ca-row">
-          <label>Dönem:{" "}
+          <label>{t("Dönem:")}{" "}
             <select value={sel} onChange={(e) => setSel(e.target.value)}>
-              <option value="">— güncel dönem —</option>
+              <option value="">{t("— güncel dönem —")}</option>
               {cycles.map((c) => (
                 <option key={c.key} value={c.key}>
-                  {c.opens_at} – {c.closes_at} ({c.response_count} cevap)
+                  {t("{start} – {end} ({n} cevap)", { start: c.opens_at, end: c.closes_at, n: c.response_count })}
                 </option>
               ))}
             </select>
@@ -150,7 +152,7 @@ export default function SurveyAdminPanel({ me }) {
         </div>
         {error && <p className="error-inline">{error.message}</p>}
         {!res ? (
-          <p className="desc">Yükleniyor…</p>
+          <p className="desc">{t("Yükleniyor…")}</p>
         ) : (
           <SurveyResult res={res} />
         )}
@@ -162,13 +164,14 @@ export default function SurveyAdminPanel({ me }) {
 // Admin soru editörü: sıralı liste, ekle/sil/taşı, tip + zorunlu. Kaydet → PUT.
 // Değişiklik yalnız SONRAKİ döngüde geçerli (backend snapshot ile izole eder).
 function QuestionsEditor() {
+  const t = useT();
   const [items, setItems] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { getSurveyQuestions().then(setItems).catch(() => setItems([])); }, []);
 
   if (items == null) {
-    return <section className="section"><p className="desc">Sorular yükleniyor…</p></section>;
+    return <section className="section"><p className="desc">{t("Sorular yükleniyor…")}</p></section>;
   }
   const likertCount = items.filter((q) => q.type === "likert").length;
 
@@ -192,9 +195,9 @@ function QuestionsEditor() {
   }
 
   async function save() {
-    if (!items.length) { toast("En az bir soru gerekli", "error"); return; }
-    if (items.some((q) => !q.label.trim())) { toast("Boş soru etiketi var", "error"); return; }
-    if (likertCount < 1) { toast("En az bir likert (puan) sorusu gerekli", "error"); return; }
+    if (!items.length) { toast(t("En az bir soru gerekli"), "error"); return; }
+    if (items.some((q) => !q.label.trim())) { toast(t("Boş soru etiketi var"), "error"); return; }
+    if (likertCount < 1) { toast(t("En az bir likert (puan) sorusu gerekli"), "error"); return; }
     setBusy(true);
     try {
       const payload = items.map((q) => ({
@@ -202,7 +205,7 @@ function QuestionsEditor() {
       }));
       const saved = await updateSurveyQuestions(payload);
       setItems(saved);
-      toast("Sorular kaydedildi — sonraki dönemde geçerli", "ok");
+      toast(t("Sorular kaydedildi — sonraki dönemde geçerli"), "ok");
     } catch (e) {
       toast(e.message, "error");
     } finally { setBusy(false); }
@@ -210,42 +213,41 @@ function QuestionsEditor() {
 
   return (
     <section className="section">
-      <h2>Anket Soruları</h2>
+      <h2>{t("Anket Soruları")}</h2>
       <p className="desc">
-        Soruları sen belirlersin. <b>1-5 puan</b> ortalama/trend üretir (en az biri
-        zorunlu), <b>serbest yazı</b> anonim yorum toplar. Değişiklikler{" "}
-        <b>bir sonraki dönemde</b> geçerli olur; açık dönem dondurulmuş sorularını korur.
+        {t("Soruları sen belirlersin.")} <b>{t("1-5 puan")}</b> {t("ortalama/trend üretir (en az biri zorunlu),")} <b>{t("serbest yazı")}</b> {t("anonim yorum toplar. Değişiklikler")}{" "}
+        <b>{t("bir sonraki dönemde")}</b> {t("geçerli olur; açık dönem dondurulmuş sorularını korur.")}
       </p>
       <div className="sq-editor">
         {items.map((q, i) => (
           <div key={i} className="sq-row">
             <div className="sq-move">
-              <button className="mini ghost" disabled={i === 0} onClick={() => move(i, -1)} title="Yukarı">▲</button>
-              <button className="mini ghost" disabled={i === items.length - 1} onClick={() => move(i, 1)} title="Aşağı">▼</button>
+              <button className="mini ghost" disabled={i === 0} onClick={() => move(i, -1)} title={t("Yukarı")}>▲</button>
+              <button className="mini ghost" disabled={i === items.length - 1} onClick={() => move(i, 1)} title={t("Aşağı")}>▼</button>
             </div>
-            <input className="sq-label" value={q.label} placeholder="Soru metni"
+            <input className="sq-label" value={q.label} placeholder={t("Soru metni")}
               onChange={(e) => upd(i, { label: e.target.value })} />
             <select value={q.type}
               onChange={(e) => upd(i, { type: e.target.value, required: e.target.value === "likert" ? q.required : false })}>
-              <option value="likert">1-5 puan</option>
-              <option value="text">Serbest yazı</option>
+              <option value="likert">{t("1-5 puan")}</option>
+              <option value="text">{t("Serbest yazı")}</option>
             </select>
-            <label className="sq-req" title="Zorunlu yanıt">
-              <input type="checkbox" checked={!!q.required} onChange={(e) => upd(i, { required: e.target.checked })} /> zorunlu
+            <label className="sq-req" title={t("Zorunlu yanıt")}>
+              <input type="checkbox" checked={!!q.required} onChange={(e) => upd(i, { required: e.target.checked })} /> {t("zorunlu")}
             </label>
-            <button className="mini danger" onClick={() => remove(i)}>Sil</button>
+            <button className="mini danger" onClick={() => remove(i)}>{t("Sil")}</button>
           </div>
         ))}
       </div>
       <div className="sq-actions">
-        <button className="mini" onClick={() => add("likert")}>+ Puan sorusu</button>
-        <button className="mini" onClick={() => add("text")}>+ Yazı sorusu</button>
+        <button className="mini" onClick={() => add("likert")}>{t("+ Puan sorusu")}</button>
+        <button className="mini" onClick={() => add("text")}>{t("+ Yazı sorusu")}</button>
         <span style={{ flex: 1 }} />
         <button className="login-btn" disabled={busy || likertCount < 1} onClick={save}>
-          {busy ? "Kaydediliyor…" : "Kaydet"}
+          {busy ? t("Kaydediliyor…") : t("Kaydet")}
         </button>
       </div>
-      {likertCount < 1 && <p className="error-inline">En az bir likert (puan) sorusu gerekli.</p>}
+      {likertCount < 1 && <p className="error-inline">{t("En az bir likert (puan) sorusu gerekli.")}</p>}
     </section>
   );
 }
@@ -263,6 +265,7 @@ function Bar({ label, value, pct }) {
 }
 
 function SurveyResult({ res }) {
+  const t = useT();
   const partPct = res.participation_rate != null ? Math.round(res.participation_rate * 100) : null;
 
   return (
@@ -270,18 +273,18 @@ function SurveyResult({ res }) {
       <div className="survey-kpis">
         <div className="survey-kpi">
           <div className="survey-kpi-num">{res.response_count}</div>
-          <div className="survey-kpi-label">cevap</div>
+          <div className="survey-kpi-label">{t("cevap")}</div>
         </div>
         <div className="survey-kpi">
           <div className="survey-kpi-num">{partPct != null ? `%${partPct}` : "–"}</div>
-          <div className="survey-kpi-label">katılım ({res.participation}/{res.active_users})</div>
+          <div className="survey-kpi-label">{t("katılım ({a}/{n})", { a: res.participation, n: res.active_users })}</div>
         </div>
       </div>
 
       {res.masked ? (
         <div className="survey-masked">
-          🔒 Yeterli katılım yok — gizlilik için sonuç gösterilmiyor
-          (en az {res.min_responses} cevap gerekir, şu an {res.response_count}).
+          🔒 {t("Yeterli katılım yok — gizlilik için sonuç gösterilmiyor (en az {min} cevap gerekir, şu an {cur}).",
+            { min: res.min_responses, cur: res.response_count })}
         </div>
       ) : (
         <>
@@ -310,16 +313,16 @@ function SurveyResult({ res }) {
 
           {/* Her serbest-yazı sorusu ayrı blok; karışık sıra, kimliksiz. Eski
               agrega yanıtı için res.comments'e düşülür (geriye uyum). */}
-          {(res.texts || (res.comments ? [{ key: "_all", label: "Yorumlar", comments: res.comments }] : [])).map((t) => (
-            <div key={t.key} className="survey-comments">
-              <h3>{t.label} {t.comments?.length ? `(${t.comments.length})` : ""}</h3>
-              <p className="desc">Karışık sırada, kimliksiz. Kişiye atfedilemez.</p>
-              {t.comments && t.comments.length ? (
+          {(res.texts || (res.comments ? [{ key: "_all", label: t("Yorumlar"), comments: res.comments }] : [])).map((blk) => (
+            <div key={blk.key} className="survey-comments">
+              <h3>{blk.label} {blk.comments?.length ? `(${blk.comments.length})` : ""}</h3>
+              <p className="desc">{t("Karışık sırada, kimliksiz. Kişiye atfedilemez.")}</p>
+              {blk.comments && blk.comments.length ? (
                 <ul className="survey-comment-list">
-                  {t.comments.map((c, i) => <li key={i}>{c}</li>)}
+                  {blk.comments.map((c, i) => <li key={i}>{c}</li>)}
                 </ul>
               ) : (
-                <p className="desc">Bu dönem bu soruya yazı yok.</p>
+                <p className="desc">{t("Bu dönem bu soruya yazı yok.")}</p>
               )}
             </div>
           ))}

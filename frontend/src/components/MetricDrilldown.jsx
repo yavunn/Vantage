@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import Modal from "./Modal.jsx";
+import { useT } from "../i18n.jsx";
 
 // Drill-down: bir metriğin altındaki ham kayıtlar. Sayı gökten inmiyor —
 // hangi iş/PR/commit bu değeri oluşturuyor şeffaf görünsün.
 export default function MetricDrilldown({ teamId, metricKey, metricName, days, onClose }) {
+  const t = useT();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -17,22 +19,21 @@ export default function MetricDrilldown({ teamId, metricKey, metricName, days, o
   }, [teamId, metricKey, days]);
 
   return (
-    <Modal title={`${metricName} — detay (${days} gün)`} onClose={onClose}>
-      {error && <p className="desc">Detay yüklenemedi: {error.message}</p>}
-      {!data && !error && <p className="desc">Yükleniyor…</p>}
+    <Modal title={t("{name} — detay ({n} gün)", { name: metricName, n: days })} onClose={onClose}>
+      {error && <p className="desc">{t("Detay yüklenemedi: {msg}", { msg: error.message })}</p>}
+      {!data && !error && <p className="desc">{t("Yükleniyor…")}</p>}
       {data && data.rows.length === 0 && (
         <p className="desc">
-          Bu aralıkta bu metriği oluşturan kayıt yok. Metrik "veri yetersiz"
-          gösteriyorsa bu beklenen durumdur — uydurma satır eklenmez.
+          {t('Bu aralıkta bu metriği oluşturan kayıt yok. Metrik "veri yetersiz" gösteriyorsa bu beklenen durumdur — uydurma satır eklenmez.')}
         </p>
       )}
       {data && data.rows.length > 0 && (
         <>
-          <p className="desc">{data.count} kayıt bu metriği oluşturuyor:</p>
+          <p className="desc">{t("{n} kayıt bu metriği oluşturuyor:", { n: data.count })}</p>
           <div className="drill-scroll">
             <table className="drill-table">
               <thead>
-                <tr><th>Kayıt</th><th>Bağlam</th><th className="num">Değer</th><th>Tarih</th></tr>
+                <tr><th>{t("Kayıt")}</th><th>{t("Bağlam")}</th><th className="num">{t("Değer")}</th><th>{t("Tarih")}</th></tr>
               </thead>
               <tbody>
                 {data.rows.map((r, i) => (

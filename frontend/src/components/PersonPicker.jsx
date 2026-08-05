@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n.jsx";
 
 // Aranabilir kişi seçici (combobox) + son bakılanlar.
 // İK akışında en sık işlem "kişiye bak" — düz <select> uzun listede yavaş.
@@ -23,6 +24,7 @@ export function pushRecent(devId) {
 }
 
 export default function PersonPicker({ people, value, onChange, selfDevId }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -39,18 +41,18 @@ export default function PersonPicker({ people, value, onChange, selfDevId }) {
       const priority = [];
       if (selfDevId != null) {
         const me = people.find((p) => p.id === selfDevId);
-        if (me) priority.push({ ...me, hint: "sen" });
+        if (me) priority.push({ ...me, hint: t("sen") });
       }
       for (const id of recentIds) {
         if (id === selfDevId) continue;
         const p = people.find((x) => x.id === id);
-        if (p) priority.push({ ...p, hint: "son bakılan" });
+        if (p) priority.push({ ...p, hint: t("son bakılan") });
       }
       const rest = people.filter((p) => !priority.some((x) => x.id === p.id));
       return [...priority, ...rest];
     }
     return people.filter((p) => p.display_name.toLocaleLowerCase("tr").includes(q));
-  }, [people, query, selfDevId, open]);
+  }, [people, query, selfDevId, open, t]);
 
   useEffect(() => { setCursor(0); }, [query, open]);
 
@@ -100,7 +102,7 @@ export default function PersonPicker({ people, value, onChange, selfDevId }) {
         <span className="pp-avatar" aria-hidden="true">
           {(selected?.display_name || "?").slice(0, 1).toLocaleUpperCase("tr")}
         </span>
-        <span className="pp-name">{selected ? selected.display_name : "Kişi seç…"}</span>
+        <span className="pp-name">{selected ? selected.display_name : t("Kişi seç…")}</span>
         <span className="pp-caret" aria-hidden="true">▾</span>
       </button>
 
@@ -112,11 +114,11 @@ export default function PersonPicker({ people, value, onChange, selfDevId }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKey}
-            placeholder="İsimle ara…"
-            aria-label="Kişi ara"
+            placeholder={t("İsimle ara…")}
+            aria-label={t("Kişi ara")}
           />
           {matches.length === 0 ? (
-            <p className="desc pp-empty">Eşleşen kişi yok.</p>
+            <p className="desc pp-empty">{t("Eşleşen kişi yok.")}</p>
           ) : (
             <ul className="pp-list" role="listbox">
               {matches.map((p, i) => (

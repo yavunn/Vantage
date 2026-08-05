@@ -1,7 +1,10 @@
+import { useT } from "../i18n.jsx";
+
 // Minik trend çizgisi (kütüphanesiz, saf SVG). Kartın içinde "son haftalarda
 // ne oldu" sorusunu tek bakışta yanıtlar. Eksen/etiket yok — bilinçli: kart
 // içinde ayrıntı değil YÖN okunur; ayrıntı için büyük trend grafiği var.
 export default function Sparkline({ points, color = "var(--series-1)", width = 100, height = 24 }) {
+  const t = useT();
   const vals = (points || []).map((p) => p.value).filter((v) => v != null);
   if (vals.length < 2) return null;
 
@@ -26,7 +29,7 @@ export default function Sparkline({ points, color = "var(--series-1)", width = 1
       width={width}
       height={height}
       role="img"
-      aria-label={`Son ${vals.length} dönem trendi`}
+      aria-label={t("Son {n} dönem trendi", { n: vals.length })}
       preserveAspectRatio="none"
     >
       <path d={area} fill={color} opacity="0.12" />

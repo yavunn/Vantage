@@ -6,6 +6,7 @@ import {
 } from "../api.js";
 import Modal from "./Modal.jsx";
 import { monthKey, ymd } from "../dates.js";
+import { useLang, useT } from "../i18n.jsx";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 const ANNOT_LABEL = { holiday: "Tatil", incident: "Incident", release: "Sürüm", other: "Not" };
@@ -33,6 +34,8 @@ function buildGrid(year, month) {
 }
 
 export default function LeavesPanel({ user, canManage, teams = [] }) {
+  const t = useT();
+  const { lang } = useLang();
   const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const [leaves, setLeaves] = useState([]);
   const [annotations, setAnnotations] = useState([]);
@@ -73,7 +76,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     if (!canManage) return;
     listEmployees()
       .then(setEmployees)
-      .catch((e) => setError(`Çalışan listesi yüklenemedi: ${e.message}`));
+      .catch((e) => setError(t("Çalışan listesi yüklenemedi: {msg}", { msg: e.message })));
   }, []);
 
   // Başka bir aya bakarken işaret eklenecekse tarih o aya düşsün — bugünün
@@ -86,17 +89,17 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     setError(null); setMsg(null);
     try {
       await decideLeave(lv.id, "approved");
-      setMsg(`${lv.person} izni onaylandı ve takvime işlendi.`);
+      setMsg(t("{person} izni onaylandı ve takvime işlendi.", { person: lv.person }));
       load();
     } catch (err) { setError(err.message); }
   }
 
   async function confirmReject() {
-    if (!rejectNote.trim()) { setError("Red için gerekçe gerekli"); return; }
+    if (!rejectNote.trim()) { setError(t("Red için gerekçe gerekli")); return; }
     setError(null); setMsg(null);
     try {
       await decideLeave(rejectFor.id, "rejected", rejectNote.trim());
-      setMsg(`${rejectFor.person} izni reddedildi. Gerekçe çalışana iletildi.`);
+      setMsg(t("{person} izni reddedildi. Gerekçe çalışana iletildi.", { person: rejectFor.person }));
       setRejectFor(null); setRejectNote("");
       load();
     } catch (err) { setError(err.message); }
@@ -126,16 +129,17 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
       };
       const toAll = canManage && form.target_user_id === "all";
       if (toAll && !window.confirm(
-        `${form.start_date}${form.end_date !== form.start_date ? ` → ${form.end_date}` : ""} tarihinde TÜM aktif çalışanlara izin eklenecek. Onaylıyor musun?`
+        t("{range} tarihinde TÜM aktif çalışanlara izin eklenecek. Onaylıyor musun?",
+          { range: `${form.start_date}${form.end_date !== form.start_date ? ` → ${form.end_date}` : ""}` })
       )) return;
       if (toAll) payload.target_all = true;
       else if (canManage && form.target_user_id) payload.target_user_id = Number(form.target_user_id);
       const res = await createLeave(payload);
       setMsg(toAll
-        ? `Şirket tatili eklendi — ${res.count} çalışana onaylı izin işlendi.`
+        ? t("Şirket tatili eklendi — {n} çalışana onaylı izin işlendi.", { n: res.count })
         : res.status === "pending"
-          ? "İzin isteğin gönderildi — yönetici onayı bekliyor. Onaylanınca takvime işlenecek."
-          : "İzin eklendi (onaylı).");
+          ? t("İzin isteğin gönderildi — yönetici onayı bekliyor. Onaylanınca takvime işlenecek.")
+          : t("İzin eklendi (onaylı)."));
       setForm({ start_date: ymd(new Date()), end_date: ymd(new Date()), leave_type: "annual", description: "", target_user_id: "" });
       load();
     } catch (err) {
@@ -144,7 +148,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   }
 
   async function remove(lv) {
-    if (!window.confirm(`${lv.person} · ${lv.start_date} izni silinsin mi?`)) return;
+    if (!window.confirm(t("{person} · {date} izni silinsin mi?", { person: lv.person, date: lv.start_date }))) return;
     try { await deleteLeave(lv.id); load(); } catch (err) { setError(err.message); }
   }
 
@@ -160,19 +164,19 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
         kind: annotForm.kind,
         team_id: annotForm.team_id === "" ? null : Number(annotForm.team_id),
       });
-      setMsg("Takvim işareti eklendi.");
+      setMsg(t("Takvim işareti eklendi."));
       setAnnotForm((f) => ({ ...f, date: ymd(new Date()), label: "" }));
       load();
     } catch (err) { setError(err.message); }
   }
 
   async function removeAnnotation(a) {
-    if (!window.confirm(`"${a.label}" işareti silinsin mi?`)) return;
+    if (!window.confirm(t('"{label}" işareti silinsin mi?', { label: a.label }))) return;
     setError(null); setMsg(null);
     try { await deleteAnnotation(a.id); load(); } catch (err) { setError(err.message); }
   }
 
-  const monthName = cursor.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  const monthName = cursor.toLocaleDateString(lang === "en" ? "en-US" : "tr-TR", { month: "long", year: "numeric" });
 
   // Listede tekilleştir: aynı izin birden çok güne yayıldığında bir kez göster.
   const uniqueLeaves = useMemo(() => {
@@ -188,7 +192,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     [annotations, month]
   );
   const teamName = useMemo(
-    () => Object.fromEntries(teams.map((t) => [t.id, t.name])),
+    () => Object.fromEntries(teams.map((tm) => [tm.id, tm.name])),
     [teams]
   );
 
@@ -210,7 +214,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     <div className="leaves-panel">
       <section className="section">
         <div className="section-head">
-          <h2>İzin takvimi</h2>
+          <h2>{t("İzin takvimi")}</h2>
           <div className="cal-nav">
             <button className="mini" onClick={() => setCursor(new Date(year, mon - 1, 1))}>‹</button>
             <span className="cal-month">{monthName}</span>
@@ -219,13 +223,13 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
         </div>
 
         <div className="legend">
-          <span className="lg annual">Yıllık</span>
-          <span className="lg sick">Rapor</span>
-          <span className="lg other">Diğer</span>
+          <span className="lg annual">{t("Yıllık")}</span>
+          <span className="lg sick">{t("Rapor")}</span>
+          <span className="lg other">{t("Diğer")}</span>
         </div>
 
         <div className="calendar">
-          {WEEKDAYS.map((w) => <div key={w} className="cal-head">{w}</div>)}
+          {WEEKDAYS.map((w) => <div key={w} className="cal-head">{t(w)}</div>)}
           {grid.map((d, i) => (
             <div key={i} className={`cal-cell ${d ? "" : "empty"}`}>
               {d && (
@@ -235,7 +239,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                     <div
                       key={"annot-" + a.id}
                       className={`annot-chip ${a.kind}`}
-                      title={`${ANNOT_LABEL[a.kind] || a.kind}: ${a.label}${a.team_id == null ? " (tüm takımlar)" : ""}`}
+                      title={`${t(ANNOT_LABEL[a.kind]) || a.kind}: ${a.label}${a.team_id == null ? ` (${t("tüm takımlar")})` : ""}`}
                     >
                       <span aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span> {a.label}
                     </div>
@@ -245,7 +249,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                       <button
                         key={lv.id + "-" + ymd(d)}
                         className={`leave-chip ${lv.leave_type} ${lv.status === "pending" ? "is-pending" : ""}`}
-                        title={`${lv.person} · ${TYPE_LABEL[lv.leave_type] || lv.leave_type}${lv.status === "pending" ? " · beklemede" : ""}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? " (silmek için tıkla)" : ""}`}
+                        title={`${lv.person} · ${t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}${lv.status === "pending" ? ` · ${t("beklemede")}` : ""}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? ` (${t("silmek için tıkla")})` : ""}`}
                         onClick={() => lv.can_delete && remove(lv)}
                       >
                         {lv.status === "pending" ? "⏳ " : ""}{lv.person}
@@ -267,29 +271,27 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
           DEĞİŞTİRMEZLER. Yazma yetkisi admin + İK (backend de öyle zorlar). */}
       {canManage && (
         <section className="section">
-          <h2>Takvim işaretleri ({monthAnnots.length})</h2>
+          <h2>{t("Takvim işaretleri ({n})", { n: monthAnnots.length })}</h2>
           <p className="desc">
-            Resmi tatil, incident ya da sürüm gibi günleri işaretle. Takvimde ve
-            trend grafiklerinde bağlam olarak görünür — bir tepe/çukur yanlış
-            okunmasın diye. İzin hakkından düşmez, metrik verisini değiştirmez.
+            {t("Resmi tatil, incident ya da sürüm gibi günleri işaretle. Takvimde ve trend grafiklerinde bağlam olarak görünür — bir tepe/çukur yanlış okunmasın diye. İzin hakkından düşmez, metrik verisini değiştirmez.")}
           </p>
           <form className="inline-form" onSubmit={addAnnotation}>
             <input type="date" value={annotForm.date}
                    onChange={(e) => updAnnot("date", e.target.value)} required />
             <input value={annotForm.label} onChange={(e) => updAnnot("label", e.target.value)}
-                   placeholder="Etiket (ör. Ramazan Bayramı)" required />
-            <select value={annotForm.kind} onChange={(e) => updAnnot("kind", e.target.value)} aria-label="Tür">
-              {ANNOT_KINDS.map((k) => <option key={k.v} value={k.v}>{k.t}</option>)}
+                   placeholder={t("Etiket (ör. Ramazan Bayramı)")} required />
+            <select value={annotForm.kind} onChange={(e) => updAnnot("kind", e.target.value)} aria-label={t("Tür")}>
+              {ANNOT_KINDS.map((k) => <option key={k.v} value={k.v}>{t(k.t)}</option>)}
             </select>
-            <select value={annotForm.team_id} onChange={(e) => updAnnot("team_id", e.target.value)} aria-label="Kapsam">
-              <option value="">Tüm takımlar</option>
-              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            <select value={annotForm.team_id} onChange={(e) => updAnnot("team_id", e.target.value)} aria-label={t("Kapsam")}>
+              <option value="">{t("Tüm takımlar")}</option>
+              {teams.map((tm) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
             </select>
-            <button type="submit" className="mini">Ekle</button>
+            <button type="submit" className="mini">{t("Ekle")}</button>
           </form>
 
           {monthAnnots.length === 0 ? (
-            <p className="desc">{monthName} ayında işaret yok.</p>
+            <p className="desc">{t("{month} ayında işaret yok.", { month: monthName })}</p>
           ) : (
             <ul className="leave-list">
               {monthAnnots.map((a) => (
@@ -298,15 +300,15 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                   <div className="leave-list-main">
                     <div className="leave-list-top">
                       <strong>{a.label}</strong>
-                      <span className="leave-badge">{ANNOT_LABEL[a.kind] || a.kind}</span>
+                      <span className="leave-badge">{t(ANNOT_LABEL[a.kind]) || a.kind}</span>
                     </div>
                     <div className="leave-list-dates">
-                      {a.date} · {a.team_id == null ? "Tüm takımlar" : (teamName[a.team_id] || "Takım")}
+                      {a.date} · {a.team_id == null ? t("Tüm takımlar") : (teamName[a.team_id] || t("Takım"))}
                     </div>
                   </div>
-                  <button className="mini danger leave-del" title="İşareti sil"
+                  <button className="mini danger leave-del" title={t("İşareti sil")}
                           onClick={() => removeAnnotation(a)}>
-                    Sil
+                    {t("Sil")}
                   </button>
                 </li>
               ))}
@@ -317,9 +319,9 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
 
       {/* İzin isteklerim: her çalışan kendi isteklerinin durumunu + red gerekçesini görür. */}
       <section className="section">
-        <h2>İzin isteklerim ({mine.length})</h2>
+        <h2>{t("İzin isteklerim ({n})", { n: mine.length })}</h2>
         {mine.length === 0 ? (
-          <p className="desc">Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.</p>
+          <p className="desc">{t("Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.")}</p>
         ) : (
           <ul className="leave-list">
             {mine.map((lv) => (
@@ -327,8 +329,8 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                 <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
                 <div className="leave-list-main">
                   <div className="leave-list-top">
-                    <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
-                    <span className={`leave-status ${lv.status}`}>{STATUS_LABEL[lv.status] || lv.status}</span>
+                    <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
+                    <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
                   </div>
                   <div className="leave-list-dates">
                     {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -336,14 +338,14 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                   </div>
                   {lv.status === "rejected" && lv.decision_note && (
                     <div className="leave-reject-note">
-                      <strong>Red gerekçesi:</strong> {lv.decision_note}
+                      <strong>{t("Red gerekçesi:")}</strong> {lv.decision_note}
                     </div>
                   )}
                 </div>
                 {lv.can_cancel && (
-                  <button className="mini ghost leave-del" title="İsteği geri çek"
-                    onClick={() => remove({ id: lv.id, person: "İsteğin", start_date: lv.start_date })}>
-                    İptal
+                  <button className="mini ghost leave-del" title={t("İsteği geri çek")}
+                    onClick={() => remove({ id: lv.id, person: t("İsteğin"), start_date: lv.start_date })}>
+                    {t("İptal")}
                   </button>
                 )}
               </li>
@@ -355,9 +357,9 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
       {/* Onay kuyruğu: çalışanların bekleyen izin istekleri. */}
       {canManage && (
         <section className="section">
-          <h2>Bekleyen izin onayları ({pending.length})</h2>
+          <h2>{t("Bekleyen izin onayları ({n})", { n: pending.length })}</h2>
           {pending.length === 0 ? (
-            <p className="desc">Onay bekleyen izin isteği yok.</p>
+            <p className="desc">{t("Onay bekleyen izin isteği yok.")}</p>
           ) : (
             <ul className="leave-list">
               {pending.map((lv) => (
@@ -366,8 +368,8 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                   <div className="leave-list-main">
                     <div className="leave-list-top">
                       <strong>{lv.person}</strong>
-                      <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
-                      <span className="leave-status pending">{STATUS_LABEL.pending}</span>
+                      <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
+                      <span className="leave-status pending">{t(STATUS_LABEL.pending)}</span>
                     </div>
                     <div className="leave-list-dates">
                       {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -375,8 +377,8 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                     </div>
                   </div>
                   <span className="leave-decide">
-                    <button className="mini" onClick={() => approve(lv)}>Onayla</button>
-                    <button className="mini danger" onClick={() => { setRejectFor(lv); setRejectNote(""); setError(null); }}>Reddet</button>
+                    <button className="mini" onClick={() => approve(lv)}>{t("Onayla")}</button>
+                    <button className="mini danger" onClick={() => { setRejectFor(lv); setRejectNote(""); setError(null); }}>{t("Reddet")}</button>
                   </span>
                 </li>
               ))}
@@ -388,15 +390,15 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
       {/* İK için en değerli tablo: takvimin hemen ardında, dipte değil. */}
       {canManage && (
         <section className="section">
-          <h2>Ay özeti (İK)</h2>
+          <h2>{t("Ay özeti (İK)")}</h2>
           {summary.length === 0 ? (
-            <p className="desc">Bu ay izin kaydı yok.</p>
+            <p className="desc">{t("Bu ay izin kaydı yok.")}</p>
           ) : (
             <table className="quality">
               <thead>
                 <tr>
-                  <th>Kişi</th><th className="num">Yıllık</th><th className="num">Rapor</th>
-                  <th className="num">Diğer</th><th className="num">Toplam</th>
+                  <th>{t("Kişi")}</th><th className="num">{t("Yıllık")}</th><th className="num">{t("Rapor")}</th>
+                  <th className="num">{t("Diğer")}</th><th className="num">{t("Toplam")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -412,7 +414,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
               </tbody>
               <tfoot>
                 <tr className="sum-row">
-                  <td>Toplam ({summary.length} kişi)</td>
+                  <td>{t("Toplam ({n} kişi)", { n: summary.length })}</td>
                   <td className="num">{summary.reduce((a, r) => a + (r.annual ?? 0), 0)}</td>
                   <td className="num">{summary.reduce((a, r) => a + (r.sick ?? 0), 0)}</td>
                   <td className="num">{summary.reduce((a, r) => a + (r.other ?? 0), 0)}</td>
@@ -426,36 +428,36 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
 
       <section className="section">
         <div className="section-head">
-          <h2>Bu ayki izinler ({visibleLeaves.length}{visibleLeaves.length !== uniqueLeaves.length ? ` / ${uniqueLeaves.length}` : ""})</h2>
+          <h2>{t("Bu ayki izinler ({n}{total})", { n: visibleLeaves.length, total: visibleLeaves.length !== uniqueLeaves.length ? ` / ${uniqueLeaves.length}` : "" })}</h2>
         </div>
         {uniqueLeaves.length > 0 && (
           <div className="leave-filters">
-            <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label="Kişiye göre filtrele">
-              <option value="">Tüm kişiler</option>
+            <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label={t("Kişiye göre filtrele")}>
+              <option value="">{t("Tüm kişiler")}</option>
               {people.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Türe göre filtrele">
-              <option value="">Tüm türler</option>
-              <option value="annual">Yıllık</option>
-              <option value="sick">Rapor</option>
-              <option value="other">Diğer</option>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t("Türe göre filtrele")}>
+              <option value="">{t("Tüm türler")}</option>
+              <option value="annual">{t("Yıllık")}</option>
+              <option value="sick">{t("Rapor")}</option>
+              <option value="other">{t("Diğer")}</option>
             </select>
             <button
               className={`mini${onlyMine ? " active" : " ghost"}`}
               onClick={() => setOnlyMine((v) => !v)}
-              title="Yalnızca silebildiğin (kendi/yetkili olduğun) kayıtlar"
+              title={t("Yalnızca silebildiğin (kendi/yetkili olduğun) kayıtlar")}
             >
-              Sadece benimkiler
+              {t("Sadece benimkiler")}
             </button>
             {(personFilter || typeFilter || onlyMine) && (
               <button className="mini ghost" onClick={() => { setPersonFilter(""); setTypeFilter(""); setOnlyMine(false); }}>
-                Filtreyi temizle
+                {t("Filtreyi temizle")}
               </button>
             )}
           </div>
         )}
         {visibleLeaves.length === 0 ? (
-          <p className="desc">{uniqueLeaves.length === 0 ? "Bu ay izin kaydı yok." : "Filtreye uyan kayıt yok."}</p>
+          <p className="desc">{uniqueLeaves.length === 0 ? t("Bu ay izin kaydı yok.") : t("Filtreye uyan kayıt yok.")}</p>
         ) : (
           <ul className="leave-list">
             {visibleLeaves.map((lv) => (
@@ -464,9 +466,9 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                 <div className="leave-list-main">
                   <div className="leave-list-top">
                     <strong>{lv.person}</strong>
-                    <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                    <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                     {lv.status && lv.status !== "approved" && (
-                      <span className={`leave-status ${lv.status}`}>{STATUS_LABEL[lv.status] || lv.status}</span>
+                      <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
                     )}
                   </div>
                   <div className="leave-list-dates">
@@ -475,8 +477,8 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                   </div>
                 </div>
                 {lv.can_delete && (
-                  <button className="mini danger leave-del" title="İzni sil" onClick={() => remove(lv)}>
-                    Sil
+                  <button className="mini danger leave-del" title={t("İzni sil")} onClick={() => remove(lv)}>
+                    {t("Sil")}
                   </button>
                 )}
               </li>
@@ -486,64 +488,63 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
       </section>
 
       <section className="section">
-        <h2>{canManage ? "İzin ekle" : "İzin iste"}</h2>
+        <h2>{canManage ? t("İzin ekle") : t("İzin iste")}</h2>
         {!canManage && (
           <p className="desc">
-            İzni doğrudan alamazsın — gün(leri) seç, istek gönder. Yönetici
-            onaylayınca takvime işlenir. İstersen açıklama ekle.
+            {t("İzni doğrudan alamazsın — gün(leri) seç, istek gönder. Yönetici onaylayınca takvime işlenir. İstersen açıklama ekle.")}
           </p>
         )}
         <form className="admin-form" onSubmit={add}>
           {canManage && (
-            <label>Kişi
+            <label>{t("Kişi")}
               <select value={form.target_user_id} onChange={(e) => upd("target_user_id", e.target.value)}>
-                <option value="">Kendim ({user.display_name})</option>
-                <option value="all">🏢 Herkes (tüm aktif çalışanlar)</option>
+                <option value="">{t("Kendim ({name})", { name: user.display_name })}</option>
+                <option value="all">🏢 {t("Herkes (tüm aktif çalışanlar)")}</option>
                 {employees.filter((u) => u.developer_id != null).map((u) => (
                   <option key={u.id} value={u.id}>{u.display_name}</option>
                 ))}
               </select>
             </label>
           )}
-          <label>Başlangıç
+          <label>{t("Başlangıç")}
             <input type="date" value={form.start_date} onChange={(e) => upd("start_date", e.target.value)} required />
           </label>
-          <label>Bitiş
+          <label>{t("Bitiş")}
             <input type="date" value={form.end_date} onChange={(e) => upd("end_date", e.target.value)} required />
           </label>
-          <label>Tür
+          <label>{t("Tür")}
             <select value={form.leave_type} onChange={(e) => upd("leave_type", e.target.value)}>
-              <option value="annual">Yıllık izin</option>
-              <option value="sick">Rapor (hastalık)</option>
-              <option value="other">Diğer</option>
+              <option value="annual">{t("Yıllık izin")}</option>
+              <option value="sick">{t("Rapor (hastalık)")}</option>
+              <option value="other">{t("Diğer")}</option>
             </select>
           </label>
-          <label>Açıklama (opsiyonel)
+          <label>{t("Açıklama (opsiyonel)")}
             <input value={form.description} onChange={(e) => upd("description", e.target.value)} />
           </label>
-          <button type="submit" className="login-btn">{canManage ? "İzin ekle" : "İstek gönder"}</button>
+          <button type="submit" className="login-btn">{canManage ? t("İzin ekle") : t("İstek gönder")}</button>
         </form>
       </section>
 
       {/* Red gerekçesi modalı: yönetici reddederken zorunlu gerekçe girer. */}
       {rejectFor && (
-        <Modal title="İzin isteğini reddet" onClose={() => { setRejectFor(null); setError(null); }}>
+        <Modal title={t("İzin isteğini reddet")} onClose={() => { setRejectFor(null); setError(null); }}>
           <div className="reject-modal">
             <p className="desc">
               <strong>{rejectFor.person}</strong> · {rejectFor.start_date === rejectFor.end_date
                 ? rejectFor.start_date : `${rejectFor.start_date} → ${rejectFor.end_date}`}
             </p>
             <label className="ca-block">
-              Red gerekçesi (zorunlu — çalışana iletilir)
+              {t("Red gerekçesi (zorunlu — çalışana iletilir)")}
               <textarea rows={3} value={rejectNote}
                 onChange={(e) => setRejectNote(e.target.value)}
-                placeholder="Örn. bu tarihlerde ekip kapasitesi düşük; farklı bir hafta önerilir." />
+                placeholder={t("Örn. bu tarihlerde ekip kapasitesi düşük; farklı bir hafta önerilir.")} />
             </label>
             {error && <div className="login-error">{error}</div>}
             <div className="cred-actions">
-              <button className="mini ghost" onClick={() => { setRejectFor(null); setError(null); }}>Vazgeç</button>
+              <button className="mini ghost" onClick={() => { setRejectFor(null); setError(null); }}>{t("Vazgeç")}</button>
               <button className="mini danger" disabled={!rejectNote.trim()} onClick={confirmReject}>
-                Reddet ve gerekçeyi gönder
+                {t("Reddet ve gerekçeyi gönder")}
               </button>
             </div>
           </div>

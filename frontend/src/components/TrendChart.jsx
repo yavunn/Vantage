@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatValue } from "./MetricCard.jsx";
+import { useT } from "../i18n.jsx";
 
 function fmtDate(s) {
   const d = new Date(s);
@@ -40,7 +41,7 @@ const KIND_COLOR = {
 
 // Otomatik trend özeti: grafiği okumadan "ne oldu" cümlesi. Karar hızlandırır.
 // Kıyas SADECE serinin kendi geçmişiyle — başka takım/kişiyle asla.
-function trendSummary(series) {
+function trendSummary(t, series) {
   const vals = series.points.map((p) => p.value).filter((v) => v != null);
   if (vals.length < 3) return null;
   // İlk yarı vs son yarı ortalaması: tek kovanın gürültüsüne kapılmaz.
@@ -52,19 +53,20 @@ function trendSummary(series) {
   const pct = ((last - first) / Math.abs(first)) * 100;
   const rounded = Math.round(Math.abs(pct));
   const periods = vals.length;
-  if (rounded < 5) return { tone: "flat", text: `Son ${periods} dönemde belirgin değişim yok — seyir sabit.` };
+  if (rounded < 5) return { tone: "flat", text: t("Son {n} dönemde belirgin değişim yok — seyir sabit.", { n: periods }) };
   const up = pct > 0;
   const direction = series.direction || "lower";
   const good = direction === "higher" ? up : !up;
   return {
     tone: good ? "good" : "bad",
     text: good
-      ? `Son ${periods} dönemde %${rounded} iyileşme — gidişat olumlu.`
-      : `Son ${periods} dönemde %${rounded} kötüleşme — yakından izlemekte fayda var.`,
+      ? t("Son {n} dönemde %{pct} iyileşme — gidişat olumlu.", { n: periods, pct: rounded })
+      : t("Son {n} dönemde %{pct} kötüleşme — yakından izlemekte fayda var.", { n: periods, pct: rounded }),
   };
 }
 
 export default function TrendChart({ series, threshold, annotations }) {
+  const t = useT();
   const data = series.points.map((p) => ({
     label: fmtDate(p.period_start),
     value: p.value,
@@ -72,7 +74,7 @@ export default function TrendChart({ series, threshold, annotations }) {
   }));
   const marks = annotationsForBuckets(series.points, annotations);
   const hasAny = data.some((d) => d.value != null);
-  const summary = hasAny ? trendSummary(series) : null;
+  const summary = hasAny ? trendSummary(t, series) : null;
   return (
     <div className="chart-box">
       <h3>{series.name}</h3>
@@ -80,7 +82,7 @@ export default function TrendChart({ series, threshold, annotations }) {
       {summary && <p className={`trend-summary ${summary.tone}`}>{summary.text}</p>}
       {!hasAny ? (
         <p className="desc" style={{ padding: "30px 0", textAlign: "center" }}>
-          Bu dönem için yeterli veri yok
+          {t("Bu dönem için yeterli veri yok")}
         </p>
       ) : (
         <ResponsiveContainer width="100%" height={180}>
@@ -124,7 +126,7 @@ export default function TrendChart({ series, threshold, annotations }) {
                 stroke="var(--status-good)"
                 strokeDasharray="4 4"
                 strokeOpacity={0.7}
-                label={{ value: `hedef ${threshold.green}`, position: "insideTopRight", fill: "var(--muted)", fontSize: 10 }}
+                label={{ value: t("hedef {v}", { v: threshold.green }), position: "insideTopRight", fill: "var(--muted)", fontSize: 10 }}
               />
             )}
             {threshold && (
@@ -133,7 +135,7 @@ export default function TrendChart({ series, threshold, annotations }) {
                 stroke="var(--status-critical)"
                 strokeDasharray="4 4"
                 strokeOpacity={0.6}
-                label={{ value: `eşik ${threshold.red}`, position: "insideBottomRight", fill: "var(--muted)", fontSize: 10 }}
+                label={{ value: t("eşik {v}", { v: threshold.red }), position: "insideBottomRight", fill: "var(--muted)", fontSize: 10 }}
               />
             )}
             {/* Anotasyonlar: tatil/incident/sürüm — tepe/çukur yanlış okunmasın */}

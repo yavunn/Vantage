@@ -30,8 +30,9 @@ from app.metrics.engine import (
     is_in_flow,
     load_team_data,
 )
+from app.core.i18n import DEFAULT_LANG, metric_meta, status_labels
 from app.models import Recommendation, Team
-from app.services.health import METRIC_META, METRIC_THRESHOLD_MAP, STATUS_LABELS, health_status
+from app.services.health import METRIC_THRESHOLD_MAP, health_status
 from app.services.signals import compute_signals
 
 VALID_DAYS = {7, 30, 90}
@@ -44,16 +45,17 @@ def _direction(metric_key: str) -> str:
     return mapping[1] if mapping else "lower"
 
 
-def _metric_dict(key: str, outcome, cfg: Config, previous_value: float | None) -> dict:
+def _metric_dict(key: str, outcome, cfg: Config, previous_value: float | None,
+                  lang: str = DEFAULT_LANG) -> dict:
     status = health_status(key, outcome.value, outcome.completeness, cfg)
-    name, description = METRIC_META.get(key, (key, ""))
+    name, description = metric_meta(lang).get(key, (key, ""))
     return {
         "key": key,
         "name": name,
         "description": description,
         "value": outcome.value,
         "status": status,
-        "status_label": STATUS_LABELS[status],
+        "status_label": status_labels(lang)[status],
         "data_completeness": outcome.completeness,
         "source_layer": outcome.source_layer,
         "sample_size": outcome.sample,
@@ -74,7 +76,8 @@ def _compute_window(session: Session, team: Team, start: datetime, end: datetime
     return out
 
 
-def live_report(session: Session, team: Team, days: int, cfg: Config) -> dict:
+def live_report(session: Session, team: Team, days: int, cfg: Config,
+                 lang: str = DEFAULT_LANG) -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     prev_start = start - timedelta(days=days)
@@ -83,12 +86,12 @@ def live_report(session: Session, team: Team, days: int, cfg: Config) -> dict:
     previous = _compute_window(session, team, prev_start, start, cfg)
 
     metrics = [
-        _metric_dict(key, oc, cfg, previous.get(key).value if previous.get(key) else None)
+        _metric_dict(key, oc, cfg, previous.get(key).value if previous.get(key) else None, lang)
         for key, oc in current.items()
     ]
 
     data = load_team_data(session, team, start, now)
-    signals = compute_signals(session, data)
+    signals = compute_signals(session, data, lang)
 
     recs = session.scalars(
         select(Recommendation).where(
@@ -102,7 +105,7 @@ def live_report(session: Session, team: Team, days: int, cfg: Config) -> dict:
         "window_days": days,
         "metrics": metrics,
         "signals": signals,
-        "series": _live_series(session, team, days, cfg),
+        "series": _live_series(session, team, days, cfg, lang),
         "recommendations": [
             {"rule": r.rule_key, "message": r.message, "severity": r.severity}
             for r in recs
@@ -110,7 +113,8 @@ def live_report(session: Session, team: Team, days: int, cfg: Config) -> dict:
     }
 
 
-def _live_series(session: Session, team: Team, days: int, cfg: Config) -> list[dict]:
+def _live_series(session: Session, team: Team, days: int, cfg: Config,
+                  lang: str = DEFAULT_LANG) -> list[dict]:
     """Seçilen aralık için haftalık/kova bazlı trend — anlık hesap."""
     from app.metrics.engine import SERIES_METRICS
 
@@ -135,7 +139,7 @@ def _live_series(session: Session, team: Team, days: int, cfg: Config) -> list[d
 
     out = []
     for key, points in series_points.items():
-        name, description = METRIC_META.get(key, (key, ""))
+        name, description = metric_meta(lang).get(key, (key, ""))
         # direction: frontend'in trend özetini doğru yönde okuması için
         # ('higher' metrikte artış İYİ, 'lower' metrikte azalış iyi).
         out.append({
@@ -147,12 +151,13 @@ def _live_series(session: Session, team: Team, days: int, cfg: Config) -> list[d
 
 # --- Drill-down: bir metriğin altındaki ham kayıtlar ---------------------------
 
-def metric_breakdown(session: Session, team: Team, key: str, days: int, cfg: Config) -> dict:
+def metric_breakdown(session: Session, team: Team, key: str, days: int, cfg: Config,
+                      lang: str = DEFAULT_LANG) -> dict:
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     data = load_team_data(session, team, start, now)
-    rows = _BREAKDOWN.get(key, _breakdown_unsupported)(data)
-    name, _ = METRIC_META.get(key, (key, ""))
+    rows = _BREAKDOWN.get(key, _breakdown_unsupported)(data, lang)
+    name, _ = metric_meta(lang).get(key, (key, ""))
     return {"metric": key, "name": name, "window_days": days, "rows": rows,
             "count": len(rows)}
 
@@ -161,7 +166,23 @@ def _fmt_days(seconds: float) -> float:
     return round(seconds / 86400, 2)
 
 
-def _breakdown_cycle_time(data: TeamData) -> list[dict]:
+# Drill-down tablolarındaki sabit ifadeler (birim + kısa bağlam metni).
+_BD_EN = {
+    "gün": "days", "saat": "hours",
+    "açılış→merge": "opened→merged", "açılış→ilk review": "opened→first review",
+    "henüz review almadı": "no review yet",
+    "Teslim (merge)": "Delivery (merge)", "main'e merge proxy'si": "proxy for merge to main",
+    "hotfix/revert sinyali": "hotfix/revert signal",
+    "dosyaya dokunma sayısı": "times the file was touched",
+    "revert eşleşmesi": "matched revert", "orijinal commit penceresde yok": "original commit not in window",
+}
+
+
+def _bd(text: str, lang: str) -> str:
+    return _BD_EN.get(text, text) if lang == "en" else text
+
+
+def _breakdown_cycle_time(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     rows = []
     for t in data.tasks:
         done = _task_done_at(t, data.statuses)
@@ -173,7 +194,7 @@ def _breakdown_cycle_time(data: TeamData) -> list[dict]:
                 "label": t.title or f"Task #{t.external_id}",
                 "detail": f"{t.status or ''}",
                 "value": _fmt_days((done - started).total_seconds()),
-                "unit": "gün",
+                "unit": _bd("gün", lang),
                 "date": f"{done:%Y-%m-%d}",
             })
     rows.sort(key=lambda r: r["value"], reverse=True)
@@ -181,7 +202,7 @@ def _breakdown_cycle_time(data: TeamData) -> list[dict]:
 
 
 def _breakdown_pr_duration(field: str):
-    def fn(data: TeamData) -> list[dict]:
+    def fn(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
         rows = []
         for p in data.prs:
             merged = as_utc(p.merged_at)
@@ -190,9 +211,9 @@ def _breakdown_pr_duration(field: str):
                 if merged and opened and data.start <= merged <= data.end and merged >= opened:
                     rows.append({
                         "label": p.title or f"PR #{p.external_id}",
-                        "detail": "açılış→merge",
+                        "detail": _bd("açılış→merge", lang),
                         "value": _fmt_days((merged - opened).total_seconds()),
-                        "unit": "gün", "date": f"{merged:%Y-%m-%d}",
+                        "unit": _bd("gün", lang), "date": f"{merged:%Y-%m-%d}",
                     })
             else:  # review latency
                 first = as_utc(p.first_review_at)
@@ -200,30 +221,30 @@ def _breakdown_pr_duration(field: str):
                     if first and first >= opened:
                         rows.append({
                             "label": p.title or f"PR #{p.external_id}",
-                            "detail": "açılış→ilk review",
+                            "detail": _bd("açılış→ilk review", lang),
                             "value": _fmt_days((first - opened).total_seconds()),
-                            "unit": "gün", "date": f"{opened:%Y-%m-%d}",
+                            "unit": _bd("gün", lang), "date": f"{opened:%Y-%m-%d}",
                         })
                     else:
                         rows.append({
                             "label": p.title or f"PR #{p.external_id}",
-                            "detail": "henüz review almadı",
-                            "value": None, "unit": "gün", "date": f"{opened:%Y-%m-%d}",
+                            "detail": _bd("henüz review almadı", lang),
+                            "value": None, "unit": _bd("gün", lang), "date": f"{opened:%Y-%m-%d}",
                         })
         rows.sort(key=lambda r: (r["value"] is not None, r["value"] or 0), reverse=True)
         return rows
     return fn
 
 
-def _breakdown_deploys(data: TeamData) -> list[dict]:
+def _breakdown_deploys(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     return [
-        {"label": "Teslim (merge)", "detail": "main'e merge proxy'si",
+        {"label": _bd("Teslim (merge)", lang), "detail": _bd("main'e merge proxy'si", lang),
          "value": None, "unit": "", "date": f"{d:%Y-%m-%d %H:%M}"}
         for d in _deploy_events(data)
     ]
 
 
-def _breakdown_wip(data: TeamData) -> list[dict]:
+def _breakdown_wip(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     rows = []
     for t in data.tasks:
         # Statü kategorileri data.statuses'tan (config + varsayılan) gelir —
@@ -239,7 +260,7 @@ def _breakdown_wip(data: TeamData) -> list[dict]:
     return rows
 
 
-def _breakdown_change_failure(data: TeamData) -> list[dict]:
+def _breakdown_change_failure(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     rows = []
     for c in data.commits:
         low = (c.message or "").lower()
@@ -247,26 +268,26 @@ def _breakdown_change_failure(data: TeamData) -> list[dict]:
             ts = as_utc(c.committed_at)
             rows.append({
                 "label": (c.message or "").splitlines()[0][:80] if c.message else c.sha[:10],
-                "detail": "hotfix/revert sinyali", "value": None, "unit": "",
+                "detail": _bd("hotfix/revert sinyali", lang), "value": None, "unit": "",
                 "date": f"{ts:%Y-%m-%d}" if ts else "",
             })
     return rows
 
 
-def _breakdown_rework(data: TeamData) -> list[dict]:
+def _breakdown_rework(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     from collections import Counter
     counter: Counter = Counter()
     for c in data.commits:
         for f in c.changed_files or []:
             counter[f] += 1
     rows = [
-        {"label": f, "detail": "dosyaya dokunma sayısı", "value": n, "unit": "×", "date": ""}
+        {"label": f, "detail": _bd("dosyaya dokunma sayısı", lang), "value": n, "unit": "×", "date": ""}
         for f, n in counter.most_common() if n > 1
     ]
     return rows
 
 
-def _breakdown_mttr(data: TeamData) -> list[dict]:
+def _breakdown_mttr(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     # incident/revert verisi yoksa boş döner — drill-down da dürüst
     rows = []
     by_sha = {c.sha[:12]: c for c in data.commits if c.sha}
@@ -279,15 +300,15 @@ def _breakdown_mttr(data: TeamData) -> list[dict]:
         orig_ts = as_utc(orig.committed_at) if orig else None
         rows.append({
             "label": (c.message or "")[:80] or c.sha[:10],
-            "detail": "revert eşleşmesi" if orig_ts else "orijinal commit penceresde yok",
+            "detail": _bd("revert eşleşmesi", lang) if orig_ts else _bd("orijinal commit penceresde yok", lang),
             "value": round((rev_ts - orig_ts).total_seconds() / 3600, 1) if (orig_ts and rev_ts and rev_ts >= orig_ts) else None,
-            "unit": "saat",
+            "unit": _bd("saat", lang),
             "date": f"{rev_ts:%Y-%m-%d}" if rev_ts else "",
         })
     return rows
 
 
-def _breakdown_unsupported(data: TeamData) -> list[dict]:
+def _breakdown_unsupported(data: TeamData, lang: str = DEFAULT_LANG) -> list[dict]:
     return []
 
 

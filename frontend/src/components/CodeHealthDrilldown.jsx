@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import Modal from "./Modal.jsx";
+import { useT } from "../i18n.jsx";
 
 // Kod sağlığı drill-down: en çok dikkat isteyen dosyalar + AI önerileri.
 // KİŞİ İSMİ YOK — yalnızca dosya/modül ve yapıcı öneriler.
@@ -13,6 +14,7 @@ const STATUS_COLOR = {
 
 // path: breakdown endpoint'i (takım / kendi / kişi). title: modal başlığı.
 export default function CodeHealthDrilldown({ path, title, onClose }) {
+  const t = useT();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -25,15 +27,14 @@ export default function CodeHealthDrilldown({ path, title, onClose }) {
   }, [path]);
 
   return (
-    <Modal title={title || "Kod Sağlığı — dikkat isteyen bölümler"} onClose={onClose}>
+    <Modal title={title || t("Kod Sağlığı — dikkat isteyen bölümler")} onClose={onClose}>
       <p className="desc">
-        Dosya/modül düzeyinde AI analizi. En düşük skorlu dosyalar üstte;
-        öneriler yapıcı ve kişi suçlamayan dille.
+        {t("Dosya/modül düzeyinde AI analizi. En düşük skorlu dosyalar üstte; öneriler yapıcı ve kişi suçlamayan dille.")}
       </p>
-      {error && <p className="desc">Yüklenemedi: {error.message}</p>}
-      {!data && !error && <p className="desc">Yükleniyor…</p>}
+      {error && <p className="desc">{t("Yüklenemedi: {msg}", { msg: error.message })}</p>}
+      {!data && !error && <p className="desc">{t("Yükleniyor…")}</p>}
       {data && data.rows.length === 0 && (
-        <p className="desc">Henüz analiz yok. Uydurma skor gösterilmez.</p>
+        <p className="desc">{t("Henüz analiz yok. Uydurma skor gösterilmez.")}</p>
       )}
       {data && data.rows.length > 0 && (
         <div className="drill-scroll">

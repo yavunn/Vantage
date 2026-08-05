@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import current_user, require_admin
 from app.core.config import Config, get_config
 from app.core.db import get_session
+from app.core.i18n import lang_from_request, metric_meta, status_labels
 from app.metrics.engine import load_team_data
 from app.models import (
     Commit,
@@ -33,12 +34,7 @@ from app.models import (
     User,
 )
 from app.services.commit_alignment import alignment_summary
-from app.services.health import (
-    METRIC_META,
-    METRIC_THRESHOLD_MAP,
-    STATUS_LABELS,
-    health_status,
-)
+from app.services.health import METRIC_THRESHOLD_MAP, health_status
 from app.services.scoring import overall_score
 
 # Bu router'daki TÜM uçlar geçerli JWT ister (dashboard okuma dahil). Kimlik
@@ -72,16 +68,18 @@ def list_teams(session: Session = Depends(get_session)):
     return [{"id": t.id, "name": t.name} for t in session.scalars(select(Team))]
 
 
-def _metric_payload(row: MetricResult, cfg: Config) -> dict:
+def _metric_payload(row: MetricResult, cfg: Config, lang: str = "tr") -> dict:
+    """Metrik kartı gövdesi. `lang`: ad/açıklama/durum etiketi bu dilde döner —
+    arayüz tek başına çevrilseydi pano yarı Türkçe kalırdı."""
     status = health_status(row.metric_key, row.value, row.data_completeness, cfg)
-    name, description = METRIC_META.get(row.metric_key, (row.metric_key, ""))
+    name, description = metric_meta(lang).get(row.metric_key, (row.metric_key, ""))
     return {
         "key": row.metric_key,
         "name": name,
         "description": description,
         "value": row.value,
         "status": status,
-        "status_label": STATUS_LABELS[status],
+        "status_label": status_labels(lang)[status],
         "data_completeness": row.data_completeness,
         "source_layer": row.source_layer,
         "sample_size": row.sample_size,
@@ -91,7 +89,11 @@ def _metric_payload(row: MetricResult, cfg: Config) -> dict:
 
 
 @router.get("/teams/{team_id}/summary")
-def team_summary(team_id: int, session: Session = Depends(get_session)):
+def team_summary(
+    team_id: int,
+    session: Session = Depends(get_session),
+    lang: str = Depends(lang_from_request),
+):
     cfg = get_config()
     team = session.get(Team, team_id)
     if team is None:
@@ -125,7 +127,7 @@ def team_summary(team_id: int, session: Session = Depends(get_session)):
     member_count = sum(1 for m in team.memberships if m.role != "manager")
     return {
         "team": {"id": team.id, "name": team.name, "member_count": member_count},
-        "metrics": [_metric_payload(r, cfg) for r in overall.values()],
+        "metrics": [_metric_payload(r, cfg, lang) for r in overall.values()],
         "recommendations": [
             {"rule": r.rule_key, "message": r.message, "severity": r.severity}
             for r in recs
@@ -139,6 +141,7 @@ def team_report(
     team_id: int,
     days: int = Query(default=30),
     session: Session = Depends(get_session),
+    lang: str = Depends(lang_from_request),
 ):
     """Seçilen aralık (7/30/90) için anlık hesaplanan metrikler + delta +
     sağlık sinyalleri + trend. Precompute'a değil, canlı motora dayanır."""
@@ -150,7 +153,7 @@ def team_report(
     team = session.get(Team, team_id)
     if team is None:
         raise HTTPException(404, "Takım bulunamadı")
-    return live_report(session, team, days, cfg)
+    return live_report(session, team, days, cfg, lang)
 
 
 @router.get("/teams/{team_id}/metric/{metric_key}/breakdown")
@@ -159,6 +162,7 @@ def team_metric_breakdown(
     metric_key: str,
     days: int = Query(default=30),
     session: Session = Depends(get_session),
+    lang: str = Depends(lang_from_request),
 ):
     """Drill-down: bir metriğin altındaki ham kayıtlar (hangi iş/PR/commit bu
     sayıyı oluşturuyor). Şeffaflık için — sayı gökten inmiyor."""
@@ -170,11 +174,16 @@ def team_metric_breakdown(
     team = session.get(Team, team_id)
     if team is None:
         raise HTTPException(404, "Takım bulunamadı")
-    return metric_breakdown(session, team, metric_key, days, cfg)
+    return metric_breakdown(session, team, metric_key, days, cfg, lang)
 
 
 @router.get("/teams/{team_id}/series/{metric_key}")
-def team_series(team_id: int, metric_key: str, session: Session = Depends(get_session)):
+def team_series(
+    team_id: int,
+    metric_key: str,
+    session: Session = Depends(get_session),
+    lang: str = Depends(lang_from_request),
+):
     cfg = get_config()
     if session.get(Team, team_id) is None:
         raise HTTPException(404, "Takım bulunamadı")
@@ -208,7 +217,7 @@ def team_series(team_id: int, metric_key: str, session: Session = Depends(get_se
         for r in by_period.values()
     ]
     points.sort(key=lambda p: p["period_start"])
-    name, description = METRIC_META.get(metric_key, (metric_key, ""))
+    name, description = metric_meta(lang).get(metric_key, (metric_key, ""))
     return {"metric": metric_key, "name": name, "description": description, "points": points}
 
 
@@ -306,19 +315,21 @@ def team_report_csv(team_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/me/code-health")
-def my_code_health(session: Session = Depends(get_session), user=Depends(current_user)):
+def my_code_health(session: Session = Depends(get_session), user=Depends(current_user),
+                    lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health
     if user.developer_id is None:
         raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
-    return developer_code_health(session, user.developer_id, get_config())
+    return developer_code_health(session, user.developer_id, get_config(), lang)
 
 
 @router.get("/me/code-health/breakdown")
-def my_code_health_breakdown(session: Session = Depends(get_session), user=Depends(current_user)):
+def my_code_health_breakdown(session: Session = Depends(get_session), user=Depends(current_user),
+                              lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health_breakdown
     if user.developer_id is None:
         raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
-    return developer_code_health_breakdown(session, user.developer_id)
+    return developer_code_health_breakdown(session, user.developer_id, lang)
 
 
 @router.post("/me/code-analysis/run")
@@ -332,48 +343,53 @@ def my_code_analysis_run(session: Session = Depends(get_session), user=Depends(c
 
 @router.get("/developers/{dev_id}/code-health")
 def developer_code_health_endpoint(dev_id: int, session: Session = Depends(get_session),
-                                   user=Depends(current_user)):
+                                   user=Depends(current_user),
+                                   lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health
     _dev_access(dev_id, user)
-    return developer_code_health(session, dev_id, get_config())
+    return developer_code_health(session, dev_id, get_config(), lang)
 
 
 @router.get("/developers/{dev_id}/code-health/breakdown")
 def developer_code_health_breakdown_endpoint(dev_id: int, session: Session = Depends(get_session),
-                                             user=Depends(current_user)):
+                                             user=Depends(current_user),
+                                             lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health_breakdown
     _dev_access(dev_id, user)
-    return developer_code_health_breakdown(session, dev_id)
+    return developer_code_health_breakdown(session, dev_id, lang)
 
 
 @router.get("/teams/{team_id}/code-health")
-def team_code_health_endpoint(team_id: int, session: Session = Depends(get_session)):
+def team_code_health_endpoint(team_id: int, session: Session = Depends(get_session),
+                               lang: str = Depends(lang_from_request)):
     """AI kod sağlığı kartı: composite + modül kırılımı (kişi değil)."""
     from app.services.code_health import team_code_health
 
     if session.get(Team, team_id) is None:
         raise HTTPException(404, "Takım bulunamadı")
-    return team_code_health(session, team_id, get_config())
+    return team_code_health(session, team_id, get_config(), lang)
 
 
 @router.get("/teams/{team_id}/code-health/breakdown")
-def team_code_health_breakdown_endpoint(team_id: int, session: Session = Depends(get_session)):
+def team_code_health_breakdown_endpoint(team_id: int, session: Session = Depends(get_session),
+                                         lang: str = Depends(lang_from_request)):
     """Drill-down: en çok dikkat isteyen dosyalar + AI önerileri."""
     from app.services.code_health import team_code_health_breakdown
 
     if session.get(Team, team_id) is None:
         raise HTTPException(404, "Takım bulunamadı")
-    return team_code_health_breakdown(session, team_id)
+    return team_code_health_breakdown(session, team_id, lang)
 
 
 @router.get("/teams/{team_id}/code-health/series")
-def team_code_health_series_endpoint(team_id: int, session: Session = Depends(get_session)):
+def team_code_health_series_endpoint(team_id: int, session: Session = Depends(get_session),
+                                      lang: str = Depends(lang_from_request)):
     """Haftalık kod sağlığı trendi."""
     from app.services.code_health import team_code_health_series
 
     if session.get(Team, team_id) is None:
         raise HTTPException(404, "Takım bulunamadı")
-    return team_code_health_series(session, team_id, get_config())
+    return team_code_health_series(session, team_id, get_config(), lang)
 
 
 # --- bireysel görünüm (Faz 4: yetkili, leaderboard YOK) -------------------------
@@ -439,6 +455,7 @@ def developer_summary(
     dev_id: int,
     session: Session = Depends(get_session),
     user: User = Depends(current_user),
+    lang: str = Depends(lang_from_request),
 ):
     """Bireysel sağlık görünümü. Kurallar:
     - anonimleştirme modunda ya da özellik kapalıysa tamamen devre dışı;
@@ -466,7 +483,7 @@ def developer_summary(
     for key, cur in current.items():
         prev_val = previous.get(key, {}).get("value")
         status = health_status(key, cur["value"], cur["completeness"], cfg)
-        name, description = METRIC_META.get(key, (key, ""))
+        name, description = metric_meta(lang).get(key, (key, ""))
         metrics.append(
             {
                 "key": key,
@@ -474,7 +491,7 @@ def developer_summary(
                 "description": description,
                 "value": cur["value"],
                 "status": status,
-                "status_label": STATUS_LABELS[status],
+                "status_label": status_labels(lang)[status],
                 "data_completeness": cur["completeness"],
                 # Kıyas SADECE kişinin kendi geçmişi: "geçen aya göre" (İlke E)
                 "previous_value": prev_val,

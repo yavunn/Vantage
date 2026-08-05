@@ -22,26 +22,18 @@ METRIC_THRESHOLD_MAP: dict[str, tuple[str, str]] = {
     # estimate_accuracy: 1.0 ideal; ayrı ele alınır
 }
 
-STATUS_LABELS = {
-    "green": "Akıyor",
-    "yellow": "İzlenmeli",
-    "red": "Zorlanıyor — yardım gerekebilir",
-    "insufficient_data": "Veri yetersiz",
-}
+# TR sözlükler geriye dönük uyum için burada duruyor (mevcut çağıranlar
+# METRIC_META / STATUS_LABELS adıyla import ediyor). Dil seçimi gereken yerler
+# app/core/i18n.py'deki metric_meta(lang) / status_labels(lang) kullanır —
+# çeviriler TEK yerde yaşasın diye buradaki sözlükler oradan geliyor.
+from app.core.i18n import METRIC_META_TR as _META_TR
+from app.core.i18n import STATUS_LABELS_TR as _STATUS_TR
 
-# İnsan-okur metrik adları ve kısa açıklamaları (dashboard'da gösterilir)
-METRIC_META = {
-    "cycle_time": ("Cycle Time", "İş açıldıktan bitene kadar geçen ortalama süre (gün)"),
-    "pr_review_time": ("PR Süresi", "PR açılıştan merge'e ortalama süre (gün)"),
-    "review_latency": ("Review Gecikmesi", "PR açılıştan ilk review'a ortalama süre (gün)"),
-    "deployment_frequency": ("Teslim Sıklığı", "Haftalık teslim (merge) sayısı"),
-    "change_failure_rate": ("Geri Dönüş Oranı", "Deploy sonrası kısa sürede düzeltme gerektirme oranı"),
-    "mttr": ("Toparlanma Süresi (MTTR)", "Incident başladıktan normale dönene kadar geçen süre (saat). Kaynak: Jira 'incident' iş tipi ya da git revert; incident kaydı yoksa 'veri yetersiz'"),
-    "wip": ("Açık İş (WIP)", "Kişi başına aynı anda açık iş sayısı"),
-    "rework": ("Rework Oranı", "Aynı dosyaya kısa aralıkla tekrar dokunma oranı (takım)"),
-    "estimate_accuracy": ("Tahmin Tutarlılığı", "Gerçekleşen / tahmin edilen süre oranı (1.0 ideal)"),
-    "process_hygiene": ("Süreç Hijyeni", "Sürecin veriyle izlenebilirlik oranı (estimate, status, review dolulukları)"),
-}
+STATUS_LABELS = _STATUS_TR
+
+# İnsan-okur metrik adları ve kısa açıklamaları (dashboard'da gösterilir).
+# Çeviriler app/core/i18n.py'de; burada yalnız TR karşılığa takma ad verilir.
+METRIC_META = _META_TR
 
 
 def health_status(metric_key: str, value: float | None, completeness: float, cfg: Config) -> str:

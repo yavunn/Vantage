@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { submitSurvey } from "../api.js";
 import { toast } from "../toast.js";
+import { useLang, useT } from "../i18n.jsx";
 
 // Anonim memnuniyet anketi — çalışan sayfası. Veri App'ten gelir (tek kaynak);
 // bu bileşen yalnız gösterir + gönderir. Anonimlik her adımda hissettirilir.
@@ -13,25 +14,26 @@ const SCALE = [
 ];
 
 // ISO tarih ("2026-07-20") → "20 Tem" (yerel, TZ kaymadan: parça parça kur).
-function fmtDay(iso) {
+function fmtDay(iso, lang) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  return dt.toLocaleDateString(lang === "en" ? "en-US" : "tr-TR", { day: "numeric", month: "short" });
 }
 // closes_at hariç (bitiş günü = closes_at - 1 gün).
-function lastDay(iso) {
+function lastDay(iso, lang) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d - 1);
-  return dt.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  return dt.toLocaleDateString(lang === "en" ? "en-US" : "tr-TR", { day: "numeric", month: "short" });
 }
 
 function TrustStrip() {
+  const t = useT();
   return (
     <div className="survey-trust" role="note">
       <span>🔒</span>
-      <span>Kimliğin <b>kaydedilmez</b> · cevapların <b>şifrelenir</b> · yalnız <b>toplu</b> görülür</span>
+      <span>{t("Kimliğin")} <b>{t("kaydedilmez")}</b> · {t("cevapların")} <b>{t("şifrelenir")}</b> · {t("yalnız")} <b>{t("toplu")}</b> {t("görülür")}</span>
     </div>
   );
 }
@@ -41,6 +43,8 @@ function Shell({ children }) {
 }
 
 export default function SurveyForm({ survey, onSubmitted }) {
+  const t = useT();
+  const { lang } = useLang();
   const [answers, setAnswers] = useState({});
   const [texts, setTexts] = useState({});
   const [busy, setBusy] = useState(false);
@@ -48,14 +52,14 @@ export default function SurveyForm({ survey, onSubmitted }) {
 
   // --- durumlar ---
   if (!survey) {
-    return <Shell><div className="survey-hero"><p className="desc">Yükleniyor…</p></div></Shell>;
+    return <Shell><div className="survey-hero"><p className="desc">{t("Yükleniyor…")}</p></div></Shell>;
   }
   if (survey.enabled === false) {
     return (
       <Shell>
         <div className="survey-hero">
-          <h2>Memnuniyet Anketi</h2>
-          <p className="desc">Anket modülü şu an kapalı.</p>
+          <h2>{t("Memnuniyet Anketi")}</h2>
+          <p className="desc">{t("Anket modülü şu an kapalı.")}</p>
         </div>
       </Shell>
     );
@@ -65,9 +69,9 @@ export default function SurveyForm({ survey, onSubmitted }) {
     return (
       <Shell>
         <div className="survey-hero">
-          <h2>Memnuniyet Anketi</h2>
+          <h2>{t("Memnuniyet Anketi")}</h2>
           <p className="desc">
-            {survey.note || "Bu anketi sen yönetiyorsun; doldurman gerekmez."}
+            {survey.note || t("Bu anketi sen yönetiyorsun; doldurman gerekmez.")}
           </p>
         </div>
       </Shell>
@@ -77,8 +81,8 @@ export default function SurveyForm({ survey, onSubmitted }) {
     return (
       <Shell>
         <div className="survey-hero">
-          <h2>Memnuniyet Anketi</h2>
-          <p className="desc">Anket henüz kullanıma hazır değil. Kısa süre sonra tekrar dene.</p>
+          <h2>{t("Memnuniyet Anketi")}</h2>
+          <p className="desc">{t("Anket henüz kullanıma hazır değil. Kısa süre sonra tekrar dene.")}</p>
         </div>
       </Shell>
     );
@@ -96,13 +100,13 @@ export default function SurveyForm({ survey, onSubmitted }) {
       <Shell>
         <div className="survey-hero survey-thanks">
           <div className="survey-check" aria-hidden="true">✓</div>
-          <h2>Teşekkürler!</h2>
+          <h2>{t("Teşekkürler!")}</h2>
           <p className="desc">
-            Bu dönemin anketini doldurdun. Cevabın <b>tamamen anonim</b> —
-            kimseye bağlanmadı, şifreli saklanıyor. Görüşün bizi iyileştirir. 💙
+            {t("Bu dönemin anketini doldurdun. Cevabın")} <b>{t("tamamen anonim")}</b> —{" "}
+            {t("kimseye bağlanmadı, şifreli saklanıyor. Görüşün bizi iyileştirir. 💙")}
           </p>
           {survey.closes_at && (
-            <p className="survey-next">Yeni anket <b>{fmtDay(survey.closes_at)}</b> sonrası açılacak.</p>
+            <p className="survey-next">{t("Yeni anket")} <b>{fmtDay(survey.closes_at, lang)}</b> {t("sonrası açılacak.")}</p>
           )}
         </div>
       </Shell>
@@ -113,8 +117,8 @@ export default function SurveyForm({ survey, onSubmitted }) {
     return (
       <Shell>
         <div className="survey-hero">
-          <h2>Memnuniyet Anketi</h2>
-          <p className="desc">Bu dönemin anketi kapandı. Bir sonraki dönemde görüşürüz.</p>
+          <h2>{t("Memnuniyet Anketi")}</h2>
+          <p className="desc">{t("Bu dönemin anketi kapandı. Bir sonraki dönemde görüşürüz.")}</p>
         </div>
       </Shell>
     );
@@ -134,11 +138,11 @@ export default function SurveyForm({ survey, onSubmitted }) {
   }
 
   function setText(key, v) {
-    setTexts((t) => ({ ...t, [key]: v }));
+    setTexts((tx) => ({ ...tx, [key]: v }));
   }
 
   async function submit() {
-    if (!allAnswered) { toast("Tüm soruları yanıtla", "error"); return; }
+    if (!allAnswered) { toast(t("Tüm soruları yanıtla"), "error"); return; }
     setBusy(true);
     try {
       const cleanTexts = {};
@@ -149,7 +153,7 @@ export default function SurveyForm({ survey, onSubmitted }) {
       await submitSurvey(answers, cleanTexts);
       setJustDone(true);
       onSubmitted?.();
-      toast("Anket gönderildi — anonim", "ok");
+      toast(t("Anket gönderildi — anonim"), "ok");
     } catch (e) {
       toast(e.message, "error");
     } finally {
@@ -162,13 +166,13 @@ export default function SurveyForm({ survey, onSubmitted }) {
   return (
     <Shell>
       <div className="survey-hero">
-        <h2>Memnuniyet Anketi</h2>
+        <h2>{t("Memnuniyet Anketi")}</h2>
         {survey.opens_at && survey.closes_at && (
-          <span className="survey-period">{fmtDay(survey.opens_at)} – {lastDay(survey.closes_at)} dönemi</span>
+          <span className="survey-period">{t("{start} – {end} dönemi", { start: fmtDay(survey.opens_at, lang), end: lastDay(survey.closes_at, lang) })}</span>
         )}
         <p className="desc">
-          İki haftada bir görüşünü soruyoruz. Yaklaşık 2 dakika. Dürüst ol —
-          <b> senin görüşün bizi iyileştirir.</b>
+          {t("İki haftada bir görüşünü soruyoruz. Yaklaşık 2 dakika. Dürüst ol —")}
+          <b> {t("senin görüşün bizi iyileştirir.")}</b>
         </p>
         <TrustStrip />
       </div>
@@ -176,7 +180,7 @@ export default function SurveyForm({ survey, onSubmitted }) {
       {/* İlerleme */}
       <div className="survey-progress">
         <div className="survey-progress-track"><span style={{ width: `${pct}%` }} /></div>
-        <span className="survey-progress-num">{answered}/{total} yanıtlandı</span>
+        <span className="survey-progress-num">{t("{a}/{n} yanıtlandı", { a: answered, n: total })}</span>
       </div>
 
       <div className="survey-questions">
@@ -198,10 +202,10 @@ export default function SurveyForm({ survey, onSubmitted }) {
                   aria-checked={answers[q.key] === s.v}
                   className={`survey-opt ${answers[q.key] === s.v ? "active" : ""}`}
                   onClick={() => setAns(q.key, s.v)}
-                  title={s.label}
+                  title={t(s.label)}
                 >
                   <span className="survey-emoji">{s.emoji}</span>
-                  <span className="survey-opt-label">{s.label}</span>
+                  <span className="survey-opt-label">{t(s.label)}</span>
                 </button>
               ))}
             </div>
@@ -211,23 +215,23 @@ export default function SurveyForm({ survey, onSubmitted }) {
 
       {textQs.map((q) => (
         <label key={q.key} className="survey-comment">
-          {q.label} <span className="muted">(opsiyonel)</span>
+          {q.label} <span className="muted">({t("opsiyonel")})</span>
           <textarea
             rows={3}
             value={texts[q.key] || ""}
             maxLength={2000}
             onChange={(e) => setText(q.key, e.target.value)}
-            placeholder="Serbest yorum — bu alan da anonimdir. Kendini tanıtan bilgi yazma."
+            placeholder={t("Serbest yorum — bu alan da anonimdir. Kendini tanıtan bilgi yazma.")}
           />
-          <span className="survey-hint">Bu alan da anonim. Seni belli edecek isim/detay yazma.</span>
+          <span className="survey-hint">{t("Bu alan da anonim. Seni belli edecek isim/detay yazma.")}</span>
         </label>
       ))}
 
       <div className="survey-submit-row">
         <button className="login-btn" onClick={submit} disabled={busy || !allAnswered}>
-          {busy ? "Gönderiliyor…" : "Anonim gönder"}
+          {busy ? t("Gönderiliyor…") : t("Anonim gönder")}
         </button>
-        <span className="survey-submit-note">Geri alınamaz · dönem başına tek sefer</span>
+        <span className="survey-submit-note">{t("Geri alınamaz · dönem başına tek sefer")}</span>
       </div>
     </Shell>
   );

@@ -1,4 +1,5 @@
 import NotificationBell from "./NotificationBell.jsx";
+import { LANGS, useLang } from "../i18n.jsx";
 
 // Kabuk: kimlik satırı + gezinme. App.jsx'ten çıkarıldı — orada 100 satırlık
 // JSX, veri yükleme mantığının ortasında duruyordu.
@@ -22,6 +23,27 @@ function BrandMark() {
   );
 }
 
+/** Dil seçici — giriş ekranındakiyle aynı bileşen davranışı, üst çubuk ölçeği. */
+function LangSwitch() {
+  const { lang, setLang, t } = useLang();
+  return (
+    <div className="lang-switch mini-switch" role="group" aria-label={t("top.langTitle")}>
+      {Object.entries(LANGS).map(([code, label]) => (
+        <button
+          key={code}
+          type="button"
+          className={`lang-opt ${lang === code ? "active" : ""}`}
+          aria-pressed={lang === code}
+          onClick={() => setLang(code)}
+          title={label}
+        >
+          {code.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function TopBar({
   user, isAdmin, isHr,
   tab, onTab,
@@ -30,6 +52,7 @@ export default function TopBar({
   anonymized,
   themeLabel, onCycleTheme, onOpenPalette, onLogout,
 }) {
+  const { t } = useLang();
   const Tab = ({ id, children }) => (
     <button className={`tab ${tab === id ? "active" : ""}`} onClick={() => onTab(id)}>
       {children}
@@ -47,50 +70,51 @@ export default function TopBar({
         </div>
 
         <div className="topbar-user">
-          <button className="mini ghost cmdk-trigger" onClick={onOpenPalette} title="Hızlı arama (Ctrl+K)">
-            <span aria-hidden="true">⌕</span> Ara <kbd>Ctrl K</kbd>
+          <button className="mini ghost cmdk-trigger" onClick={onOpenPalette} title={t("top.searchTitle")}>
+            <span aria-hidden="true">⌕</span> {t("top.search")} <kbd>Ctrl K</kbd>
           </button>
           <NotificationBell onNavigate={({ teamId: tid, survey: goSurvey }) => {
             if (goSurvey) { onTab("survey"); return; }
             if (tid != null) { onTeam(tid); onTab("team"); }
           }} />
-          <button className="mini ghost" onClick={onCycleTheme} title="Açık/Koyu/Oto tema">{themeLabel}</button>
+          <button className="mini ghost" onClick={onCycleTheme} title={t("top.themeTitle")}>{themeLabel}</button>
+          <LangSwitch />
           <span className="user-chip">
             {user.display_name}
             {isAdmin && <span className="role-badge">admin</span>}
-            {isHr && <span className="role-badge hr-badge">İK</span>}
+            {isHr && <span className="role-badge hr-badge">{t("İK")}</span>}
           </span>
-          <button className="mini ghost" onClick={onLogout}>Çıkış</button>
+          <button className="mini ghost" onClick={onLogout}>{t("top.logout")}</button>
         </div>
       </div>
 
       <div className="topbar-row topbar-row-nav">
-        <nav className="topbar-tabs" aria-label="Ana gezinme">
+        <nav className="topbar-tabs" aria-label={t("nav.aria")}>
           {isHr ? (
             <>
-              <Tab id="hr">İK Panosu</Tab>
-              <Tab id="leaves">İzinler</Tab>
-              <Tab id="accounts">Hesaplar</Tab>
+              <Tab id="hr">{t("nav.hr")}</Tab>
+              <Tab id="leaves">{t("nav.leaves")}</Tab>
+              <Tab id="accounts">{t("nav.accounts")}</Tab>
               {surveyRespondent && (
                 <Tab id="survey">
-                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
+                  {t("nav.survey")}{surveyPending && <span className="tab-dot" aria-label={t("top.pending")} />}
                 </Tab>
               )}
-              <Tab id="settings">Ayarlar</Tab>
+              <Tab id="settings">{t("nav.settings")}</Tab>
             </>
           ) : (
             <>
-              <Tab id="team">Takım görünümü</Tab>
-              {individualAvailable && <Tab id="me">Bireysel görünüm</Tab>}
-              <Tab id="projects">Projelerim</Tab>
-              <Tab id="leaves">İzinler</Tab>
+              <Tab id="team">{t("nav.team")}</Tab>
+              {individualAvailable && <Tab id="me">{t("nav.me")}</Tab>}
+              <Tab id="projects">{t("nav.projects")}</Tab>
+              <Tab id="leaves">{t("nav.leaves")}</Tab>
               {surveyRespondent && (
                 <Tab id="survey">
-                  Anket{surveyPending && <span className="tab-dot" aria-label="bekliyor" />}
+                  {t("nav.survey")}{surveyPending && <span className="tab-dot" aria-label={t("top.pending")} />}
                 </Tab>
               )}
-              {isAdmin && <Tab id="admin">Yönetici paneli</Tab>}
-              <Tab id="settings">Ayarlar</Tab>
+              {isAdmin && <Tab id="admin">{t("nav.admin")}</Tab>}
+              <Tab id="settings">{t("nav.settings")}</Tab>
             </>
           )}
         </nav>
@@ -98,8 +122,8 @@ export default function TopBar({
         {/* Takım seçici yalnız takıma bağlı sekmede — bağlam kirliliği olmasın. */}
         {tab === "team" && (
           <label className="topbar-context">
-            <span className="ctx-label">Takım</span>
-            <select value={teamId ?? ""} onChange={(e) => onTeam(Number(e.target.value))} aria-label="Takım seç">
+            <span className="ctx-label">{t("top.team")}</span>
+            <select value={teamId ?? ""} onChange={(e) => onTeam(Number(e.target.value))} aria-label={t("top.selectTeam")}>
               {teams.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -109,9 +133,8 @@ export default function TopBar({
       </div>
 
       <span className="sub">
-        Süreç sağlığı panosu — kişi performans aracı değildir. Kırmızı,
-        "takım zorlanıyor, yardım gerekebilir" demektir; ceza sinyali değildir.
-        {anonymized && " · Anonim mod açık (takım-agregat)."}
+        {t("top.tagline")}
+        {anonymized && t("top.anonymized")}
       </span>
     </header>
   );

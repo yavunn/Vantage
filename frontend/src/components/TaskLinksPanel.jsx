@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { analyzeTask, decideTaskLink, getTeamTaskLinks } from "../api.js";
+import { useT } from "../i18n.jsx";
 
 // Task ↔ commit onay ekranı.
 //
@@ -18,6 +19,7 @@ const STATUS_LABEL = {
 };
 
 function LinkRow({ link, canManage, busy, onDecide }) {
+  const t = useT();
   const decided = link.status !== "suggested";
   // Konvansiyon bağı tahmin DEĞİLDİR: geliştirici commit mesajına kart
   // numarasını yazmıştır. Bunu "benzerlik 0.73" ile aynı satırda, aynı dille
@@ -27,15 +29,15 @@ function LinkRow({ link, canManage, busy, onDecide }) {
   return (
     <li>
       <span>
-        <span className={`badge link-${link.status}`}>{STATUS_LABEL[link.status]}</span>
+        <span className={`badge link-${link.status}`}>{t(STATUS_LABEL[link.status])}</span>
         <span className="mono"> {link.sha}</span> {link.message}
         <span className="desc">
           {kesin
-            ? " · kesin bağ: commit mesajında kart numarası yazıyor"
+            ? ` · ${t("kesin bağ: commit mesajında kart numarası yazıyor")}`
             : link.matched_by === "manual"
-              ? " · elle bağlandı"
-              : ` · benzerlik ${link.score?.toFixed(3) ?? "—"} (tahmin)`}
-          {link.in_window ? " · tarih uyumlu" : " · tarih uyumsuz"}
+              ? ` · ${t("elle bağlandı")}`
+              : ` · ${t("benzerlik {score} (tahmin)", { score: link.score?.toFixed(3) ?? "—" })}`}
+          {link.in_window ? ` · ${t("tarih uyumlu")}` : ` · ${t("tarih uyumsuz")}`}
           {link.committed_at ? ` · ${link.committed_at.slice(0, 10)}` : ""}
         </span>
       </span>
@@ -46,16 +48,16 @@ function LinkRow({ link, canManage, busy, onDecide }) {
             disabled={busy || link.status === "confirmed"}
             onClick={() => onDecide(link.commit_id, "confirmed")}
           >
-            Onayla
+            {t("Onayla")}
           </button>
           <button
             className="mini"
             disabled={busy || link.status === "rejected"}
             onClick={() => onDecide(link.commit_id, "rejected")}
           >
-            Reddet
+            {t("Reddet")}
           </button>
-          {decided && <span className="desc"> · karar verildi</span>}
+          {decided && <span className="desc"> · {t("karar verildi")}</span>}
         </span>
       )}
     </li>
@@ -63,6 +65,7 @@ function LinkRow({ link, canManage, busy, onDecide }) {
 }
 
 function TaskCard({ teamId, task, canManage, onChanged }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
@@ -97,22 +100,21 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
   return (
     <div className="task-link-card">
       <h3>
-        {task.title || "(başlıksız iş)"}
-        <span className="role-tag">{task.status || "statüsüz"}</span>
+        {task.title || t("(başlıksız iş)")}
+        <span className="role-tag">{task.status || t("statüsüz")}</span>
       </h3>
       <p className="desc">
-        {task.confirmed} onaylı · {task.pending} karar bekliyor
+        {t("{n} onaylı · {m} karar bekliyor", { n: task.confirmed, m: task.pending })}
         {task.task_key && (
           <>
             {" · "}
             {/* Konvansiyonu kullanabilmek için kişinin commit'e YAZACAĞI
                 değeri görmesi gerekir; ekranda yoksa özellik ölü kalır. */}
-            commit mesajına <code>[#{task.task_key}]</code> yazın, bağ tahmin
-            edilmesin
+            {t("commit mesajına")} <code>[#{task.task_key}]</code> {t("yazın, bağ tahmin edilmesin")}
             {task.task_url && (
               <>
                 {" "}
-                (<a href={task.task_url} target="_blank" rel="noreferrer">kartı aç</a>)
+                (<a href={task.task_url} target="_blank" rel="noreferrer">{t("kartı aç")}</a>)
               </>
             )}
           </>
@@ -134,11 +136,11 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
       {error && <div className="login-error">{error}</div>}
 
       <button className="mini" disabled={busy || task.confirmed === 0} onClick={runAnalysis}>
-        {busy ? "Çalışıyor…" : "Süreç analizi üret"}
+        {busy ? t("Çalışıyor…") : t("Süreç analizi üret")}
       </button>
       {task.confirmed === 0 && (
         <span className="desc">
-          {" "}Analiz için en az bir onaylı bağ gerekir — analiz tahmine dayanmaz.
+          {" "}{t("Analiz için en az bir onaylı bağ gerekir — analiz tahmine dayanmaz.")}
         </span>
       )}
 
@@ -153,15 +155,14 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
                   </span>
                   {analysis.alignment === "sapma" && (
                     <span className="desc">
-                      {" "}Sapma bir kusur işareti değil: çoğu zaman kart
-                      güncellenmemiştir ya da iş yol boyunca değişmiştir.
+                      {" "}{t("Sapma bir kusur işareti değil: çoğu zaman kart güncellenmemiştir ya da iş yol boyunca değişmiştir.")}
                     </span>
                   )}
                 </p>
               )}
               <p>{analysis.analysis}</p>
               <p className="desc">
-                Kaynak commit: {analysis.commits_used.join(", ")}
+                {t("Kaynak commit: {list}", { list: analysis.commits_used.join(", ") })}
               </p>
             </>
           ) : (
@@ -174,6 +175,7 @@ function TaskCard({ teamId, task, canManage, onChanged }) {
 }
 
 export default function TaskLinksPanel({ teams, canManage }) {
+  const t = useT();
   const list = teams || [];
   const [teamId, setTeamId] = useState(() => (list[0] ? String(list[0].id) : ""));
   const [data, setData] = useState(null);
@@ -196,45 +198,41 @@ export default function TaskLinksPanel({ teams, canManage }) {
 
   return (
     <section className="section">
-      <h2>İş ↔ commit bağları</h2>
+      <h2>{t("İş ↔ commit bağları")}</h2>
       <p className="desc">
-        Trello/Jira kartı ile commit arasında kaynaklarda <strong>bağ yoktur</strong>.
-        Motor bunu başlık benzerliğinden tahmin eder ve <strong>her tahmini doğru
-        değildir</strong> — ölçülen ilk sıra isabeti yaklaşık yarı yarıya. Bu yüzden
-        süreç analizi yalnızca <strong>sizin onayladığınız</strong> bağlardan üretilir.
+        {t("Trello/Jira kartı ile commit arasında kaynaklarda")} <strong>{t("bağ yoktur")}</strong>.{" "}
+        {t("Motor bunu başlık benzerliğinden tahmin eder ve")} <strong>{t("her tahmini doğru değildir")}</strong> —{" "}
+        {t("ölçülen ilk sıra isabeti yaklaşık yarı yarıya. Bu yüzden süreç analizi yalnızca")} <strong>{t("sizin onayladığınız")}</strong>{t(" bağlardan üretilir.")}
       </p>
       <p className="desc">
-        Tahminden kurtulmanın yolu var: commit mesajına kartın numarasını{" "}
-        <code>[#42]</code> biçiminde (Jira'da <code>PROJ-123</code>) yazın. O
-        commit'in bağı tahmin edilmez, <strong>kesin</strong> kurulur ve onay
-        beklemez. Numarayı her işin başlığının yanında bulabilirsiniz. Çıplak{" "}
-        <code>#42</code> kabul edilmez — git'te o, GitHub issue numarasıdır.
+        {t("Tahminden kurtulmanın yolu var: commit mesajına kartın numarasını")}{" "}
+        <code>[#42]</code> {t("biçiminde (Jira'da")} <code>PROJ-123</code>{t(") yazın. O commit'in bağı tahmin edilmez,")} <strong>{t("kesin")}</strong> {t("kurulur ve onay beklemez. Numarayı her işin başlığının yanında bulabilirsiniz. Çıplak")}{" "}
+        <code>#42</code> {t("kabul edilmez — git'te o, GitHub issue numarasıdır.")}
       </p>
 
       {list.length > 1 && (
         <select value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-          {list.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
+          {list.map((tm) => (
+            <option key={tm.id} value={tm.id}>{tm.name}</option>
           ))}
         </select>
       )}
 
       {error && <div className="login-error">{error}</div>}
-      {!data && !error && <p className="desc">Yükleniyor…</p>}
+      {!data && !error && <p className="desc">{t("Yükleniyor…")}</p>}
 
       {data && data.tasks.length === 0 && (
         <p className="desc">
-          Bu takımda bağ önerisi olan iş yok. Senkron çalıştı mı ve RAG açık mı
-          kontrol edin — öneriler senkronda üretilir.
+          {t("Bu takımda bağ önerisi olan iş yok. Senkron çalıştı mı ve RAG açık mı kontrol edin — öneriler senkronda üretilir.")}
         </p>
       )}
 
       {data &&
-        data.tasks.map((t) => (
+        data.tasks.map((tk) => (
           <TaskCard
-            key={t.task_id}
+            key={tk.task_id}
             teamId={Number(teamId)}
-            task={t}
+            task={tk}
             canManage={canManage}
             onChanged={load}
           />

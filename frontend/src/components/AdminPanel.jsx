@@ -9,6 +9,7 @@ import {
   updateEmployee,
 } from "../api.js";
 import AuditPanel from "./AuditPanel.jsx";
+import PasswordRequests from "./PasswordRequests.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import TaskLinksPanel from "./TaskLinksPanel.jsx";
@@ -20,19 +21,19 @@ import TeamsPanel from "./TeamsPanel.jsx";
 import VisibilitySettings from "./VisibilitySettings.jsx";
 import { todayIso } from "../dates.js";
 import { toast } from "../toast.js";
+import { useT } from "../i18n.jsx";
 
 // Panoya kopyala; başarısızsa (izin yok/eski tarayıcı) sessiz düşmesin.
-async function copyText(text, label) {
+async function copyText(t, text, label) {
   try {
     await navigator.clipboard.writeText(text);
-    toast(`${label} kopyalandı`, "ok");
+    toast(t("{label} kopyalandı", { label }), "ok");
   } catch {
-    toast("Kopyalanamadı — panoya erişim yok", "error");
+    toast(t("Kopyalanamadı — panoya erişim yok"), "error");
   }
 }
 
 const PAGE_SIZE = 10;
-const ROLE_LABEL = { user: "Çalışan", admin: "Yönetici", hr: "İnsan Kaynakları" };
 
 // Kolay okunur, güçlü geçici parola üretir (karışan karakterler hariç).
 function randomPassword() {
@@ -47,6 +48,8 @@ function randomPassword() {
 // parolası sıfırlar. Rol değiştirme / silme / pasifleştirme / entegrasyon /
 // denetim İK'ya KAPALI (backend de 403 verir; UI de göstermez).
 export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hrMode = false }) {
+  const t = useT();
+  const ROLE_LABEL = { user: t("Çalışan"), admin: t("Yönetici"), hr: t("İnsan Kaynakları") };
   const [subtab, setSubtab] = useState("accounts"); // accounts | integration
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
@@ -91,8 +94,9 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       if (form.team_id) payload.team_id = Number(form.team_id);
       if (form.hire_date) payload.hire_date = form.hire_date;
       const created = await createEmployee(payload);
-      setMsg(`Oluşturuldu: ${created.display_name} (${created.email}). Geçici parolayı çalışana ilet — ilk girişte değiştirecek.`);
-      setCred({ title: "Yeni hesap oluşturuldu", email: created.email, password: form.password });
+      setMsg(t("Oluşturuldu: {name} ({email}). Geçici parolayı çalışana ilet — ilk girişte değiştirecek.",
+        { name: created.display_name, email: created.email }));
+      setCred({ title: t("Yeni hesap oluşturuldu"), email: created.email, password: form.password });
       setForm({ display_name: "", email: "", password: "", role: "user", team_id: "", team_role: "member", hire_date: todayIso(), annual_allowance: 14 });
       refresh();
     } catch (err) {
@@ -103,14 +107,14 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
   async function doReset(userId) {
     setError(null); setMsg(null);
     if (resetPw.length < MIN_PASSWORD_LENGTH) {
-      setError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
+      setError(t("Yeni parola en az {n} karakter olmalı", { n: MIN_PASSWORD_LENGTH }));
       return;
     }
     try {
       const target = employees.find((x) => x.id === userId);
       await setEmployeePassword(userId, resetPw);
-      setMsg("Parola sıfırlandı. Çalışan ilk girişte değiştirecek.");
-      setCred({ title: "Parola sıfırlandı", email: target ? target.email : "", password: resetPw });
+      setMsg(t("Parola sıfırlandı. Çalışan ilk girişte değiştirecek."));
+      setCred({ title: t("Parola sıfırlandı"), email: target ? target.email : "", password: resetPw });
       setResetFor(null); setResetPw("");
       refresh();
     } catch (err) {
@@ -119,13 +123,14 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
   }
 
   async function doDelete(u) {
-    if (!window.confirm(`${u.display_name} (${u.email}) hesabı silinsin mi? Bu işlem geri alınamaz.`)) return;
+    if (!window.confirm(t("{name} ({email}) hesabı silinsin mi? Bu işlem geri alınamaz.",
+      { name: u.display_name, email: u.email }))) return;
     setError(null); setMsg(null);
     try {
       const res = await deleteEmployee(u.id);
       setEmployees((list) => list.filter((x) => x.id !== u.id));
       setSelected((s) => { const n = new Set(s); n.delete(u.id); return n; });
-      setMsg(res.developer_removed ? "Hesap ve geliştirici kaydı silindi." : "Hesap silindi (geçmiş metrikler korundu).");
+      setMsg(res.developer_removed ? t("Hesap ve geliştirici kaydı silindi.") : t("Hesap silindi (geçmiş metrikler korundu)."));
     } catch (err) {
       setError(err.message);
     }
@@ -142,7 +147,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       if (empForm.hire_date) patch.hire_date = empForm.hire_date;
       const updated = await setEmployment(employmentFor.id, patch);
       setEmployees((list) => list.map((u) => (u.id === updated.id ? updated : u)));
-      setMsg(`${updated.display_name}: işe giriş + izin hakkı güncellendi.`);
+      setMsg(t("{name}: işe giriş + izin hakkı güncellendi.", { name: updated.display_name }));
       setEmploymentFor(null);
     } catch (err) {
       setError(err.message);
@@ -210,7 +215,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
   async function bulkDeactivate() {
     const ids = [...selected];
     if (ids.length === 0) return;
-    if (!window.confirm(`${ids.length} hesap pasifleştirilsin mi?`)) return;
+    if (!window.confirm(t("{n} hesap pasifleştirilsin mi?", { n: ids.length }))) return;
     setError(null); setMsg(null);
     let ok = 0, fail = 0;
     for (const id of ids) {
@@ -218,20 +223,21 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       catch { fail++; }
     }
     setSelected(new Set());
-    setMsg(`Toplu pasifleştirme: ${ok} başarılı${fail ? `, ${fail} başarısız (ör. son admin)` : ""}.`);
+    const failPart = fail ? t(", {n} başarısız (ör. son admin)", { n: fail }) : "";
+    setMsg(t("Toplu pasifleştirme: {ok} başarılı{fail}.", { ok, fail: failPart }));
   }
 
   return (
     <div className="admin-panel">
       {!hrMode && (
         <div className="subtabs">
-          <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>Başlangıç</button>
-          <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>Hesaplar</button>
-          <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>Entegrasyon</button>
-          <button className={`tab ${subtab === "tasklinks" ? "active" : ""}`} onClick={() => setSubtab("tasklinks")}>İş ↔ Commit</button>
-          <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>AI Kod Analizi</button>
-          <button className={`tab ${subtab === "survey" ? "active" : ""}`} onClick={() => setSubtab("survey")}>Memnuniyet</button>
-          <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>Denetim</button>
+          <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>{t("Başlangıç")}</button>
+          <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>{t("Hesaplar")}</button>
+          <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>{t("Entegrasyon")}</button>
+          <button className={`tab ${subtab === "tasklinks" ? "active" : ""}`} onClick={() => setSubtab("tasklinks")}>{t("İş ↔ Commit")}</button>
+          <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>{t("AI Kod Analizi")}</button>
+          <button className={`tab ${subtab === "survey" ? "active" : ""}`} onClick={() => setSubtab("survey")}>{t("Memnuniyet")}</button>
+          <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>{t("Denetim")}</button>
         </div>
       )}
 
@@ -251,48 +257,54 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
 
       {(hrMode || subtab === "accounts") && (
         <>
+          {/* Bekleyen "şifremi unuttum" talepleri hesap listesinin ÜSTÜNDE:
+              yönetici paneli açtığında ilk göreceği şey, birinin girememesi. */}
           <section className="section">
-            <h2>Yeni çalışan ekle</h2>
+            <PasswordRequests />
+          </section>
+
+          <section className="section">
+            <h2>{t("Yeni çalışan ekle")}</h2>
             <form className="admin-form" onSubmit={submit}>
-              <label>Ad Soyad
+              <label>{t("Ad Soyad")}
                 <input value={form.display_name} onChange={(e) => upd("display_name", e.target.value)} required />
               </label>
-              <label>E-posta
+              <label>{t("E-posta")}
                 <input type="email" value={form.email} onChange={(e) => upd("email", e.target.value)} placeholder="ad@corp.local" required />
               </label>
-              <label>Başlangıç parolası
+              <label>{t("Başlangıç parolası")}
                 <span className="input-with-btn">
-                  <input value={form.password} onChange={(e) => upd("password", e.target.value)} placeholder={`en az ${MIN_PASSWORD_LENGTH} karakter`} minLength={MIN_PASSWORD_LENGTH} required />
-                  <button type="button" className="mini" onClick={() => upd("password", randomPassword())} title="Rastgele güçlü parola üret">Üret</button>
-                  <button type="button" className="mini ghost" disabled={!form.password} onClick={() => copyText(form.password, "Parola")} title="Parolayı kopyala">Kopyala</button>
+                  <input value={form.password} onChange={(e) => upd("password", e.target.value)} placeholder={t("en az {n} karakter", { n: MIN_PASSWORD_LENGTH })} minLength={MIN_PASSWORD_LENGTH} required />
+                  <button type="button" className="mini" onClick={() => upd("password", randomPassword())} title={t("Rastgele güçlü parola üret")}>{t("Üret")}</button>
+                  <button type="button" className="mini ghost" disabled={!form.password} onClick={() => copyText(t, form.password, t("Parola"))} title={t("Parolayı kopyala")}>{t("Kopyala")}</button>
                 </span>
               </label>
-              <label>Rol
-                <select value={hrMode ? "user" : form.role} disabled={hrMode} title={hrMode ? "İK yalnızca çalışan (user) hesabı açabilir" : ""} onChange={(e) => upd("role", e.target.value)}>
-                  <option value="user">Çalışan</option>
-                  {!hrMode && <option value="admin">Yönetici (admin)</option>}
-                  {!hrMode && <option value="hr">İnsan Kaynakları (hr)</option>}
+              <label>{t("Rol")}
+                <select value={hrMode ? "user" : form.role} disabled={hrMode} title={hrMode ? t("İK yalnızca çalışan (user) hesabı açabilir") : ""} onChange={(e) => upd("role", e.target.value)}>
+                  <option value="user">{t("Çalışan")}</option>
+                  {!hrMode && <option value="admin">{t("Yönetici (admin)")}</option>}
+                  {!hrMode && <option value="hr">{t("İnsan Kaynakları (hr)")}</option>}
                 </select>
               </label>
-              <label>Takım (opsiyonel)
+              <label>{t("Takım (opsiyonel)")}
                 <select value={form.team_id} onChange={(e) => upd("team_id", e.target.value)}>
-                  <option value="">— seçilmedi —</option>
-                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  <option value="">{t("— seçilmedi —")}</option>
+                  {teams.map((tm) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
                 </select>
               </label>
-              <label>Takım rolü
+              <label>{t("Takım rolü")}
                 <select value={form.team_role} onChange={(e) => upd("team_role", e.target.value)} disabled={!form.team_id}>
-                  <option value="member">Üye</option>
-                  <option value="manager">Takım yöneticisi</option>
+                  <option value="member">{t("Üye")}</option>
+                  <option value="manager">{t("Takım yöneticisi")}</option>
                 </select>
               </label>
-              <label>İşe giriş tarihi (varsayılan bugün)
+              <label>{t("İşe giriş tarihi (varsayılan bugün)")}
                 <input type="date" value={form.hire_date} onChange={(e) => upd("hire_date", e.target.value)} />
               </label>
-              <label>Yıllık izin hakkı (gün)
+              <label>{t("Yıllık izin hakkı (gün)")}
                 <input type="number" min={0} max={365} value={form.annual_allowance} onChange={(e) => upd("annual_allowance", e.target.value)} />
               </label>
-              <button type="submit" className="login-btn">Çalışanı oluştur</button>
+              <button type="submit" className="login-btn">{t("Çalışanı oluştur")}</button>
             </form>
             {msg && <div className="admin-ok">{msg}</div>}
             {error && <div className="login-error">{error}</div>}
@@ -300,27 +312,27 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
 
           <section className="section">
             <div className="section-head">
-              <h2>Hesaplar ({filtered.length})</h2>
-              <input className="search" value={query} onChange={(e) => { setQuery(e.target.value); setPage(0); }} placeholder="Ada veya e-postaya göre ara…" />
+              <h2>{t("Hesaplar ({n})", { n: filtered.length })}</h2>
+              <input className="search" value={query} onChange={(e) => { setQuery(e.target.value); setPage(0); }} placeholder={t("Ada veya e-postaya göre ara…")} />
             </div>
 
             {!hrMode && selected.size > 0 && (
               <div className="bulk-bar">
-                <span>{selected.size} seçili</span>
-                <button className="mini" onClick={bulkDeactivate}>Seçilenleri pasifleştir</button>
-                <button className="mini ghost" onClick={() => setSelected(new Set())}>Seçimi temizle</button>
+                <span>{t("{n} seçili", { n: selected.size })}</span>
+                <button className="mini" onClick={bulkDeactivate}>{t("Seçilenleri pasifleştir")}</button>
+                <button className="mini ghost" onClick={() => setSelected(new Set())}>{t("Seçimi temizle")}</button>
               </div>
             )}
 
             <table className="quality">
               <thead>
                 <tr>
-                  {!hrMode && <th><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Tümünü seç" /></th>}
-                  <th className="sortable" onClick={() => toggleSort("display_name")}>Ad{sortArrow("display_name")}</th>
-                  <th className="sortable" onClick={() => toggleSort("email")}>E-posta{sortArrow("email")}</th>
-                  <th>Takımlar</th>
-                  <th className="sortable" onClick={() => toggleSort("role")}>Rol{sortArrow("role")}</th>
-                  <th className="sortable" onClick={() => toggleSort("status")}>Durum{sortArrow("status")}</th>
+                  {!hrMode && <th><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label={t("Tümünü seç")} /></th>}
+                  <th className="sortable" onClick={() => toggleSort("display_name")}>{t("Ad")}{sortArrow("display_name")}</th>
+                  <th className="sortable" onClick={() => toggleSort("email")}>{t("E-posta")}{sortArrow("email")}</th>
+                  <th>{t("Takımlar")}</th>
+                  <th className="sortable" onClick={() => toggleSort("role")}>{t("Rol")}{sortArrow("role")}</th>
+                  <th className="sortable" onClick={() => toggleSort("status")}>{t("Durum")}{sortArrow("status")}</th>
                   <th></th>
                 </tr>
               </thead>
@@ -334,7 +346,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                     <tr key={u.id} className={`${u.is_active ? "" : "row-inactive"} ${isOwner ? "row-owner" : ""}`}>
                       {!hrMode && (
                         <td>
-                          <input type="checkbox" disabled={isSelf || isOwner} checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} aria-label={`${u.display_name} seç`} />
+                          <input type="checkbox" disabled={isSelf || isOwner} checked={selected.has(u.id)} onChange={() => toggleOne(u.id)} aria-label={t("{name} seç", { name: u.display_name })} />
                         </td>
                       )}
                       <td>
@@ -342,53 +354,53 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                         {onViewPerson && u.developer_id != null ? (
                           <button
                             className="linklike"
-                            title="Bu kişinin bireysel görünümünü aç"
+                            title={t("Bu kişinin bireysel görünümünü aç")}
                             onClick={() => onViewPerson(u.developer_id)}
                           >
                             {u.display_name}
                           </button>
                         ) : u.display_name}
-                        {u.must_change_password && <span className="pw-flag" title="Parola değiştirme bekliyor">⟳</span>}
-                        {isOwner && <span className="owner-badge" title="Baş yönetici — korumalı, en üst yetki">★ Baş Yönetici</span>}
+                        {u.must_change_password && <span className="pw-flag" title={t("Parola değiştirme bekliyor")}>⟳</span>}
+                        {isOwner && <span className="owner-badge" title={t("Baş yönetici — korumalı, en üst yetki")}>★ {t("Baş Yönetici")}</span>}
                       </td>
                       <td>{u.email}</td>
                       <td>
                         <button className="mini ghost" onClick={() => setTeamEditFor(u)}>
-                          {u.teams && u.teams.length ? u.teams.map((t) => t.team_name).join(", ") : "— ata —"}
+                          {u.teams && u.teams.length ? u.teams.map((tm) => tm.team_name).join(", ") : t("— ata —")}
                         </button>
                       </td>
                       <td>
                         {isOwner ? (
-                          <span className="owner-role" title="Baş yönetici rolü değiştirilemez">★ Baş Yönetici</span>
+                          <span className="owner-role" title={t("Baş yönetici rolü değiştirilemez")}>★ {t("Baş Yönetici")}</span>
                         ) : hrMode ? (
                           <span className={`role-tag role-${u.role}`}>{ROLE_LABEL[u.role] || u.role}</span>
                         ) : (
-                          <select className="cell-select" value={u.role} disabled={isSelf} title={isSelf ? "Kendi rolünü değiştiremezsin" : ""} onChange={(e) => patch(u.id, { role: e.target.value })}>
-                            <option value="user">Çalışan</option>
-                            <option value="admin">Yönetici</option>
-                            <option value="hr">İnsan Kaynakları</option>
+                          <select className="cell-select" value={u.role} disabled={isSelf} title={isSelf ? t("Kendi rolünü değiştiremezsin") : ""} onChange={(e) => patch(u.id, { role: e.target.value })}>
+                            <option value="user">{t("Çalışan")}</option>
+                            <option value="admin">{t("Yönetici")}</option>
+                            <option value="hr">{t("İnsan Kaynakları")}</option>
                           </select>
                         )}
                       </td>
                       <td>
-                        <button className={`mini ${u.is_active ? "" : "ghost"}`} disabled={hrMode || isSelf || isOwner} title={hrMode ? "İK aktiflik değiştiremez" : isOwner ? "Baş yönetici pasifleştirilemez" : isSelf ? "Kendi durumunu değiştiremezsin" : ""} onClick={() => patch(u.id, { is_active: !u.is_active })}>
-                          {u.is_active ? "Aktif" : "Pasif"}
+                        <button className={`mini ${u.is_active ? "" : "ghost"}`} disabled={hrMode || isSelf || isOwner} title={hrMode ? t("İK aktiflik değiştiremez") : isOwner ? t("Baş yönetici pasifleştirilemez") : isSelf ? t("Kendi durumunu değiştiremezsin") : ""} onClick={() => patch(u.id, { is_active: !u.is_active })}>
+                          {u.is_active ? t("Aktif") : t("Pasif")}
                         </button>
                       </td>
                       <td>
-                        <button className="mini ghost" title="İşe giriş tarihi + yıllık izin hakkı" onClick={() => openEmployment(u)}>İzin hakkı</button>
+                        <button className="mini ghost" title={t("İşe giriş tarihi + yıllık izin hakkı")} onClick={() => openEmployment(u)}>{t("İzin hakkı")}</button>
                         {resetFor === u.id ? (
                           <span className="reset-row">
-                            <input type="text" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="yeni parola" minLength={MIN_PASSWORD_LENGTH} />
-                            <button className="mini" title="Rastgele üret" onClick={() => setResetPw(randomPassword())}>Üret</button>
-                            <button className="mini" onClick={() => doReset(u.id)}>Kaydet</button>
-                            <button className="mini ghost" onClick={() => setResetFor(null)}>Vazgeç</button>
+                            <input type="text" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder={t("yeni parola")} minLength={MIN_PASSWORD_LENGTH} />
+                            <button className="mini" title={t("Rastgele üret")} onClick={() => setResetPw(randomPassword())}>{t("Üret")}</button>
+                            <button className="mini" onClick={() => doReset(u.id)}>{t("Kaydet")}</button>
+                            <button className="mini ghost" onClick={() => setResetFor(null)}>{t("Vazgeç")}</button>
                           </span>
                         ) : (
-                          <button className="mini" disabled={lockedByOwner || (hrMode && u.role !== "user")} title={hrMode && u.role !== "user" ? "İK yalnızca çalışan (user) parolasını sıfırlayabilir" : lockedByOwner ? "Baş yöneticinin parolasını yalnızca kendisi değiştirebilir" : ""} onClick={() => { setResetFor(u.id); setResetPw(""); }}>Parola sıfırla</button>
+                          <button className="mini" disabled={lockedByOwner || (hrMode && u.role !== "user")} title={hrMode && u.role !== "user" ? t("İK yalnızca çalışan (user) parolasını sıfırlayabilir") : lockedByOwner ? t("Baş yöneticinin parolasını yalnızca kendisi değiştirebilir") : ""} onClick={() => { setResetFor(u.id); setResetPw(""); }}>{t("Parola sıfırla")}</button>
                         )}
                         {!hrMode && (
-                          <button className="mini danger" disabled={isSelf || isOwner} title={isOwner ? "Baş yönetici hesabı silinemez" : isSelf ? "Kendi hesabını silemezsin" : "Hesabı sil"} onClick={() => doDelete(u)}>Sil</button>
+                          <button className="mini danger" disabled={isSelf || isOwner} title={isOwner ? t("Baş yönetici hesabı silinemez") : isSelf ? t("Kendi hesabını silemezsin") : t("Hesabı sil")} onClick={() => doDelete(u)}>{t("Sil")}</button>
                         )}
                       </td>
                     </tr>
@@ -399,9 +411,9 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
 
             {pageCount > 1 && (
               <div className="pager">
-                <button className="mini" disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>‹ Önceki</button>
-                <span>Sayfa {clampedPage + 1} / {pageCount}</span>
-                <button className="mini" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>Sonraki ›</button>
+                <button className="mini" disabled={clampedPage === 0} onClick={() => setPage(clampedPage - 1)}>{t("‹ Önceki")}</button>
+                <span>{t("Sayfa {n} / {m}", { n: clampedPage + 1, m: pageCount })}</span>
+                <button className="mini" disabled={clampedPage >= pageCount - 1} onClick={() => setPage(clampedPage + 1)}>{t("Sonraki ›")}</button>
               </div>
             )}
           </section>
@@ -418,37 +430,37 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       {cred && (
         <Modal title={cred.title} onClose={() => setCred(null)}>
           <div className="cred-modal">
-            <p className="desc">Geçici parolayı çalışana güvenli bir kanaldan ilet. Kullanıcı ilk girişte değiştirecek.</p>
+            <p className="desc">{t("Geçici parolayı çalışana güvenli bir kanaldan ilet. Kullanıcı ilk girişte değiştirecek.")}</p>
             <div className="cred-row">
-              <span className="cred-label">E-posta</span>
+              <span className="cred-label">{t("E-posta")}</span>
               <code className="cred-value">{cred.email}</code>
-              <button className="mini" onClick={() => copyText(cred.email, "E-posta")}>Kopyala</button>
+              <button className="mini" onClick={() => copyText(t, cred.email, t("E-posta"))}>{t("Kopyala")}</button>
             </div>
             <div className="cred-row">
-              <span className="cred-label">Parola</span>
+              <span className="cred-label">{t("Parola")}</span>
               <code className="cred-value">{cred.password}</code>
-              <button className="mini" onClick={() => copyText(cred.password, "Parola")}>Kopyala</button>
+              <button className="mini" onClick={() => copyText(t, cred.password, t("Parola"))}>{t("Kopyala")}</button>
             </div>
             <div className="cred-actions">
-              <button className="mini" onClick={() => copyText(`mail:${cred.email} şifre:${cred.password}`, "E-posta ve parola")}>İkisini birden kopyala</button>
-              <button className="login-btn" onClick={() => setCred(null)}>Tamam</button>
+              <button className="mini" onClick={() => copyText(t, t("mail:{email} şifre:{password}", { email: cred.email, password: cred.password }), t("E-posta ve parola"))}>{t("İkisini birden kopyala")}</button>
+              <button className="login-btn" onClick={() => setCred(null)}>{t("Tamam")}</button>
             </div>
           </div>
         </Modal>
       )}
 
       {employmentFor && (
-        <Modal title={`İstihdam · ${employmentFor.display_name}`} onClose={() => setEmploymentFor(null)}>
+        <Modal title={t("İstihdam · {name}", { name: employmentFor.display_name })} onClose={() => setEmploymentFor(null)}>
           <div className="admin-form" style={{ display: "grid", gap: "12px" }}>
-            <label>İşe giriş tarihi
+            <label>{t("İşe giriş tarihi")}
               <input type="date" value={empForm.hire_date} onChange={(e) => setEmpForm((f) => ({ ...f, hire_date: e.target.value }))} />
             </label>
-            <label>Yıllık izin hakkı (gün)
+            <label>{t("Yıllık izin hakkı (gün)")}
               <input type="number" min={0} max={365} value={empForm.annual_allowance} onChange={(e) => setEmpForm((f) => ({ ...f, annual_allowance: e.target.value }))} />
             </label>
             <div className="cred-actions">
-              <button className="mini ghost" onClick={() => setEmploymentFor(null)}>Vazgeç</button>
-              <button className="login-btn" onClick={saveEmployment}>Kaydet</button>
+              <button className="mini ghost" onClick={() => setEmploymentFor(null)}>{t("Vazgeç")}</button>
+              <button className="login-btn" onClick={saveEmployment}>{t("Kaydet")}</button>
             </div>
           </div>
         </Modal>

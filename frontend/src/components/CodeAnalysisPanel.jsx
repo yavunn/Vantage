@@ -3,6 +3,7 @@ import { api, apiPatch, apiPost, apiPut, getLlmProvider, updateLlmProvider } fro
 import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
+import { useT } from "../i18n.jsx";
 
 // AI kod analizi ayarları (admin). Rubrik ağırlıkları + analiz limitleri.
 // Hariç klasörler (node_modules, dist, vendor…) burada YOK: ayar değil, arka
@@ -26,6 +27,7 @@ const PROVIDER_META = {
 };
 
 export default function CodeAnalysisPanel({ me }) {
+  const t = useT();
   const isOwner = !!(me && me.is_owner);
   const [cfg, setCfg] = useState(null);
   const [error, setError] = useState(null);
@@ -76,7 +78,10 @@ export default function CodeAnalysisPanel({ me }) {
     setRunningDev(dev.id); setMsg(null); setError(null);
     try {
       const r = await apiPost(`/api/admin/code-analysis/run-developer/${dev.id}`, {});
-      const okmsg = `${dev.display_name}: ${r.status === "ok" ? `${r.analyzed} yeni, ${r.cached} önbellek` : (r.note || JSON.stringify(r))}`;
+      const okmsg = t("{name}: {detail}", {
+        name: dev.display_name,
+        detail: r.status === "ok" ? t("{n} yeni, {c} önbellek", { n: r.analyzed, c: r.cached }) : (r.note || JSON.stringify(r)),
+      });
       setMsg(okmsg); toast(okmsg, r.status === "ok" ? "ok" : "info");
       loadDevs();
       loadOverview();
@@ -84,9 +89,9 @@ export default function CodeAnalysisPanel({ me }) {
       if (String(selectedId) === String(dev.id)) {
         api(`/api/developers/${dev.id}/code-health`)
           .then(setSelectedHealth)
-          .catch((err) => toast(`Kod sağlığı yenilenemedi: ${err.message}`, "error"));
+          .catch((err) => toast(t("Kod sağlığı yenilenemedi: {msg}", { msg: err.message }), "error"));
       }
-    } catch (e) { setError(e); toast(`Analiz hatası: ${e.message}`, "error"); } finally { setRunningDev(null); }
+    } catch (e) { setError(e); toast(t("Analiz hatası: {msg}", { msg: e.message }), "error"); } finally { setRunningDev(null); }
   }
 
   const selectedDev = devs.find((d) => String(d.id) === String(selectedId));
@@ -97,7 +102,7 @@ export default function CodeAnalysisPanel({ me }) {
     setError(null); setMsg(null);
     try {
       await apiPatch(`/api/admin/developers/${dev.id}/git-email`, { git_email: val });
-      setMsg(`${dev.display_name}: git e-postası kaydedildi.`); toast("git e-postası kaydedildi", "ok");
+      setMsg(t("{name}: git e-postası kaydedildi.", { name: dev.display_name })); toast(t("git e-postası kaydedildi"), "ok");
       setGitEdit((g) => { const n = { ...g }; delete n[dev.id]; return n; });
       loadDevs();
     } catch (e) { setError(e); toast(e.message, "error"); }
@@ -128,7 +133,7 @@ export default function CodeAnalysisPanel({ me }) {
       if (keys.local) payload.local_api_key = keys.local;
       await updateLlmProvider(payload);
       setKeys({ claude: "", local: "" });
-      setMsg("AI sağlayıcı kaydedildi."); toast("AI sağlayıcı kaydedildi", "ok");
+      setMsg(t("AI sağlayıcı kaydedildi.")); toast(t("AI sağlayıcı kaydedildi"), "ok");
       loadProvider();
       load(); // genel bölüm aktif model/anahtar durumunu tazelesin
       return true;
@@ -145,7 +150,7 @@ export default function CodeAnalysisPanel({ me }) {
         max_files_per_run: Number(cfg.max_files_per_run),
         max_diff_lines: Number(cfg.max_diff_lines),
       });
-      setMsg("Kaydedildi."); toast("Ayarlar kaydedildi", "ok");
+      setMsg(t("Kaydedildi.")); toast(t("Ayarlar kaydedildi"), "ok");
       load();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
@@ -153,11 +158,11 @@ export default function CodeAnalysisPanel({ me }) {
   async function runNow() {
     setError(null); setMsg(null); setBusy(true);
     try {
-      toast("Analiz başladı…", "info");
+      toast(t("Analiz başladı…"), "info");
       const r = await apiPost("/api/admin/code-analysis/run", {});
       const m = r.status === "ok"
-        ? `Analiz tamam: ${r.analyzed} yeni, ${r.cached ?? 0} önbellek.`
-        : (r.note || "Analiz bitti");
+        ? t("Analiz tamam: {n} yeni, {c} önbellek.", { n: r.analyzed, c: r.cached ?? 0 })
+        : (r.note || t("Analiz bitti"));
       setMsg(m);
       toast(m, r.status === "ok" ? "ok" : (r.status === "error" ? "error" : "info"));
       loadAudit(); loadOverview();
@@ -165,55 +170,54 @@ export default function CodeAnalysisPanel({ me }) {
   }
 
   if (error && !cfg) return <p className="error-inline">{error.message}</p>;
-  if (!cfg) return <p className="desc">Yükleniyor…</p>;
+  if (!cfg) return <p className="desc">{t("Yükleniyor…")}</p>;
 
   return (
     <div>
       <section className="section">
-        <h2>AI Kod Analizi</h2>
+        <h2>{t("AI Kod Analizi")}</h2>
         <p className="desc">
-          Kodun içeriğini analiz eden AI modülü. Skorlar repo/modül düzeyi — kişi değil.
-          Açma/kapama tek yerden: <b>AI Sağlayıcı</b> seçimi (Kapalı = modül kapalı).
+          {t("Kodun içeriğini analiz eden AI modülü. Skorlar repo/modül düzeyi — kişi değil.")}{" "}
+          {t("Açma/kapama tek yerden:")} <b>{t("AI Sağlayıcı")}</b> {t("seçimi (Kapalı = modül kapalı).")}
         </p>
         <p className="desc">
-          ⓘ Kod analizi şu an yalnızca <b>yerel git repolarında</b> (kaynak
-          <code> git_log</code>, config'teki <code>repos[].path</code>) çalışır.
-          GitLab/GitHub diff API'lerinden çekme henüz yok — uzak-repo diff'i
-          analiz edilmez.
+          ⓘ {t("Kod analizi şu an yalnızca")} <b>{t("yerel git repolarında")}</b> ({t("kaynak")}
+          <code> git_log</code>, config'teki <code>repos[].path</code>) {t("çalışır.")}{" "}
+          {t("GitLab/GitHub diff API'lerinden çekme henüz yok — uzak-repo diff'i analiz edilmez.")}
         </p>
         {error && <p className="error-inline">{error.message}</p>}
         {msg && <p className="ok-inline">{msg}</p>}
         {(busy || runningDev != null) && (
-          <div className="progress-indeterminate" aria-label="İşlem sürüyor"><div /></div>
+          <div className="progress-indeterminate" aria-label={t("İşlem sürüyor")}><div /></div>
         )}
 
         <div className="ca-status">
-          <span>Aktif sağlayıcı:{" "}
-            <b>{PROVIDER_META[cfg.llm_provider]?.label || cfg.llm_provider}</b>
+          <span>{t("Aktif sağlayıcı:")}{" "}
+            <b>{t(PROVIDER_META[cfg.llm_provider]?.label) || cfg.llm_provider}</b>
           </span>
-          {cfg.llm_provider !== "none" && <span className="muted">· Model: {cfg.model || "–"}</span>}
+          {cfg.llm_provider !== "none" && <span className="muted">· {t("Model:")} {cfg.model || "–"}</span>}
           <span className={`key-pill ${cfg.llm_provider !== "none" ? "on" : "off"}`}>
-            {cfg.llm_provider !== "none" ? "açık" : "kapalı"}
+            {cfg.llm_provider !== "none" ? t("açık") : t("kapalı")}
           </span>
-          {!isOwner && <span className="muted">· yalnız Baş Yönetici değiştirir</span>}
+          {!isOwner && <span className="muted">· {t("yalnız Baş Yönetici değiştirir")}</span>}
         </div>
         <div className="ca-row">
           <button className="login-btn" onClick={runNow} disabled={busy || cfg.llm_provider === "none"}
-            title={cfg.llm_provider === "none" ? "Önce bir AI sağlayıcı seç" : "Tüm repoları analiz et"}>
-            Şimdi analiz et (tüm repolar)
+            title={cfg.llm_provider === "none" ? t("Önce bir AI sağlayıcı seç") : t("Tüm repoları analiz et")}>
+            {t("Şimdi analiz et (tüm repolar)")}
           </button>
         </div>
       </section>
 
       {isOwner && (
         <section className="section">
-          <h3>AI Sağlayıcı <span className="owner-badge" title="Yalnız baş yönetici">★ Baş Yönetici</span></h3>
+          <h3>{t("AI Sağlayıcı")} <span className="owner-badge" title={t("Yalnız baş yönetici")}>★ {t("Baş Yönetici")}</span></h3>
           <p className="desc">
-            Hangi AI kullanılacağını sen seçersin — Claude zorunlu değil. Anahtarlar
-            config dosyasına <b>yazılmaz</b>, yalnız <code>.secrets.env</code>'e işlenir.
+            {t("Hangi AI kullanılacağını sen seçersin — Claude zorunlu değil. Anahtarlar config dosyasına")} <b>{t("yazılmaz")}</b>{t(", yalnız")}{" "}
+            <code>.secrets.env</code>{t("'e işlenir.")}
           </p>
           {!prov ? (
-            <p className="desc">Yükleniyor…</p>
+            <p className="desc">{t("Yükleniyor…")}</p>
           ) : (
             <div className="prov-box">
               <div className="prov-cards">
@@ -221,8 +225,8 @@ export default function CodeAnalysisPanel({ me }) {
                   <button key={p} type="button"
                     className={`prov-card ${prov.provider === p ? "active" : ""}`}
                     onClick={() => updProv("provider", p)}>
-                    <span className="prov-card-title">{PROVIDER_META[p]?.label || p}</span>
-                    <span className="prov-card-hint">{PROVIDER_META[p]?.hint || ""}</span>
+                    <span className="prov-card-title">{t(PROVIDER_META[p]?.label) || p}</span>
+                    <span className="prov-card-hint">{t(PROVIDER_META[p]?.hint) || ""}</span>
                   </button>
                 ))}
               </div>
@@ -230,20 +234,20 @@ export default function CodeAnalysisPanel({ me }) {
               {prov.provider === "claude" && (
                 <div className="prov-fields">
                   <label className="ca-block">
-                    Model
+                    {t("Model")}
                     <input value={prov.claude?.model || ""}
                       onChange={(e) => updProvNested("claude", "model", e.target.value)}
                       placeholder="claude-sonnet-5" />
                   </label>
                   <label className="ca-block">
-                    <span>API anahtarı
+                    <span>{t("API anahtarı")}
                       <span className={`key-pill ${prov.claude?.api_key?.configured ? "on" : "off"}`}>
-                        {prov.claude?.api_key?.configured ? "tanımlı" : "tanımsız"}
+                        {prov.claude?.api_key?.configured ? t("tanımlı") : t("tanımsız")}
                       </span>
                     </span>
                     <input type="password" autoComplete="off" value={keys.claude}
                       onChange={(e) => setKeys((k) => ({ ...k, claude: e.target.value }))}
-                      placeholder="değiştirmek için gir · boş = dokunma" />
+                      placeholder={t("değiştirmek için gir · boş = dokunma")} />
                   </label>
                 </div>
               )}
@@ -251,33 +255,33 @@ export default function CodeAnalysisPanel({ me }) {
               {prov.provider === "local" && (
                 <div className="prov-fields">
                   <label className="ca-block">
-                    Sunucu adresi
+                    {t("Sunucu adresi")}
                     <input value={prov.local?.base_url || ""}
                       onChange={(e) => updProvNested("local", "base_url", e.target.value)}
                       placeholder="http://localhost:11434" />
                   </label>
                   <label className="ca-block">
-                    Model
+                    {t("Model")}
                     <input value={prov.local?.model || ""}
                       onChange={(e) => updProvNested("local", "model", e.target.value)}
                       placeholder="llama3.1" />
                   </label>
                   <label className="ca-block">
-                    <span>API anahtarı <span className="muted">(opsiyonel)</span>
+                    <span>{t("API anahtarı")} <span className="muted">({t("opsiyonel")})</span>
                       <span className={`key-pill ${prov.local?.api_key?.configured ? "on" : "off"}`}>
-                        {prov.local?.api_key?.configured ? "tanımlı" : "tanımsız"}
+                        {prov.local?.api_key?.configured ? t("tanımlı") : t("tanımsız")}
                       </span>
                     </span>
                     <input type="password" autoComplete="off" value={keys.local}
                       onChange={(e) => setKeys((k) => ({ ...k, local: e.target.value }))}
-                      placeholder="anahtarsız uçlar (Ollama) için boş bırak" />
+                      placeholder={t("anahtarsız uçlar (Ollama) için boş bırak")} />
                   </label>
                 </div>
               )}
 
               <div className="prov-actions">
                 <button className="login-btn" onClick={saveProvider} disabled={provBusy}>
-                  {provBusy ? "Kaydediliyor…" : "Kaydet"}
+                  {provBusy ? t("Kaydediliyor…") : t("Kaydet")}
                 </button>
               </div>
             </div>
@@ -286,17 +290,15 @@ export default function CodeAnalysisPanel({ me }) {
       )}
 
       <section className="section">
-        <h3>Rubrik ağırlıkları</h3>
+        <h3>{t("Rubrik ağırlıkları")}</h3>
         <p className="desc">
-          Her boyutun ağırlığı (0 = yok say). Bu değerler hem composite skoru hem
-          <b> AI'a giden prompt'u</b> etkiler — ağırlığı yüksek boyutu (okunabilirlik,
-          karmaşıklık, temizlik…) AI daha çok önemser. Kod taraması dış araca değil,
-          bu prompt'a bağlıdır.
+          {t("Her boyutun ağırlığı (0 = yok say). Bu değerler hem composite skoru hem")}
+          <b> {t("AI'a giden prompt'u")}</b> {t("etkiler — ağırlığı yüksek boyutu (okunabilirlik, karmaşıklık, temizlik…) AI daha çok önemser. Kod taraması dış araca değil, bu prompt'a bağlıdır.")}
         </p>
         <div className="ca-weights">
           {Object.keys(DIM_LABELS).map((d) => (
             <label key={d} className="ca-slider">
-              <span>{DIM_LABELS[d]} <b>{(cfg.weights?.[d] ?? 1).toFixed(1)}</b></span>
+              <span>{t(DIM_LABELS[d])} <b>{(cfg.weights?.[d] ?? 1).toFixed(1)}</b></span>
               <input type="range" min="0" max="3" step="0.5" value={cfg.weights?.[d] ?? 1}
                 onChange={(e) => updWeight(d, Number(e.target.value))} />
             </label>
@@ -305,44 +307,41 @@ export default function CodeAnalysisPanel({ me }) {
       </section>
 
       <section className="section">
-        <h3>Analiz limitleri</h3>
+        <h3>{t("Analiz limitleri")}</h3>
         <p className="desc">
-          Maliyet freni. Analiz her seferinde tüm projeyi okumaz: yalnız değişen
-          dosyanın diff'ini ve commit mesajını görür, gerekirse birkaç ilgili
-          dosyaya bakar.
+          {t("Maliyet freni. Analiz her seferinde tüm projeyi okumaz: yalnız değişen dosyanın diff'ini ve commit mesajını görür, gerekirse birkaç ilgili dosyaya bakar.")}
         </p>
         <div className="ca-row">
-          <label>Çalıştırma başına maks dosya:
+          <label>{t("Çalıştırma başına maks dosya:")}
             <input type="number" min="1" value={cfg.max_files_per_run}
               onChange={(e) => upd("max_files_per_run", e.target.value)} />
           </label>
-          <label>Maks diff satırı (kırpma):
+          <label>{t("Maks diff satırı (kırpma):")}
             <input type="number" min="20" value={cfg.max_diff_lines}
               onChange={(e) => upd("max_diff_lines", e.target.value)} />
           </label>
         </div>
         <div className="ca-row">
-          <button className="login-btn" onClick={save} disabled={busy}>Ayarları kaydet</button>
+          <button className="login-btn" onClick={save} disabled={busy}>{t("Ayarları kaydet")}</button>
         </div>
       </section>
 
       <section className="section">
-        <h3>Şirket geneli</h3>
-        <p className="desc">Tüm repo/dosyaların genel AI kod sağlığı (tüm şirket).</p>
+        <h3>{t("Şirket geneli")}</h3>
+        <p className="desc">{t("Tüm repo/dosyaların genel AI kod sağlığı (tüm şirket).")}</p>
         <div className="cards" style={{ maxWidth: 320 }}>
           <CodeHealthCard health={overview} onClick={() => setOverviewDrill(true)} />
         </div>
       </section>
 
       <section className="section">
-        <h3>Kişi seç ve sonuçlarını gör</h3>
+        <h3>{t("Kişi seç ve sonuçlarını gör")}</h3>
         <p className="desc">
-          İstediğin kişiyi seç, kendi kod sağlığını gör. Kıyaslamalı sıralama yok
-          — her kişi kendi kodunun geri bildirimi.
+          {t("İstediğin kişiyi seç, kendi kod sağlığını gör. Kıyaslamalı sıralama yok — her kişi kendi kodunun geri bildirimi.")}
         </p>
         <div className="ca-row">
-          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label="Kişi seç">
-            <option value="">— kişi seç —</option>
+          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label={t("Kişi seç")}>
+            <option value="">{t("— kişi seç —")}</option>
             {devs.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.display_name}{d.composite != null ? ` (${d.composite})` : ""}
@@ -351,9 +350,9 @@ export default function CodeAnalysisPanel({ me }) {
           </select>
           {selectedDev && (
             <button className="mini" disabled={!selectedDev.analyzable || runningDev === selectedDev.id}
-              title={selectedDev.analyzable ? "" : "git e-postası yok — atıf yapılamaz"}
+              title={selectedDev.analyzable ? "" : t("git e-postası yok — atıf yapılamaz")}
               onClick={() => analyzeDev(selectedDev)}>
-              {runningDev === selectedDev.id ? "Analiz ediliyor…" : "Bu kişiyi analiz et"}
+              {runningDev === selectedDev.id ? t("Analiz ediliyor…") : t("Bu kişiyi analiz et")}
             </button>
           )}
         </div>
@@ -365,20 +364,18 @@ export default function CodeAnalysisPanel({ me }) {
       </section>
 
       <section className="section">
-        <h3>Tüm kişiler</h3>
+        <h3>{t("Tüm kişiler")}</h3>
         <p className="desc">
-          git e-postası eşlemesi + composite/Detay. Analiz için: üstte
-          <strong> Kişi seç → "Bu kişiyi analiz et"</strong> ya da en üstteki
-          <strong> "Şimdi analiz et (tüm repolar)"</strong> (herkesi kapsar,
-          commit yazarına atar). Kıyaslamalı sıralama yok.
+          {t("git e-postası eşlemesi + composite/Detay. Analiz için: üstte")}
+          <strong> {t('Kişi seç → "Bu kişiyi analiz et"')}</strong> {t("ya da en üstteki")}
+          <strong> {t("\"Şimdi analiz et (tüm repolar)\"")}</strong> {t("(herkesi kapsar, commit yazarına atar). Kıyaslamalı sıralama yok.")}
         </p>
         <p className="desc">
-          <strong>git e-posta</strong> = kişinin commit e-postası. Bağlı değilse
-          kişi-bazlı analiz atıf yapamaz. Buradan bağla (elle SQL gerekmez).
+          <strong>{t("git e-posta")}</strong> = {t("kişinin commit e-postası. Bağlı değilse kişi-bazlı analiz atıf yapamaz. Buradan bağla (elle SQL gerekmez).")}
         </p>
         <table className="admin-table">
           <thead>
-            <tr><th>Kişi</th><th>git e-posta (commit e-postası)</th><th className="num">Composite</th><th className="num">Dosya</th><th></th></tr>
+            <tr><th>{t("Kişi")}</th><th>{t("git e-posta (commit e-postası)")}</th><th className="num">{t("Composite")}</th><th className="num">{t("Dosya")}</th><th></th></tr>
           </thead>
           <tbody>
             {devs.map((d) => (
@@ -392,38 +389,36 @@ export default function CodeAnalysisPanel({ me }) {
                     onChange={(e) => setGitEdit((g) => ({ ...g, [d.id]: e.target.value }))}
                   />
                   {(gitEdit[d.id] ?? d.git_email ?? "") !== (d.git_email ?? "") && (
-                    <button className="mini" onClick={() => saveGitEmail(d)}>Kaydet</button>
+                    <button className="mini" onClick={() => saveGitEmail(d)}>{t("Kaydet")}</button>
                   )}
                 </td>
                 <td className="num">{d.composite ?? "–"}</td>
                 <td className="num">{d.analyzed_files}</td>
                 <td>
                   <button className="mini ghost" disabled={!d.analyzed_files}
-                    onClick={() => setDetailDev(d)}>Detay</button>
+                    onClick={() => setDetailDev(d)}>{t("Detay")}</button>
                 </td>
               </tr>
             ))}
             {devs.length === 0 && (
-              <tr><td colSpan={5} className="desc">Kişi yok.</td></tr>
+              <tr><td colSpan={5} className="desc">{t("Kişi yok.")}</td></tr>
             )}
           </tbody>
         </table>
       </section>
 
       <section className="section">
-        <h3>Denetim logu (gizlilik şeffaflığı)</h3>
+        <h3>{t("Denetim logu (gizlilik şeffaflığı)")}</h3>
         <p className="desc">
-          LLM'e ne gitti — <strong>içerik saklanmaz</strong>, yalnızca meta: dosya,
-          gönderilen karakter, maskelenen secret sayısı, sonuç. "Ek okuma" =
-          diff yetmediği için ayrıca okunan dosya sayısı (en fazla 3).
+          {t("LLM'e ne gitti —")} <strong>{t("içerik saklanmaz")}</strong>, {t('yalnızca meta: dosya, gönderilen karakter, maskelenen secret sayısı, sonuç. "Ek okuma" = diff yetmediği için ayrıca okunan dosya sayısı (en fazla 3).')}
         </p>
         {audit.length === 0 ? (
-          <p className="desc">Henüz kayıt yok.</p>
+          <p className="desc">{t("Henüz kayıt yok.")}</p>
         ) : (
           <div className="drill-scroll">
             <table className="admin-table">
               <thead>
-                <tr><th>Tarih</th><th>Dosya</th><th className="num">Karakter</th><th className="num">Maskeli</th><th className="num">Ek okuma</th><th>Sonuç</th><th>Model</th></tr>
+                <tr><th>{t("Tarih")}</th><th>{t("Dosya")}</th><th className="num">{t("Karakter")}</th><th className="num">{t("Maskeli")}</th><th className="num">{t("Ek okuma")}</th><th>{t("Sonuç")}</th><th>{t("Model")}</th></tr>
               </thead>
               <tbody>
                 {audit.map((a) => (
@@ -446,21 +441,21 @@ export default function CodeAnalysisPanel({ me }) {
       {detailDev && (
         <CodeHealthDrilldown
           path={`/api/developers/${detailDev.id}/code-health/breakdown`}
-          title={`${detailDev.display_name} — kod analizi`}
+          title={t("{name} — kod analizi", { name: detailDev.display_name })}
           onClose={() => setDetailDev(null)}
         />
       )}
       {overviewDrill && (
         <CodeHealthDrilldown
           path="/api/admin/code-analysis/overview/breakdown"
-          title="Şirket geneli — dikkat isteyen dosyalar"
+          title={t("Şirket geneli — dikkat isteyen dosyalar")}
           onClose={() => setOverviewDrill(false)}
         />
       )}
       {selectedDrill && selectedDev && (
         <CodeHealthDrilldown
           path={`/api/developers/${selectedDev.id}/code-health/breakdown`}
-          title={`${selectedDev.display_name} — kod analizi`}
+          title={t("{name} — kod analizi", { name: selectedDev.display_name })}
           onClose={() => setSelectedDrill(false)}
         />
       )}

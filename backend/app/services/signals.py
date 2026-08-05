@@ -173,6 +173,21 @@ SIGNAL_META = {
         "dinlenme kültürü zayıf (tükenmişlik riski)", "higher"),
 }
 
+SIGNAL_META_EN = {
+    "off_hours_ratio": (
+        "Off-Hours Commits", "Share of commits made on weekends or outside 08–20; "
+        "consistently high is a signal of overload", "lower"),
+    "wip_concentration": (
+        "WIP Concentration", "Imbalance of open work piling up on a few people "
+        "(Gini, no names); if high, load should be redistributed", "lower"),
+    "review_load": (
+        "Review Load / Bus Factor", "Share of reviews piling up on one person; "
+        "if high, there's a single-person dependency risk", "lower"),
+    "leave_usage": (
+        "Leave Usage", "Share of the team taking leave in the window; if very low, "
+        "rest culture is weak (burnout risk)", "higher"),
+}
+
 SIGNAL_LABELS = {
     "green": "Sağlıklı",
     "yellow": "İzlenmeli",
@@ -180,8 +195,15 @@ SIGNAL_LABELS = {
     "insufficient_data": "Veri yetersiz",
 }
 
+SIGNAL_LABELS_EN = {
+    "green": "Healthy",
+    "yellow": "Worth watching",
+    "red": "Struggling — support may help",
+    "insufficient_data": "Not enough data",
+}
 
-def compute_signals(session: Session, data: TeamData) -> list[dict]:
+
+def compute_signals(session: Session, data: TeamData, lang: str = "tr") -> list[dict]:
     """Tüm sinyalleri üretir, meta ile zenginleştirir."""
     raw = [
         off_hours_ratio(data),
@@ -189,14 +211,16 @@ def compute_signals(session: Session, data: TeamData) -> list[dict]:
         review_load_distribution(data),
         leave_usage_signal(session, data),
     ]
+    meta = SIGNAL_META_EN if lang == "en" else SIGNAL_META
+    labels = SIGNAL_LABELS_EN if lang == "en" else SIGNAL_LABELS
     out = []
     for sig in raw:
-        name, description, direction = SIGNAL_META.get(sig["key"], (sig["key"], "", "lower"))
+        name, description, direction = meta.get(sig["key"], (sig["key"], "", "lower"))
         out.append({
             **sig,
             "name": name,
             "description": description,
             "direction": direction,
-            "status_label": SIGNAL_LABELS[sig["status"]],
+            "status_label": labels[sig["status"]],
         })
     return out

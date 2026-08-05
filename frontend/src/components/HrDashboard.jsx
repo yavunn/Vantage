@@ -3,12 +3,15 @@ import { monthKey, pad, ymd } from "../dates.js";
 import {
   decideLeave, leaveBalances, leaveSummary, listEmployees, listLeaves, pendingLeaves,
 } from "../api.js";
+import { useLang, useT } from "../i18n.jsx";
 
 // İK Panosu — kapasite + izin + rehber. Performans/metrik YOK (etik sınır).
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 
 
 export default function HrDashboard() {
+  const t = useT();
+  const { lang } = useLang();
   const today = new Date();
   const [cursor] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [employees, setEmployees] = useState([]);
@@ -36,7 +39,7 @@ export default function HrDashboard() {
     setError(null); setMsg(null);
     try {
       await decideLeave(lv.id, decision);
-      setMsg(`${lv.person} izni ${decision === "approved" ? "onaylandı" : "reddedildi"}.`);
+      setMsg(t("{person} izni {result}.", { person: lv.person, result: decision === "approved" ? t("onaylandı") : t("reddedildi") }));
       load();
     } catch (err) {
       setError(err.message);
@@ -68,9 +71,9 @@ export default function HrDashboard() {
 
   // Tür kırılımı (ay).
   const typeBreak = useMemo(() => {
-    const t = { annual: 0, sick: 0, other: 0 };
-    summary.forEach((r) => { t.annual += r.annual ?? 0; t.sick += r.sick ?? 0; t.other += r.other ?? 0; });
-    return t;
+    const tb = { annual: 0, sick: 0, other: 0 };
+    summary.forEach((r) => { tb.annual += r.annual ?? 0; tb.sick += r.sick ?? 0; tb.other += r.other ?? 0; });
+    return tb;
   }, [summary]);
 
   // Kapasite ısı haritası: ayın her günü kaç kişi izinli (onaylı).
@@ -121,7 +124,7 @@ export default function HrDashboard() {
   );
 
   function exportCsv() {
-    const rows = [["Kişi", "Yıllık", "Rapor", "Diğer", "Toplam"]];
+    const rows = [[t("Kişi"), t("Yıllık"), t("Rapor"), t("Diğer"), t("Toplam")]];
     summary.forEach((r) => rows.push([r.person, r.annual ?? 0, r.sick ?? 0, r.other ?? 0, r.days]));
     const csv = rows.map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(",")).join("\r\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
@@ -133,15 +136,15 @@ export default function HrDashboard() {
     URL.revokeObjectURL(url);
   }
 
-  const monthName = cursor.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  const monthName = cursor.toLocaleDateString(lang === "en" ? "en-US" : "tr-TR", { month: "long", year: "numeric" });
 
   return (
     <div className="hr-dashboard">
       <div className="hr-toolbar">
-        <h2>İK Panosu · {monthName}</h2>
+        <h2>{t("İK Panosu")} · {monthName}</h2>
         <span style={{ flex: 1 }} />
-        <button className="mini" onClick={exportCsv}>İK raporu (CSV)</button>
-        <button className="mini" onClick={() => window.print()}>Yazdır / PDF</button>
+        <button className="mini" onClick={exportCsv}>{t("İK raporu (CSV)")}</button>
+        <button className="mini" onClick={() => window.print()}>{t("Yazdır / PDF")}</button>
       </div>
       {error && <div className="login-error">{error}</div>}
       {msg && <div className="admin-ok">{msg}</div>}
@@ -150,35 +153,35 @@ export default function HrDashboard() {
       <div className="hr-kpis">
         <div className="hr-kpi">
           <div className="hr-kpi-val">{offToday.length}</div>
-          <div className="hr-kpi-label">Bugün izinli</div>
+          <div className="hr-kpi-label">{t("Bugün izinli")}</div>
         </div>
         <div className="hr-kpi">
           <div className="hr-kpi-val">{activeCount}</div>
-          <div className="hr-kpi-label">Aktif çalışan (headcount)</div>
+          <div className="hr-kpi-label">{t("Aktif çalışan (headcount)")}</div>
         </div>
         <div className="hr-kpi">
           <div className="hr-kpi-val">{pending.length}</div>
-          <div className="hr-kpi-label">Bekleyen onay</div>
+          <div className="hr-kpi-label">{t("Bekleyen onay")}</div>
         </div>
         <div className="hr-kpi">
           <div className="hr-kpi-val">{incompleteProfiles.length}</div>
-          <div className="hr-kpi-label">Eksik profil</div>
+          <div className="hr-kpi-label">{t("Eksik profil")}</div>
         </div>
       </div>
 
       <div className="hr-grid">
         {/* Bugün izinli kimler */}
         <section className="section">
-          <h3>Bugün izinli</h3>
+          <h3>{t("Bugün izinli")}</h3>
           {offToday.length === 0 ? (
-            <p className="desc">Bugün izinli kimse yok — tam kapasite.</p>
+            <p className="desc">{t("Bugün izinli kimse yok — tam kapasite.")}</p>
           ) : (
             <ul className="hr-list">
               {offToday.map((lv) => (
                 <li key={lv.id}>
                   <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
                   <strong>{lv.person}</strong>
-                  <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                  <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                   <span className="hr-muted">→ {lv.end_date}</span>
                 </li>
               ))}
@@ -188,12 +191,12 @@ export default function HrDashboard() {
 
         {/* İzin türü kırılımı */}
         <section className="section">
-          <h3>Ay içi izin türü kırılımı (gün)</h3>
+          <h3>{t("Ay içi izin türü kırılımı (gün)")}</h3>
           <div className="hr-typebar">
             {["annual", "sick", "other"].map((k) => (
               <div key={k} className="hr-type-row">
                 <span className={`leave-dot ${k}`} aria-hidden="true" />
-                <span className="hr-type-name">{TYPE_LABEL[k]}</span>
+                <span className="hr-type-name">{t(TYPE_LABEL[k])}</span>
                 <span className="hr-type-val">{typeBreak[k]}</span>
               </div>
             ))}
@@ -202,9 +205,9 @@ export default function HrDashboard() {
 
         {/* Yaklaşan izinler */}
         <section className="section">
-          <h3>Yaklaşan izinler</h3>
+          <h3>{t("Yaklaşan izinler")}</h3>
           {upcoming.length === 0 ? (
-            <p className="desc">Bu ay için planlanmış yaklaşan izin yok.</p>
+            <p className="desc">{t("Bu ay için planlanmış yaklaşan izin yok.")}</p>
           ) : (
             <ul className="hr-list">
               {upcoming.map((lv) => (
@@ -222,16 +225,16 @@ export default function HrDashboard() {
 
         {/* Eksik profiller */}
         <section className="section">
-          <h3>Profil eksikliği</h3>
+          <h3>{t("Profil eksikliği")}</h3>
           {incompleteProfiles.length === 0 ? (
-            <p className="desc">Tüm aktif profiller tam (ünvan + telefon).</p>
+            <p className="desc">{t("Tüm aktif profiller tam (ünvan + telefon).")}</p>
           ) : (
             <ul className="hr-list">
               {incompleteProfiles.map((u) => (
                 <li key={u.id}>
                   <strong>{u.display_name}</strong>
                   <span className="hr-muted">
-                    {!u.title && "ünvan yok"}{!u.title && !u.phone && " · "}{!u.phone && "telefon yok"}
+                    {!u.title && t("ünvan yok")}{!u.title && !u.phone && " · "}{!u.phone && t("telefon yok")}
                   </span>
                 </li>
               ))}
@@ -241,16 +244,16 @@ export default function HrDashboard() {
 
         {/* İş yıldönümleri */}
         <section className="section">
-          <h3>Bu ay iş yıldönümleri</h3>
+          <h3>{t("Bu ay iş yıldönümleri")}</h3>
           {anniversaries.length === 0 ? (
-            <p className="desc">Bu ay yıldönümü olan yok.</p>
+            <p className="desc">{t("Bu ay yıldönümü olan yok.")}</p>
           ) : (
             <ul className="hr-list">
               {anniversaries.map((a, i) => (
                 <li key={i}>
                   <span aria-hidden="true">🎉</span>
                   <strong>{a.name}</strong>
-                  <span className="hr-muted">{a.day}. gün · {a.years}. yıl</span>
+                  <span className="hr-muted">{t("{day}. gün · {years}. yıl", { day: a.day, years: a.years })}</span>
                 </li>
               ))}
             </ul>
@@ -260,12 +263,14 @@ export default function HrDashboard() {
 
       {/* Kapasite ısı haritası */}
       <section className="section">
-        <h3>Kapasite ısı haritası ({monthName})</h3>
-        <p className="desc">Her sütun ayın bir günü; koyuluk o gün izinli kişi sayısıdır.</p>
+        <h3>{t("Kapasite ısı haritası ({month})", { month: monthName })}</h3>
+        <p className="desc">{t("Her sütun ayın bir günü; koyuluk o gün izinli kişi sayısıdır.")}</p>
         {conflictDays.length > 0 && (
           <div className="hr-warn">
-            ⚠ Kapasite riski: {conflictDays.map((d) => `${d.day}. (${d.count} kişi)`).join(", ")} —
-            aynı gün {CONFLICT_MIN}+ kişi izinli.
+            ⚠ {t("Kapasite riski: {list} — aynı gün {min}+ kişi izinli.", {
+              list: conflictDays.map((d) => t("{day}. ({n} kişi)", { day: d.day, n: d.count })).join(", "),
+              min: CONFLICT_MIN,
+            })}
           </div>
         )}
         <div className="hr-heat">
@@ -273,7 +278,7 @@ export default function HrDashboard() {
             <div
               key={i}
               className="hr-heat-cell"
-              title={`${i + 1}. gün · ${c} kişi izinli`}
+              title={t("{day}. gün · {n} kişi izinli", { day: i + 1, n: c })}
               style={{ opacity: c === 0 ? 0.12 : 0.25 + 0.75 * (c / heatMax) }}
             >
               <span className="hr-heat-day">{i + 1}</span>
@@ -285,20 +290,20 @@ export default function HrDashboard() {
 
       {/* Yıllık izin bakiyesi */}
       <section className="section">
-        <h3>Yıllık izin bakiyesi ({year})</h3>
+        <h3>{t("Yıllık izin bakiyesi ({year})", { year })}</h3>
         {lowBalance.length > 0 && (
           <div className="hr-warn">
-            ⚠ {lowBalance.length} kişinin yıllık izin hakkı bitti (kalan ≤ 0).
+            ⚠ {t("{n} kişinin yıllık izin hakkı bitti (kalan ≤ 0).", { n: lowBalance.length })}
           </div>
         )}
         {balances.length === 0 ? (
-          <p className="desc">Kayıt yok.</p>
+          <p className="desc">{t("Kayıt yok.")}</p>
         ) : (
           <table className="quality">
             <thead>
               <tr>
-                <th>Kişi</th><th className="num">Hak</th><th className="num">Kullanılan</th>
-                <th className="num">Beklemede</th><th className="num">Kalan</th>
+                <th>{t("Kişi")}</th><th className="num">{t("Hak")}</th><th className="num">{t("Kullanılan")}</th>
+                <th className="num">{t("Beklemede")}</th><th className="num">{t("Kalan")}</th>
               </tr>
             </thead>
             <tbody>
@@ -318,9 +323,9 @@ export default function HrDashboard() {
 
       {/* Bekleyen onay kuyruğu */}
       <section className="section">
-        <h3>Bekleyen izin onayları ({pending.length})</h3>
+        <h3>{t("Bekleyen izin onayları ({n})", { n: pending.length })}</h3>
         {pending.length === 0 ? (
-          <p className="desc">Onay bekleyen izin isteği yok.</p>
+          <p className="desc">{t("Onay bekleyen izin isteği yok.")}</p>
         ) : (
           <ul className="leave-list">
             {pending.map((lv) => (
@@ -329,7 +334,7 @@ export default function HrDashboard() {
                 <div className="leave-list-main">
                   <div className="leave-list-top">
                     <strong>{lv.person}</strong>
-                    <span className="leave-badge">{TYPE_LABEL[lv.leave_type] || lv.leave_type}</span>
+                    <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                   </div>
                   <div className="leave-list-dates">
                     {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -337,8 +342,8 @@ export default function HrDashboard() {
                   </div>
                 </div>
                 <span className="leave-decide">
-                  <button className="mini" onClick={() => decide(lv, "approved")}>Onayla</button>
-                  <button className="mini danger" onClick={() => decide(lv, "rejected")}>Reddet</button>
+                  <button className="mini" onClick={() => decide(lv, "approved")}>{t("Onayla")}</button>
+                  <button className="mini danger" onClick={() => decide(lv, "rejected")}>{t("Reddet")}</button>
                 </span>
               </li>
             ))}

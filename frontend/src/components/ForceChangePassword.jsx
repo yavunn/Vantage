@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, changePassword } from "../api.js";
+import { useT } from "../i18n.jsx";
 
 // İlk giriş / admin sıfırlaması sonrası zorunlu parola değiştirme.
 // Kapatılamaz — kullanıcı yeni parola belirlemeden panoya geçemez.
 export default function ForceChangePassword({ onDone, onLogout }) {
+  const t = useT();
   const [current, setCurrent] = useState("");
   const [nw, setNw] = useState("");
   const [nw2, setNw2] = useState("");
@@ -14,11 +16,11 @@ export default function ForceChangePassword({ onDone, onLogout }) {
     e.preventDefault();
     setError(null);
     if (nw.length < MIN_PASSWORD_LENGTH) {
-      setError(`Yeni parola en az ${MIN_PASSWORD_LENGTH} karakter olmalı`);
+      setError(t("Yeni parola en az {n} karakter olmalı", { n: MIN_PASSWORD_LENGTH }));
       return;
     }
     if (nw !== nw2) {
-      setError("Yeni parolalar eşleşmiyor");
+      setError(t("Yeni parolalar eşleşmiyor"));
       return;
     }
     setBusy(true);
@@ -49,19 +51,18 @@ export default function ForceChangePassword({ onDone, onLogout }) {
           </span>
           <h1 className="brand-name">Vantage</h1>
         </div>
-        <p className="brand-tagline">Güvenlik adımı</p>
+        <p className="brand-tagline">{t("Güvenlik adımı")}</p>
         <p className="brand-copy">
-          Hesabına yönetici tarafından geçici bir parola atandı. Devam etmeden
-          önce kendine ait yeni bir parola belirlemelisin.
+          {t("Hesabına yönetici tarafından geçici bir parola atandı. Devam etmeden önce kendine ait yeni bir parola belirlemelisin.")}
         </p>
       </div>
 
       <div className="login-panel">
         <form className="login-card" onSubmit={submit}>
-          <h2>Yeni parola belirle</h2>
-          <p className="login-sub">Bu adım zorunludur.</p>
+          <h2>{t("Yeni parola belirle")}</h2>
+          <p className="login-sub">{t("Bu adım zorunludur.")}</p>
           <label>
-            Geçici (mevcut) parola
+            {t("Geçici (mevcut) parola")}
             <input
               type="password"
               value={current}
@@ -72,7 +73,7 @@ export default function ForceChangePassword({ onDone, onLogout }) {
             />
           </label>
           <label>
-            Yeni parola
+            {t("Yeni parola")}
             <input
               type="password"
               value={nw}
@@ -83,7 +84,7 @@ export default function ForceChangePassword({ onDone, onLogout }) {
             />
           </label>
           <label>
-            Yeni parola (tekrar)
+            {t("Yeni parola (tekrar)")}
             <input
               type="password"
               value={nw2}
@@ -95,10 +96,10 @@ export default function ForceChangePassword({ onDone, onLogout }) {
           </label>
           {error && <div className="login-error">{error}</div>}
           <button type="submit" className="login-btn" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Parolayı belirle ve devam et"}
+            {busy ? t("Kaydediliyor…") : t("Parolayı belirle ve devam et")}
           </button>
           <button type="button" className="mini ghost" onClick={onLogout} style={{ marginTop: 8 }}>
-            Çıkış yap
+            {t("Çıkış yap")}
           </button>
         </form>
       </div>

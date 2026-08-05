@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, setup } from "../api.js";
+import { useT } from "../i18n.jsx";
 
 // İlk kurulum: sistemde hiç aktif yönetici yoksa gösterilir. İlk admin
 // hesabını oluşturur ve doğrudan oturum açar (CLI gerektirmez).
 export default function Setup({ onSuccess }) {
+  const t = useT();
   const [form, setForm] = useState({ display_name: "", email: "", password: "", password2: "" });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -16,7 +18,7 @@ export default function Setup({ onSuccess }) {
     e.preventDefault();
     setError(null);
     if (form.password !== form.password2) {
-      setError("Parolalar eşleşmiyor");
+      setError(t("Parolalar eşleşmiyor"));
       return;
     }
     setBusy(true);
@@ -50,36 +52,35 @@ export default function Setup({ onSuccess }) {
           </span>
           <h1 className="brand-name">Vantage</h1>
         </div>
-        <p className="brand-tagline">İlk kurulum</p>
+        <p className="brand-tagline">{t("İlk kurulum")}</p>
         <p className="brand-copy">
-          Sisteme hoş geldin. Henüz bir yönetici hesabı yok. Başlamak için ilk
-          yönetici (admin) hesabını oluştur. Bu adım yalnızca bir kez gösterilir.
+          {t("Sisteme hoş geldin. Henüz bir yönetici hesabı yok. Başlamak için ilk yönetici (admin) hesabını oluştur. Bu adım yalnızca bir kez gösterilir.")}
         </p>
       </div>
 
       <div className="login-panel">
         <form className="login-card" onSubmit={submit}>
-          <h2>Yönetici hesabı oluştur</h2>
-          <p className="login-sub">Bu hesapla giriş yapıp diğerlerini ekleyeceksin.</p>
+          <h2>{t("Yönetici hesabı oluştur")}</h2>
+          <p className="login-sub">{t("Bu hesapla giriş yapıp diğerlerini ekleyeceksin.")}</p>
           <label>
-            Ad Soyad
+            {t("Ad Soyad")}
             <input value={form.display_name} onChange={(e) => upd("display_name", e.target.value)} required autoFocus />
           </label>
           <label>
-            E-posta
+            {t("E-posta")}
             <input type="email" value={form.email} onChange={(e) => upd("email", e.target.value)} placeholder="ad@corp.local" required />
           </label>
           <label>
-            Parola
+            {t("Parola")}
             <input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           <label>
-            Parola (tekrar)
+            {t("Parola (tekrar)")}
             <input type="password" value={form.password2} onChange={(e) => upd("password2", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           </label>
           {error && <div className="login-error">{error}</div>}
           <button type="submit" className="login-btn" disabled={busy}>
-            {busy ? "Oluşturuluyor…" : "Yöneticiyi oluştur ve başla"}
+            {busy ? t("Oluşturuluyor…") : t("Yöneticiyi oluştur ve başla")}
           </button>
         </form>
       </div>

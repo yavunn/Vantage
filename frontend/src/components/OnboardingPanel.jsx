@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useT } from "../i18n.jsx";
 
 // Kurulum kontrol listesi: admin ne yapacağını tek bakışta görsün.
 export default function OnboardingPanel({ onGoto }) {
+  const t = useT();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -11,15 +13,15 @@ export default function OnboardingPanel({ onGoto }) {
   }, []);
 
   if (error) return <p className="error-inline">{error.message}</p>;
-  if (!data) return <p className="desc">Yükleniyor…</p>;
+  if (!data) return <p className="desc">{t("Yükleniyor…")}</p>;
 
   return (
     <section className="section">
-      <h2>Başlangıç {data.complete ? "✓" : ""}</h2>
+      <h2>{t("Başlangıç")} {data.complete ? "✓" : ""}</h2>
       <p className="desc">
         {data.complete
-          ? "Kurulum tamam — sistem gerçek veriyle çalışmaya hazır."
-          : "Sistemi gerçek veriyle çalıştırmak için aşağıdaki adımları tamamla."}
+          ? t("Kurulum tamam — sistem gerçek veriyle çalışmaya hazır.")
+          : t("Sistemi gerçek veriyle çalıştırmak için aşağıdaki adımları tamamla.")}
       </p>
       <ol className="onboarding">
         {data.steps.map((s, i) => (
@@ -34,9 +36,8 @@ export default function OnboardingPanel({ onGoto }) {
       </ol>
       {data.unlinked > 0 && (
         <p className="desc">
-          <strong>{data.unlinked}</strong> hesabın git e-postası eksik — kişi-bazlı
-          kod analizi için "AI Kod Analizi" sekmesinden bağla.
-          {onGoto && <> <button className="mini" onClick={() => onGoto("code")}>Git kimliğini bağla →</button></>}
+          <strong>{data.unlinked}</strong> {t('hesabın git e-postası eksik — kişi-bazlı kod analizi için "AI Kod Analizi" sekmesinden bağla.')}
+          {onGoto && <> <button className="mini" onClick={() => onGoto("code")}>{t("Git kimliğini bağla →")}</button></>}
         </p>
       )}
     </section>

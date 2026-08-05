@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import require_admin, require_owner
 from app.core.config import active_config_path, get_config, reset_config_cache
 from app.core.db import get_session
+from app.core.i18n import lang_from_request
 from app.models import MetricResult, User
 
 router = APIRouter(prefix="/api/admin")
@@ -446,18 +447,20 @@ def run_code_analysis_now(_: User = Depends(require_admin)):
 
 
 @router.get("/code-analysis/overview")
-def code_analysis_overview(session: Session = Depends(get_session), _: User = Depends(require_admin)):
+def code_analysis_overview(session: Session = Depends(get_session), _: User = Depends(require_admin),
+                            lang: str = Depends(lang_from_request)):
     """Tüm şirketin genel AI kod sağlığı (admin)."""
     from app.services.code_health import company_code_health
 
-    return company_code_health(session, get_config())
+    return company_code_health(session, get_config(), lang)
 
 
 @router.get("/code-analysis/overview/breakdown")
-def code_analysis_overview_breakdown(session: Session = Depends(get_session), _: User = Depends(require_admin)):
+def code_analysis_overview_breakdown(session: Session = Depends(get_session), _: User = Depends(require_admin),
+                                      lang: str = Depends(lang_from_request)):
     from app.services.code_health import company_code_health_breakdown
 
-    return company_code_health_breakdown(session)
+    return company_code_health_breakdown(session, lang)
 
 
 class GitEmailUpdate(BaseModel):

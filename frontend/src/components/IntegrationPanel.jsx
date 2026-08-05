@@ -9,16 +9,18 @@ import {
   syncStatus,
   updateSources,
 } from "../api.js";
+import { useLang, useT } from "../i18n.jsx";
 
 const GIT_PROVIDERS = ["fixture", "git_log", "github", "gitlab"];
 const TASK_PROVIDERS = ["fixture", "jira", "trello", "none"];
 const NO_TEAM = "";
 
 function TokenBadge({ token }) {
+  const t = useT();
   if (!token) return null;
   return (
     <span className={`token-badge ${token.configured ? "ok" : "missing"}`}>
-      {token.env_var}: {token.configured ? "tanımlı" : "tanımsız"}
+      {token.env_var}: {token.configured ? t("tanımlı") : t("tanımsız")}
     </span>
   );
 }
@@ -40,6 +42,7 @@ function WarnBox({ items, tone = "warn", title }) {
 // İki ayrı kayıt kalırsa takım kadrosu şişer ve WIP kişi başına bölündüğü için
 // metrik olduğundan İYİ görünür — o yüzden eşleme burada görünür kılınır.
 function IdentitySection({ nonce }) {
+  const t = useT();
   const [rows, setRows] = useState(null);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -67,8 +70,8 @@ function IdentitySection({ nonce }) {
       const res = await setTaskIdentity(Number(targetId), source, key);
       setMsg(
         res.merged_developer_id
-          ? `Eşlendi — kopya kayıt birleştirildi (görevler ve takım üyelikleri taşındı).`
-          : `Eşlendi.`
+          ? t("Eşlendi — kopya kayıt birleştirildi (görevler ve takım üyelikleri taşındı).")
+          : t("Eşlendi.")
       );
       load();
     } catch (e) {
@@ -85,9 +88,8 @@ function IdentitySection({ nonce }) {
     // Geri alınamaz: kopyanın commit/görev/izin kayıtları hedefe taşınır ve
     // kayıt SİLİNİR. Onaysız yapılmaz.
     const ok = window.confirm(
-      `"${row.display_name}" kaydı "${hedef?.display_name}" içine birleştirilecek.\n\n` +
-      `${row.commit_count ?? 0} commit ve ${row.task_count ?? 0} görev hedefe taşınacak, ` +
-      `sonra bu kayıt silinecek. Bu işlem geri alınamaz.`
+      t('"{name}" kaydı "{target}" içine birleştirilecek.\n\n{commits} commit ve {tasks} görev hedefe taşınacak, sonra bu kayıt silinecek. Bu işlem geri alınamaz.',
+        { name: row.display_name, target: hedef?.display_name, commits: row.commit_count ?? 0, tasks: row.task_count ?? 0 })
     );
     if (!ok) return;
     setError(null);
@@ -97,7 +99,7 @@ function IdentitySection({ nonce }) {
       const res = await mergeDevelopers(targetId, row.id);
       const tasinan = Object.entries(res.moved || {})
         .map(([tablo, n]) => `${n} ${tablo}`).join(", ");
-      setMsg(`Birleştirildi${tasinan ? ` — taşınan: ${tasinan}` : " (taşınacak kayıt yoktu)"}.`);
+      setMsg(tasinan ? t("Birleştirildi — taşınan: {list}.", { list: tasinan }) : t("Birleştirildi (taşınacak kayıt yoktu)."));
       setMergeInto({});
       load();
     } catch (e) {
@@ -108,7 +110,7 @@ function IdentitySection({ nonce }) {
   }
 
   if (error && !rows) return <div className="login-error">{error}</div>;
-  if (!rows) return <p className="desc">Yükleniyor…</p>;
+  if (!rows) return <p className="desc">{t("Yükleniyor…")}</p>;
 
   const unlinked = rows.filter((r) => r.unlinked);
   // Hedef yalnızca "gerçek" kişi olabilir: giriş hesabı ya da git kimliği olan.
@@ -116,17 +118,15 @@ function IdentitySection({ nonce }) {
 
   return (
     <section className="section">
-      <h2>Kimlik eşleme</h2>
+      <h2>{t("Kimlik eşleme")}</h2>
       <p className="desc">
-        Bir kişi git'te e-postasıyla, Trello'da üye id'siyle görünür. Eşlenmezse
-        aynı insan iki kez sayılır; takım kadrosu şişer ve <strong>WIP kişi
-        başına bölündüğü için metrik olduğundan iyi görünür</strong>.
+        {t("Bir kişi git'te e-postasıyla, Trello'da üye id'siyle görünür. Eşlenmezse aynı insan iki kez sayılır; takım kadrosu şişer ve")}{" "}
+        <strong>{t("WIP kişi başına bölündüğü için metrik olduğundan iyi görünür")}</strong>.
       </p>
 
       {unlinked.length === 0 ? (
         <p className="desc">
-          Otomatik yakalanan eşlenmemiş kayıt yok. Aynı kişinin iki ayrı kayda
-          bölünmüş olabileceğini düşünüyorsan aşağıdaki tam listeye bak.
+          {t("Otomatik yakalanan eşlenmemiş kayıt yok. Aynı kişinin iki ayrı kayda bölünmüş olabileceğini düşünüyorsan aşağıdaki tam listeye bak.")}
         </p>
       ) : (
         <ul className="team-list">
@@ -137,14 +137,14 @@ function IdentitySection({ nonce }) {
                 <span className="role-tag">
                   {Object.entries(r.task_identities).map(([s]) => s).join(", ")}
                 </span>
-                <span className="desc"> · {r.task_count} görev · {r.team_count} takım</span>
+                <span className="desc"> · {t("{n} görev", { n: r.task_count })} · {t("{n} takım", { n: r.team_count })}</span>
               </span>
               <span>
                 <select
                   value={target[r.id] ?? ""}
-                  onChange={(e) => setTarget((t) => ({ ...t, [r.id]: e.target.value }))}
+                  onChange={(e) => setTarget((tg) => ({ ...tg, [r.id]: e.target.value }))}
                 >
-                  <option value="">Şu kişiyle birleştir…</option>
+                  <option value="">{t("Şu kişiyle birleştir…")}</option>
                   {anchors.filter((a) => a.id !== r.id).map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.display_name}{a.user_email ? ` (${a.user_email})` : ""}
@@ -156,7 +156,7 @@ function IdentitySection({ nonce }) {
                   onClick={() => merge(r)}
                   disabled={!target[r.id] || busy === r.id}
                 >
-                  {busy === r.id ? "Birleştiriliyor…" : "Birleştir"}
+                  {busy === r.id ? t("Birleştiriliyor…") : t("Birleştir")}
                 </button>
               </span>
             </li>
@@ -165,38 +165,36 @@ function IdentitySection({ nonce }) {
       )}
 
       <details className="identity-all">
-        <summary>Tüm kimlikler ({rows.length}) — elle birleştirme</summary>
+        <summary>{t("Tüm kimlikler ({n}) — elle birleştirme", { n: rows.length })}</summary>
         <p className="desc">
-          Yukarıdaki otomatik eşleme yalnız <strong>git kimliği olmayan</strong>
-          kayıtları yakalar. Aynı insan <strong>iki git e-postasıyla</strong> gelmişse
-          (ör. biri GitHub'ın <code>…@users.noreply.github.com</code> adresi) iki kayıt
-          da "eşlenmiş" görünür ve otomatik ipucu yoktur — commit'ler birine,
-          görevler diğerine düşer. Böyle bir çift görüyorsan burada birleştir.
-          Hedef, <strong>ağırlığı taşıyan</strong> kayıt olmalı.
+          {t("Yukarıdaki otomatik eşleme yalnız")} <strong>{t("git kimliği olmayan")}</strong>{" "}
+          {t("kayıtları yakalar. Aynı insan")} <strong>{t("iki git e-postasıyla")}</strong>{" "}
+          {t("gelmişse (ör. biri GitHub'ın")} <code>…@users.noreply.github.com</code> {t("adresi) iki kayıt da \"eşlenmiş\" görünür ve otomatik ipucu yoktur — commit'ler birine, görevler diğerine düşer. Böyle bir çift görüyorsan burada birleştir. Hedef,")}{" "}
+          <strong>{t("ağırlığı taşıyan")}</strong> {t("kayıt olmalı.")}
         </p>
         <ul className="team-list">
           {rows.map((r) => (
             <li key={r.id}>
               <span>
                 {r.display_name}
-                {r.user_email && <span className="role-tag">hesap</span>}
+                {r.user_email && <span className="role-tag">{t("hesap")}</span>}
                 <span className="desc">
-                  {" "}· {r.commit_count ?? 0} commit · {r.task_count ?? 0} görev
+                  {" "}· {t("{n} commit", { n: r.commit_count ?? 0 })} · {t("{n} görev", { n: r.task_count ?? 0 })}
                 </span>
               </span>
               <span className="desc">
-                {r.git_email || "git yok"} ·{" "}
-                {Object.entries(r.task_identities).map(([s, k]) => `${s}:${k.slice(0, 8)}…`).join(" ") || "görev kimliği yok"}
+                {r.git_email || t("git yok")} ·{" "}
+                {Object.entries(r.task_identities).map(([s, k]) => `${s}:${k.slice(0, 8)}…`).join(" ") || t("görev kimliği yok")}
               </span>
               <span>
                 <select
                   value={mergeInto[r.id] ?? ""}
-                  onChange={(e) => setMergeInto((t) => ({ ...t, [r.id]: e.target.value }))}
+                  onChange={(e) => setMergeInto((tg) => ({ ...tg, [r.id]: e.target.value }))}
                 >
-                  <option value="">Bu kaydı şuna birleştir…</option>
+                  <option value="">{t("Bu kaydı şuna birleştir…")}</option>
                   {rows.filter((a) => a.id !== r.id).map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.display_name} ({a.commit_count ?? 0} commit)
+                      {t("{name} ({n} commit)", { name: a.display_name, n: a.commit_count ?? 0 })}
                     </option>
                   ))}
                 </select>
@@ -205,7 +203,7 @@ function IdentitySection({ nonce }) {
                   onClick={() => mergeManual(r)}
                   disabled={!mergeInto[r.id] || busy === r.id}
                 >
-                  {busy === r.id ? "Birleştiriliyor…" : "Birleştir"}
+                  {busy === r.id ? t("Birleştiriliyor…") : t("Birleştir")}
                 </button>
               </span>
             </li>
@@ -223,21 +221,22 @@ function IdentitySection({ nonce }) {
 // giremez (metrik motoru commitleri takımın repolarından çeker), o yüzden bu
 // eşleme config'i elle düzenlemeye bırakılmaz.
 function RepoRow({ repo, teams, provider, onChange, onRemove }) {
+  const t = useT();
   const unmapped = !repo.team;
   // git_log yerel klasör okur; github owner/repo, gitlab ise grup/proje ister.
   // Yanlış alanı doldurmak sessiz bir "0 commit"e yol açardı, o yüzden alan
   // sağlayıcıya göre değişir.
   const uzakYol = provider === "github" || provider === "gitlab";
   const yolIpucu = provider === "gitlab"
-    ? "grup/proje  ya da  https://gitlab.sirket.local/grup/proje"
-    : "owner/repo  ya da  https://github.com/owner/repo";
+    ? t("grup/proje  ya da  https://gitlab.sirket.local/grup/proje")
+    : t("owner/repo  ya da  https://github.com/owner/repo");
   return (
     <div className={`repo-row editable ${unmapped ? "unmapped" : ""}`}>
       <div className="repo-ident">
         <input
           className="repo-name-input"
           value={repo.name}
-          placeholder="repo adı (kimlik — değiştirmek commitleri ayırır)"
+          placeholder={t("repo adı (kimlik — değiştirmek commitleri ayırır)")}
           onChange={(e) => onChange({ ...repo, name: e.target.value })}
         />
         {uzakYol ? (
@@ -251,24 +250,24 @@ function RepoRow({ repo, teams, provider, onChange, onRemove }) {
           <input
             className="repo-path-input"
             value={repo.path || ""}
-            placeholder="C:/yol/klasor  ya da  /srv/repos/x"
+            placeholder={t("C:/yol/klasor  ya da  /srv/repos/x")}
             onChange={(e) => onChange({ ...repo, path: e.target.value })}
           />
         )}
       </div>
-      <div className="repo-meta">{repo.commit_count ?? 0} commit</div>
+      <div className="repo-meta">{t("{n} commit", { n: repo.commit_count ?? 0 })}</div>
       <label className="repo-team">
-        <span>Takım</span>
+        <span>{t("Takım")}</span>
         <select value={repo.team || NO_TEAM}
                 onChange={(e) => onChange({ ...repo, team: e.target.value })}>
-          <option value={NO_TEAM}>— takım yok —</option>
-          {teams.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+          <option value={NO_TEAM}>{t("— takım yok —")}</option>
+          {teams.map((tm) => <option key={tm.id} value={tm.name}>{tm.name}</option>)}
         </select>
       </label>
-      <button type="button" className="mini danger" onClick={onRemove}>Çıkar</button>
+      <button type="button" className="mini danger" onClick={onRemove}>{t("Çıkar")}</button>
       {unmapped && (
         <p className="repo-warn">
-          Takımsız — bu reponun {repo.commit_count ?? 0} commit'i hiçbir takım metriğine girmiyor.
+          {t("Takımsız — bu reponun {n} commit'i hiçbir takım metriğine girmiyor.", { n: repo.commit_count ?? 0 })}
         </p>
       )}
     </div>
@@ -276,10 +275,11 @@ function RepoRow({ repo, teams, provider, onChange, onRemove }) {
 }
 
 function TestResult({ result }) {
+  const t = useT();
   if (!result) return null;
   const rows = [
-    { label: "Git / Kod", r: result.git, unit: "commit" },
-    { label: "Görevler", r: result.tasks, unit: "kayıt" },
+    { label: t("Git / Kod"), r: result.git, unit: t("commit") },
+    { label: t("Görevler"), r: result.tasks, unit: t("kayıt") },
   ];
   return (
     <div className="test-result">
@@ -290,17 +290,17 @@ function TestResult({ result }) {
           <span className="test-detail">
             {r.detail
               ? r.detail
-              : `${r.count} ${unit} okundu${r.pull_requests != null ? ` · ${r.pull_requests} PR` : ""}`}
+              : t("{n} {unit} okundu{pr}", { n: r.count, unit, pr: r.pull_requests != null ? t(" · {n} PR", { n: r.pull_requests }) : "" })}
           </span>
         </div>
       ))}
       <WarnBox items={[...(result.git.warnings || []), ...(result.tasks.warnings || [])]} />
       <WarnBox
         items={(result.unmapped_repos || []).map(
-          (n) => `Repo '${n}' takımsız — commitleri metriklere girmiyor (aşağıdan takım seçin).`
+          (n) => t("Repo '{n}' takımsız — commitleri metriklere girmiyor (aşağıdan takım seçin).", { n })
         )}
       />
-      {result.ok && <p className="ok-inline">Tüm kaynaklar okunabiliyor.</p>}
+      {result.ok && <p className="ok-inline">{t("Tüm kaynaklar okunabiliyor.")}</p>}
     </div>
   );
 }
@@ -308,6 +308,8 @@ function TestResult({ result }) {
 // Yönetici: entegrasyon/kaynak durumu, ayar ve elle senkron.
 // Sır (token) config'e YAZILMAZ — .secrets.env'e ve süreç ortamına gider.
 export default function IntegrationPanel() {
+  const t = useT();
+  const { lang } = useLang();
   const [data, setData] = useState(null);
   const [form, setForm] = useState(null);
   const [error, setError] = useState(null);
@@ -392,7 +394,7 @@ export default function IntegrationPanel() {
       if (form.gitlab_token.trim()) payload.gitlab_token = form.gitlab_token.trim();
       if (form.jira_token.trim()) payload.jira_token = form.jira_token.trim();
       await updateSources(payload);
-      setMsg("Ayarlar kaydedildi. Değişikliğin panoya yansıması için 'Şimdi senkronize et'.");
+      setMsg(t("Ayarlar kaydedildi. Değişikliğin panoya yansıması için 'Şimdi senkronize et'."));
       load();
     } catch (err) {
       setError(err.message);
@@ -425,7 +427,7 @@ export default function IntegrationPanel() {
     setSyncing(true);
     try {
       const res = await triggerSync();
-      setMsg("Senkron başladı — arka planda çalışıyor…");
+      setMsg(t("Senkron başladı — arka planda çalışıyor…"));
       await pollSync(res.job?.id);
     } catch (err) {
       setError(err.message);
@@ -443,16 +445,17 @@ export default function IntegrationPanel() {
         return;
       }
       if (job.status === "error") {
-        setError(`Senkron başarısız: ${job.error || "bilinmeyen hata"}`);
+        setError(t("Senkron başarısız: {msg}", { msg: job.error || t("bilinmeyen hata") }));
         setMsg(null);
       } else {
         const s = job.stats || {};
         // Ingest sayıları da gösterilir: "metrik: 68" tek başına entegrasyonun
         // çalıştığını sanmaya yol açıyordu — asıl bilgi kaç YENİ kayıt geldiği.
         setMsg(
-          `Senkron tamam · ${s.commits ?? 0} yeni commit · ${s.pull_requests ?? 0} yeni PR · ` +
-          `${s.tasks ?? 0} yeni görev · ${s.team_members ?? 0} yeni kadro üyesi · ` +
-          `metrik: ${s.metric_results ?? 0} · öneri: ${s.recommendations ?? 0}`
+          t("Senkron tamam · {commits} yeni commit · {prs} yeni PR · {tasks} yeni görev · {members} yeni kadro üyesi · metrik: {metrics} · öneri: {recs}", {
+            commits: s.commits ?? 0, prs: s.pull_requests ?? 0, tasks: s.tasks ?? 0,
+            members: s.team_members ?? 0, metrics: s.metric_results ?? 0, recs: s.recommendations ?? 0,
+          })
         );
       }
       setWarnings(job.warnings || []);
@@ -466,11 +469,11 @@ export default function IntegrationPanel() {
   }
 
   if (error && !data) return <div className="login-error">{error}</div>;
-  if (!data || !form) return <p className="desc">Yükleniyor…</p>;
+  if (!data || !form) return <p className="desc">{t("Yükleniyor…")}</p>;
 
   const lastSync = data.last_sync
-    ? new Date(data.last_sync).toLocaleString("tr-TR")
-    : "henüz yok";
+    ? new Date(data.last_sync).toLocaleString(lang === "en" ? "en-US" : "tr-TR")
+    : t("henüz yok");
   const repos = data.git.repos || [];
   const teams = data.teams || [];
   // gitlab da ORTAK repo listesini kullanır: hedef projeler ve repo→takım
@@ -482,36 +485,36 @@ export default function IntegrationPanel() {
     <div className="integration-panel">
       <section className="section">
         <div className="section-head">
-          <h2>Kaynak durumu</h2>
+          <h2>{t("Kaynak durumu")}</h2>
           <div className="team-toolbar">
             <button className="mini" onClick={runTest} disabled={testing || syncing}>
-              {testing ? "Test ediliyor…" : "Bağlantıyı test et"}
+              {testing ? t("Test ediliyor…") : t("Bağlantıyı test et")}
             </button>
             <button className="login-btn" onClick={sync} disabled={syncing || testing}>
-              {syncing ? "Senkronize ediliyor…" : "Şimdi senkronize et"}
+              {syncing ? t("Senkronize ediliyor…") : t("Şimdi senkronize et")}
             </button>
           </div>
         </div>
         <p className="desc">
-          Son senkron: <strong>{lastSync}</strong> · Otomatik aralık:{" "}
-          <strong>{data.sync_interval_minutes > 0 ? `${data.sync_interval_minutes} dk` : "kapalı"}</strong>
+          {t("Son senkron:")} <strong>{lastSync}</strong> · {t("Otomatik aralık:")}{" "}
+          <strong>{data.sync_interval_minutes > 0 ? t("{n} dk", { n: data.sync_interval_minutes }) : t("kapalı")}</strong>
         </p>
         <div className="source-grid">
           <div className="source-card">
-            <h3>Git / Kod</h3>
+            <h3>{t("Git / Kod")}</h3>
             <div className="src-provider">{data.git.provider}</div>
             <div className="src-meta">
-              {repos.length} repo · {repos.reduce((a, r) => a + r.commit_count, 0)} commit
+              {t("{n} repo", { n: repos.length })} · {t("{n} commit", { n: repos.reduce((a, r) => a + r.commit_count, 0) })}
             </div>
             <TokenBadge token={data.git.token} />
             <TokenBadge token={data.git.github_token} />
           </div>
           <div className="source-card">
-            <h3>Görevler</h3>
+            <h3>{t("Görevler")}</h3>
             <div className="src-provider">{data.tasks.provider}</div>
             {data.tasks.provider === "trello" ? (
               <>
-                <div className="src-meta">Board sayısı: {data.tasks.trello?.boards?.length ?? 0}</div>
+                <div className="src-meta">{t("Board sayısı: {n}", { n: data.tasks.trello?.boards?.length ?? 0 })}</div>
                 <TokenBadge token={data.tasks.trello?.key} />
                 <TokenBadge token={data.tasks.trello?.token} />
               </>
@@ -521,66 +524,58 @@ export default function IntegrationPanel() {
           </div>
         </div>
         {msg && <div className="admin-ok">{msg}</div>}
-        <WarnBox items={warnings} title="Senkron uyarıları" />
+        <WarnBox items={warnings} title={t("Senkron uyarıları")} />
         <TestResult result={test} />
         {error && <div className="login-error">{error}</div>}
       </section>
 
       <section className="section">
-        <h2>Entegrasyon ayarları</h2>
+        <h2>{t("Entegrasyon ayarları")}</h2>
         <p className="desc">
-          Sır (token) config dosyasına yazılmaz; gitignore'lu <code>.secrets.env</code>'e
-          ve süreç ortamına gider. Diğer değişiklikler config'e yazılır ve sonraki
-          senkronda geçerli olur.
+          {t("Sır (token) config dosyasına yazılmaz; gitignore'lu")} <code>.secrets.env</code>'{t("e ve süreç ortamına gider. Diğer değişiklikler config'e yazılır ve sonraki senkronda geçerli olur.")}
         </p>
         <form className="admin-form" onSubmit={save}>
           <label>
-            Git sağlayıcı
+            {t("Git sağlayıcı")}
             <select value={form.git_provider} onChange={(e) => upd("git_provider", e.target.value)}>
               {GIT_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
           <label>
-            GitHub token (özel repo)
-            <input type="password" autoComplete="off" value={form.github_token} onChange={(e) => upd("github_token", e.target.value)} placeholder={data.git.github_token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "github_pat_… (Contents: Read)"} />
-            <span className="field-hint">Yalnızca "Projelerim" özel GitHub repoları için PAT.</span>
+            {t("GitHub token (özel repo)")}
+            <input type="password" autoComplete="off" value={form.github_token} onChange={(e) => upd("github_token", e.target.value)} placeholder={data.git.github_token?.configured ? t("•••• (tanımlı — değiştirmek için yaz)") : "github_pat_… (Contents: Read)"} />
+            <span className="field-hint">{t('Yalnızca "Projelerim" özel GitHub repoları için PAT.')}</span>
           </label>
 
           {gitReposUsed && (
             <div className="span-2 repo-block">
               <div className="repo-block-head">
-                <h3>Repo'lar</h3>
+                <h3>{t("Repo'lar")}</h3>
                 {unmappedCount > 0 && (
-                  <span className="token-badge missing">{unmappedCount} repo takımsız</span>
+                  <span className="token-badge missing">{t("{n} repo takımsız", { n: unmappedCount })}</span>
                 )}
-                <button type="button" className="mini" onClick={addRepo}>+ Repo ekle</button>
+                <button type="button" className="mini" onClick={addRepo}>{t("+ Repo ekle")}</button>
               </div>
               <p className="field-hint">
-                Metrik motoru bir takımın commitlerini o takıma bağlı repolardan çeker.
-                Takımsız repo hiçbir metrik üretmez — pano "veri yetersiz" gösterir.
+                {t("Metrik motoru bir takımın commitlerini o takıma bağlı repolardan çeker. Takımsız repo hiçbir metrik üretmez — pano \"veri yetersiz\" gösterir.")}
                 {form.git_provider === "github" && (
                   <>
-                    {" "}GitHub'da repo yolu <code>owner/repo</code> biçimindedir.
-                    <strong> PR metrikleri (review süresi, review gecikmesi, deploy
-                    sıklığı, hata oranı) yalnız bu sağlayıcıyla ölçülebilir</strong> —
-                    yerel <code>git log</code>'da pull request kaydı yoktur.
-                    Özel repo için aşağıdaki GitHub token'ı gerekir.
+                    {" "}{t("GitHub'da repo yolu")} <code>owner/repo</code> {t("biçimindedir.")}
+                    <strong> {t("PR metrikleri (review süresi, review gecikmesi, deploy sıklığı, hata oranı) yalnız bu sağlayıcıyla ölçülebilir")}</strong> —{" "}
+                    {t("yerel")} <code>git log</code>'{t("da pull request kaydı yoktur. Özel repo için aşağıdaki GitHub token'ı gerekir.")}
                   </>
                 )}
                 {form.git_provider === "gitlab" && (
                   <>
-                    {" "}GitLab'da proje yolu <code>grup/proje</code> biçimindedir
-                    (iç içe gruplarda <code>grup/alt/proje</code>); tam URL de
-                    yapıştırabilirsiniz. <strong>Merge request metrikleri bu
-                    sağlayıcıyla ölçülür</strong> — MR'lar PR olarak işlenir,
-                    ilk review MR notlarından çıkarılır.
-                    Aşağıdaki GitLab adresi ve token'ı gerekir.
+                    {" "}{t("GitLab'da proje yolu")} <code>grup/proje</code> {t("biçimindedir")}{" "}
+                    ({t("iç içe gruplarda")} <code>grup/alt/proje</code>); {t("tam URL de yapıştırabilirsiniz.")} <strong>{t("Merge request metrikleri bu sağlayıcıyla ölçülür")}</strong> —{" "}
+                    {t("MR'lar PR olarak işlenir, ilk review MR notlarından çıkarılır. Aşağıdaki GitLab adresi ve token'ı gerekir.")}
                   </>
                 )}
-                {form.git_provider === "git_log" && " Yol, sunucunun eriştiği bir git klonu olmalı."}
+                {form.git_provider === "git_log" && ` ${t("Yol, sunucunun eriştiği bir git klonu olmalı.")}`}
               </p>
               {form.repos.length === 0 ? (
-                <p className="desc">Henüz repo yok — "+ Repo ekle" ile başlayın.</p>
+                <p className="desc">{t('Henüz repo yok — "+ Repo ekle" ile başlayın.')}</p>
               ) : (
                 <div className="repo-list">
                   {form.repos.map((r, i) => (
@@ -601,63 +596,58 @@ export default function IntegrationPanel() {
           {form.git_provider === "gitlab" && (
             <>
               <label>
-                GitLab adresi
+                {t("GitLab adresi")}
                 <input value={form.gitlab_base_url} onChange={(e) => upd("gitlab_base_url", e.target.value)} placeholder="https://gitlab.sirket.local" />
                 <span className="field-hint">
-                  Şirket GitLab'ının kök adresi — <code>/api/v4</code> otomatik eklenir.
+                  {t("Şirket GitLab'ının kök adresi —")} <code>/api/v4</code> {t("otomatik eklenir.")}
                 </span>
               </label>
               <label>
-                GitLab token
-                <input type="password" autoComplete="off" value={form.gitlab_token} onChange={(e) => upd("gitlab_token", e.target.value)} placeholder={data.git.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "glpat-… (read_api)"} />
+                {t("GitLab token")}
+                <input type="password" autoComplete="off" value={form.gitlab_token} onChange={(e) => upd("gitlab_token", e.target.value)} placeholder={data.git.token?.configured ? t("•••• (tanımlı — değiştirmek için yaz)") : "glpat-… (read_api)"} />
                 <span className="field-hint">
-                  Project/Personal access token, <code>read_api</code> kapsamı yeter.
-                  Boş bırakırsan mevcut sır korunur.
+                  {t("Project/Personal access token,")} <code>read_api</code> {t("kapsamı yeter. Boş bırakırsan mevcut sır korunur.")}
                 </span>
               </label>
               {(data.git.gitlab_projects || []).length > 0 && (
                 <p className="field-hint span-2">
-                  Config'te eski biçimde {data.git.gitlab_projects.length} proje tanımlı
-                  (<code>{data.git.gitlab_projects.join(", ")}</code>). Yukarıdaki repo
-                  listesi boş kaldığı sürece hedef olarak <strong>onlar</strong> kullanılır,
-                  ama takım eşlemesi yapılamadığı için metrik üretmezler — projeleri
-                  repo satırı olarak ekleyip takım seçin.
+                  {t("Config'te eski biçimde {n} proje tanımlı", { n: data.git.gitlab_projects.length })}
+                  {" "}(<code>{data.git.gitlab_projects.join(", ")}</code>). {t("Yukarıdaki repo listesi boş kaldığı sürece hedef olarak")} <strong>{t("onlar")}</strong> {t("kullanılır, ama takım eşlemesi yapılamadığı için metrik üretmezler — projeleri repo satırı olarak ekleyip takım seçin.")}
                 </p>
               )}
             </>
           )}
 
           <label>
-            Görev sağlayıcı
+            {t("Görev sağlayıcı")}
             <select value={form.tasks_provider} onChange={(e) => upd("tasks_provider", e.target.value)}>
               {TASK_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </label>
           <label>
-            Otomatik senkron aralığı (dakika, 0 = kapalı)
+            {t("Otomatik senkron aralığı (dakika, 0 = kapalı)")}
             <input type="number" min={0} value={form.sync_interval_minutes} onChange={(e) => upd("sync_interval_minutes", e.target.value)} />
           </label>
 
           {form.tasks_provider === "jira" && (
             <>
               <label>
-                Jira adresi
+                {t("Jira adresi")}
                 <input value={form.jira_base_url} onChange={(e) => upd("jira_base_url", e.target.value)} placeholder="https://jira.sirket.local" />
                 <span className="field-hint">
-                  Kök adres — <code>/rest/api/2</code> otomatik eklenir.
+                  {t("Kök adres —")} <code>/rest/api/2</code> {t("otomatik eklenir.")}
                 </span>
               </label>
               <label>
-                Jira token
-                <input type="password" autoComplete="off" value={form.jira_token} onChange={(e) => upd("jira_token", e.target.value)} placeholder={data.tasks.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "Bearer token / PAT"} />
+                {t("Jira token")}
+                <input type="password" autoComplete="off" value={form.jira_token} onChange={(e) => upd("jira_token", e.target.value)} placeholder={data.tasks.token?.configured ? t("•••• (tanımlı — değiştirmek için yaz)") : "Bearer token / PAT"} />
               </label>
               <label className="span-2">
-                Jira proje anahtarları (her satıra bir tane)
+                {t("Jira proje anahtarları (her satıra bir tane)")}
                 <textarea rows={3} value={form.jira_projects} onChange={(e) => upd("jira_projects", e.target.value)} placeholder="ENG&#10;OPS" />
                 <span className="field-hint">
-                  Issue anahtarının başındaki kısım: <code>ENG</code>-142 → <code>ENG</code>.
-                  Liste boşsa hiçbir görev çekilmez. Kaydettikten sonra "Bağlantıyı
-                  test et" ile doğrulayın.
+                  {t("Issue anahtarının başındaki kısım:")} <code>ENG</code>-142 → <code>ENG</code>.{" "}
+                  {t('Liste boşsa hiçbir görev çekilmez. Kaydettikten sonra "Bağlantıyı test et" ile doğrulayın.')}
                 </span>
               </label>
             </>
@@ -666,30 +656,29 @@ export default function IntegrationPanel() {
           {form.tasks_provider === "trello" && (
             <>
               <label className="span-2">
-                Trello board id'leri (her satıra bir tane)
+                {t("Trello board id'leri (her satıra bir tane)")}
                 <textarea rows={3} value={form.trello_boards} onChange={(e) => upd("trello_boards", e.target.value)} placeholder="5f2a...&#10;60b1..." />
                 <span className="field-hint">
-                  Board URL'inden: trello.com/b/<b>BOARD_ID</b>/isim — kaydettikten sonra
-                  "Bağlantıyı test et" ile id'lerin okunabildiğini doğrulayın.
+                  {t("Board URL'inden: trello.com/b/")}<b>BOARD_ID</b>{t("/isim — kaydettikten sonra")}{" "}
+                  {t('"Bağlantıyı test et" ile id\'lerin okunabildiğini doğrulayın.')}
                 </span>
               </label>
               <label>
-                Trello API Key
-                <input type="password" autoComplete="off" value={form.trello_key} onChange={(e) => upd("trello_key", e.target.value)} placeholder={data.tasks.trello?.key?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "trello.com/power-ups/admin"} />
+                {t("Trello API Key")}
+                <input type="password" autoComplete="off" value={form.trello_key} onChange={(e) => upd("trello_key", e.target.value)} placeholder={data.tasks.trello?.key?.configured ? t("•••• (tanımlı — değiştirmek için yaz)") : "trello.com/power-ups/admin"} />
               </label>
               <label>
-                Trello Token
-                <input type="password" autoComplete="off" value={form.trello_token} onChange={(e) => upd("trello_token", e.target.value)} placeholder={data.tasks.trello?.token?.configured ? "•••• (tanımlı — değiştirmek için yaz)" : "API Key sayfasındaki Token linki"} />
+                {t("Trello Token")}
+                <input type="password" autoComplete="off" value={form.trello_token} onChange={(e) => upd("trello_token", e.target.value)} placeholder={data.tasks.trello?.token?.configured ? t("•••• (tanımlı — değiştirmek için yaz)") : t("API Key sayfasındaki Token linki")} />
               </label>
               <p className="desc span-2">
-                Key/Token config'e YAZILMAZ — gitignore'lu <code>.secrets.env</code>'e
-                ve süreç ortamına yazılır. Boş bırakırsan mevcut sır korunur.
+                {t("Key/Token config'e YAZILMAZ — gitignore'lu")} <code>.secrets.env</code>'{t("e ve süreç ortamına yazılır. Boş bırakırsan mevcut sır korunur.")}
               </p>
             </>
           )}
 
           <button type="submit" className="login-btn" disabled={saving}>
-            {saving ? "Kaydediliyor…" : "Ayarları kaydet"}
+            {saving ? t("Kaydediliyor…") : t("Ayarları kaydet")}
           </button>
         </form>
         {msg && <div className="admin-ok">{msg}</div>}

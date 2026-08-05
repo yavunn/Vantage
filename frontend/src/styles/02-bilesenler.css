@@ -748,3 +748,60 @@ table.score-breakdown tr.muted td { color: var(--muted); }
 @media print {
   .topbar, .hr-toolbar button { display: none !important; }
 }
+
+/* --- dil seçici (giriş ekranı + üst çubuk) ---------------------------------
+   İki kod arasında geçiş; seçili olan basılı görünür. Tek düğmeyle "diğer
+   dile geç" yapmadık: kullanıcı hangi dilde olduğunu da görebilmeli. */
+.lang-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.lang-switch .lang-opt {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.lang-switch .lang-opt:hover { color: var(--text-primary); }
+.lang-switch .lang-opt.active {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.lang-switch .lang-opt:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.lang-switch.mini-switch .lang-opt { padding: 0.15rem 0.5rem; font-size: 0.7rem; }
+
+/* Giriş ekranı: seçici ile kart AYNI sütunda ve aynı genişlikte.
+   .login-panel satır yerleşimli olduğu için seçici doğrudan çocuk yapılınca
+   kartın soluna düşüp yetim görünüyordu. */
+.login-stack { display: flex; flex-direction: column; width: 100%; max-width: 400px; }
+.login-stack .lang-switch { align-self: flex-end; margin-bottom: 0.75rem; }
+.login-stack .login-card { max-width: none; width: 100%; }
+
+/* Bağlantı görünümlü ikincil eylem (şifremi unuttum / girişe dön). */
+.link-btn {
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  padding: 0.35rem 0;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { opacity: 0.85; }
+.link-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }

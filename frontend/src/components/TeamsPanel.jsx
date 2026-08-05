@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { createTeam, deleteTeam, listTeamsAdmin, renameTeam } from "../api.js";
 import { toast } from "../toast.js";
+import { useT } from "../i18n.jsx";
 
 // Yönetici: takım oluştur / yeniden adlandır / sil.
 // Önceden takımlar YALNIZCA ingest sırasında (Trello board adı, repo eşlemesi)
 // örtük doğuyordu — kurulu bir sistemde yeni takım için YAML düzenlemek gerekiyordu.
 export default function TeamsPanel({ onChanged }) {
+  const t = useT();
   const [teams, setTeams] = useState(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState(null);   // {id, name}
@@ -41,7 +43,7 @@ export default function TeamsPanel({ onChanged }) {
     e.preventDefault();
     const name = newName.trim();
     if (!name) return;
-    if (await run(() => createTeam(name), `'${name}' oluşturuldu.`)) setNewName("");
+    if (await run(() => createTeam(name), t("'{name}' oluşturuldu.", { name }))) setNewName("");
   }
 
   async function saveRename() {
@@ -50,8 +52,8 @@ export default function TeamsPanel({ onChanged }) {
     const ok = await run(
       () => renameTeam(editing.id, name),
       (r) => r.config_updated
-        ? `Ad değişti; repo eşlemesi de güncellendi.`
-        : `Ad değişti.`
+        ? t("Ad değişti; repo eşlemesi de güncellendi.")
+        : t("Ad değişti.")
     );
     if (ok) setEditing(null);
   }
@@ -60,45 +62,43 @@ export default function TeamsPanel({ onChanged }) {
     const ok = await run(
       () => deleteTeam(team.id),
       (r) => r.detached_tasks
-        ? `'${team.name}' silindi; ${r.detached_tasks} görev takımsız kaldı (silinmedi).`
-        : `'${team.name}' silindi.`
+        ? t("'{name}' silindi; {n} görev takımsız kaldı (silinmedi).", { name: team.name, n: r.detached_tasks })
+        : t("'{name}' silindi.", { name: team.name })
     );
     if (ok) setConfirming(null);
   }
 
   if (error && !teams) return <div className="login-error">{error}</div>;
-  if (!teams) return <p className="desc">Yükleniyor…</p>;
+  if (!teams) return <p className="desc">{t("Yükleniyor…")}</p>;
 
   return (
     <div className="teams-panel">
       <section className="section">
-        <h2>Takımlar</h2>
+        <h2>{t("Takımlar")}</h2>
         <p className="desc">
-          Metrikler takım seviyesinde hesaplanır. Bir takıma repo bağlanmadan git
-          metrikleri, görev kaynağı bağlanmadan akış metrikleri üretilemez —
-          bağlama işi Entegrasyon sekmesinde.
+          {t("Metrikler takım seviyesinde hesaplanır. Bir takıma repo bağlanmadan git metrikleri, görev kaynağı bağlanmadan akış metrikleri üretilemez — bağlama işi Entegrasyon sekmesinde.")}
         </p>
 
         <form className="team-create" onSubmit={add}>
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Yeni takım adı"
+            placeholder={t("Yeni takım adı")}
             maxLength={200}
           />
           <button className="login-btn" type="submit" disabled={busy || !newName.trim()}>
-            Takım ekle
+            {t("Takım ekle")}
           </button>
         </form>
 
         {teams.length === 0 ? (
-          <p className="desc">Henüz takım yok.</p>
+          <p className="desc">{t("Henüz takım yok.")}</p>
         ) : (
           <div className="team-rows">
-            {teams.map((t) => (
-              <div key={t.id} className="team-row">
+            {teams.map((tm) => (
+              <div key={tm.id} className="team-row">
                 <div className="team-row-main">
-                  {editing?.id === t.id ? (
+                  {editing?.id === tm.id ? (
                     <div className="team-rename">
                       <input
                         value={editing.name}
@@ -110,57 +110,57 @@ export default function TeamsPanel({ onChanged }) {
                           if (e.key === "Escape") setEditing(null);
                         }}
                       />
-                      <button className="mini" onClick={saveRename} disabled={busy}>Kaydet</button>
-                      <button className="mini" onClick={() => setEditing(null)}>Vazgeç</button>
+                      <button className="mini" onClick={saveRename} disabled={busy}>{t("Kaydet")}</button>
+                      <button className="mini" onClick={() => setEditing(null)}>{t("Vazgeç")}</button>
                     </div>
                   ) : (
                     <>
-                      <div className="team-name">{t.name}</div>
+                      <div className="team-name">{tm.name}</div>
                       <div className="team-usage">
-                        {t.members} üye · {t.repos} repo · {t.tasks} görev
+                        {t("{a} üye · {b} repo · {c} görev", { a: tm.members, b: tm.repos, c: tm.tasks })}
                       </div>
                     </>
                   )}
                 </div>
 
-                {editing?.id !== t.id && (
+                {editing?.id !== tm.id && (
                   <div className="team-row-actions">
-                    <button className="mini" onClick={() => setEditing({ id: t.id, name: t.name })}>
-                      Yeniden adlandır
+                    <button className="mini" onClick={() => setEditing({ id: tm.id, name: tm.name })}>
+                      {t("Yeniden adlandır")}
                     </button>
-                    {confirming === t.id ? (
+                    {confirming === tm.id ? (
                       <>
-                        <button className="mini danger" onClick={() => remove(t)} disabled={busy}>
-                          Evet, sil
+                        <button className="mini danger" onClick={() => remove(tm)} disabled={busy}>
+                          {t("Evet, sil")}
                         </button>
-                        <button className="mini" onClick={() => setConfirming(null)}>Vazgeç</button>
+                        <button className="mini" onClick={() => setConfirming(null)}>{t("Vazgeç")}</button>
                       </>
                     ) : (
                       <button
                         className="mini danger"
-                        onClick={() => setConfirming(t.id)}
-                        disabled={!t.deletable}
-                        title={t.deletable
-                          ? "Takımı sil"
-                          : "Önce üyeleri ve repoları ayırın (Hesaplar / Entegrasyon)"}
+                        onClick={() => setConfirming(tm.id)}
+                        disabled={!tm.deletable}
+                        title={tm.deletable
+                          ? t("Takımı sil")
+                          : t("Önce üyeleri ve repoları ayırın (Hesaplar / Entegrasyon)")}
                       >
-                        Sil
+                        {t("Sil")}
                       </button>
                     )}
                   </div>
                 )}
 
-                {confirming === t.id && t.tasks > 0 && (
+                {confirming === tm.id && tm.tasks > 0 && (
                   <p className="team-warn">
-                    {t.tasks} görev bu takıma bağlı. Görevler <strong>silinmez</strong>,
-                    takımsız kalır; metrik ve öneri kayıtları temizlenir.
+                    {t("{n} görev bu takıma bağlı. Görevler", { n: tm.tasks })} <strong>{t("silinmez")}</strong>,{" "}
+                    {t("takımsız kalır; metrik ve öneri kayıtları temizlenir.")}
                   </p>
                 )}
-                {!t.deletable && confirming !== t.id && (
+                {!tm.deletable && confirming !== tm.id && (
                   <p className="team-hint">
-                    Silinemez: {t.members > 0 && `${t.members} üye`}
-                    {t.members > 0 && t.repos > 0 && " ve "}
-                    {t.repos > 0 && `${t.repos} repo`} bağlı.
+                    {t("Silinemez:")} {tm.members > 0 && t("{n} üye", { n: tm.members })}
+                    {tm.members > 0 && tm.repos > 0 && t(" ve ")}
+                    {tm.repos > 0 && t("{n} repo", { n: tm.repos })} {t("bağlı.")}
                   </p>
                 )}
               </div>

@@ -253,6 +253,14 @@ def _user_out(session: Session, user: User) -> dict:
     }
 
 
+# Parola sıfırlama TALEBİ için ayrı, daha dar bir IP sınırı. Giriş sayacından
+# ayrıdır: bu uç parola denemiyor, ama sınırsız bırakılırsa hem yöneticinin
+# kuyruğu spam'lenir hem de e-posta numaralandırma denemesi ucuzlar.
+RESET_RATE_MAX = 5
+RESET_RATE_WINDOW_MIN = 15
+_reset_attempts: dict[str, list[datetime]] = {}
+
+
 # --- uçlar --------------------------------------------------------------------
 
 @router.post("/login")
@@ -338,6 +346,71 @@ def update_my_profile(
     user.updated_at = datetime.now(timezone.utc)
     session.commit()
     return _user_out(session, user)
+
+
+class ForgotPasswordBody(BaseModel):
+    email: str
+    note: str | None = Field(default=None, max_length=280)
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    body: ForgotPasswordBody,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Parola sıfırlama TALEBİ bırakır (kimlik doğrulaması gerektirmez).
+
+    Neden linkli e-posta değil: bu kurulum on-prem ve mail altyapısı YOK.
+    Sıfırlama linki göndermek, var olmayan bir SMTP'yi varmış gibi kurgulamak
+    olurdu. Talep yönetici/İK kuyruğuna düşer; sıfırlama zaten var olan akışla
+    yapılır (geçici parola → must_change_password → kullanıcı kendi belirler).
+
+    NUMARALANDIRMA YOK: e-posta sistemde olsa da olmasa da yanıt AYNIDIR.
+    Hesabın varlığı yalnız yöneticinin gördüğü kayda yazılır.
+    """
+    from app.models import PasswordResetRequest
+
+    now = datetime.now(timezone.utc)
+    ip = _client_ip(request)
+    pencere = now - timedelta(minutes=RESET_RATE_WINDOW_MIN)
+    denemeler = [t for t in _reset_attempts.get(ip, []) if t > pencere]
+    _reset_attempts[ip] = denemeler
+    if len(denemeler) >= RESET_RATE_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Çok fazla talep. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+        )
+    _reset_attempts[ip].append(now)
+
+    email = (body.email or "").strip().lower()
+    if email:
+        user = session.scalar(select(User).where(User.email == email))
+        # Aynı e-posta için bekleyen talep varsa yenisini AÇMA: kuyruk şişmesin.
+        bekleyen = session.scalar(
+            select(PasswordResetRequest).where(
+                PasswordResetRequest.email == email,
+                PasswordResetRequest.status == "pending",
+            )
+        )
+        if bekleyen is None:
+            session.add(PasswordResetRequest(
+                email=email,
+                user_id=user.id if user else None,
+                status="pending",
+                note=(body.note or "").strip() or None,
+                created_at=now,
+            ))
+            session.commit()
+
+    # Yanıt her koşulda aynı — hesabın var olup olmadığı sızmaz.
+    return {
+        "ok": True,
+        "message": (
+            "Talebiniz yöneticinize iletildi. Hesabınız varsa size geçici bir "
+            "parola verilecek ve ilk girişte kendi parolanızı belirleyeceksiniz."
+        ),
+    }
 
 
 @router.post("/change-password")
@@ -505,6 +578,78 @@ def delete_employee(
                  target_email=user.email, detail={"developer_removed": developer_removed})
     session.commit()
     return {"ok": True, "developer_removed": developer_removed}
+
+
+@router.get("/password-requests")
+def list_password_requests(
+    status: str = "pending",
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin_or_hr),
+):
+    """Bekleyen "şifremi unuttum" talepleri (yönetici/İK).
+
+    `user_id` burada görünür — kullanıcıya dönen yanıtta ASLA görünmez.
+    Hesabı olmayan bir e-postadan talep gelmesi de bilgidir: ya yanlış adres
+    yazılmıştır ya da hesap hiç açılmamıştır."""
+    from app.models import PasswordResetRequest
+
+    stmt = select(PasswordResetRequest).order_by(PasswordResetRequest.created_at.desc())
+    if status in ("pending", "resolved", "dismissed"):
+        stmt = stmt.where(PasswordResetRequest.status == status)
+    rows = session.scalars(stmt.limit(200)).all()
+    out = []
+    for r in rows:
+        hedef = session.get(User, r.user_id) if r.user_id else None
+        out.append({
+            "id": r.id,
+            "email": r.email,
+            "note": r.note,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+            # Hesap gerçekten var mı — yöneticinin yanlış adresi ayırt etmesi için.
+            "account_exists": hedef is not None,
+            "user_id": r.user_id,
+            "user_name": hedef.email if hedef else None,
+            "user_role": hedef.role if hedef else None,
+        })
+    return out
+
+
+class PasswordRequestDecision(BaseModel):
+    status: str = Field(pattern="^(resolved|dismissed)$")
+
+
+@router.patch("/password-requests/{req_id}")
+def decide_password_request(
+    req_id: int,
+    body: PasswordRequestDecision,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_admin_or_hr),
+):
+    """Talebi kapatır. Parolayı DEĞİŞTİRMEZ — sıfırlama ayrı ve bilinçli bir
+    adımdır (`POST /employees/{id}/password`). İki işi tek uca bindirmek,
+    "kapattım" derken farkında olmadan parola sıfırlamaya yol açardı."""
+    from app.models import PasswordResetRequest
+
+    req = session.get(PasswordResetRequest, req_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Talep bulunamadı")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="Bu talep zaten kapatılmış")
+    # İK yalnız düz çalışanın talebini kapatabilir (parola sıfırlamadaki kuralla aynı).
+    if admin.role == "hr" and req.user_id:
+        hedef = session.get(User, req.user_id)
+        if hedef is not None and hedef.role != "user":
+            raise HTTPException(403, "İK yalnızca çalışan (user) talebini kapatabilir")
+    req.status = body.status
+    req.resolved_at = datetime.now(timezone.utc)
+    req.resolved_by_id = admin.id
+    from app.services.audit import record_audit
+    record_audit(session, admin, f"password_request_{body.status}",
+                 target_user_id=req.user_id, target_email=req.email)
+    session.commit()
+    return {"ok": True, "status": req.status}
 
 
 @router.post("/employees/{user_id}/password")

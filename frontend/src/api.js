@@ -1,6 +1,8 @@
 // API istemcisi + oturum yönetimi.
 // Kimlik: JWT (Bearer) — TÜM uçlar (dashboard dahil) bunu ister.
 
+import { getLang } from "./i18n.jsx";
+
 const TOKEN_KEY = "vantage_token";
 const USER_KEY = "vantage_user";
 
@@ -35,6 +37,9 @@ function authHeaders(extra = {}) {
   const headers = { ...extra };
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  // Metrik adları, açıklamaları ve durum etiketleri SUNUCUDAN geliyor. Dil
+  // başlığı gönderilmezse arayüz İngilizce, kartlar Türkçe kalırdı.
+  headers["Accept-Language"] = getLang();
   return headers;
 }
 
@@ -445,4 +450,20 @@ export function getSurveyStatus() {
 }
 export function genSurveyKey() {
   return apiPost("/api/survey/genkey", {});
+}
+
+// --- parola sıfırlama talebi (giriş öncesi, kimlik gerektirmez) --------------
+// E-postayla sıfırlama LİNKİ göndermiyoruz: bu kurulum on-prem ve mail
+// altyapısı yok. Talep yönetici kuyruğuna düşer. Yanıt, e-posta sistemde olsa
+// da olmasa da AYNIDIR (kullanıcı numaralandırma).
+export function requestPasswordReset(email, note) {
+  return apiPost("/api/auth/forgot-password", { email, note: note || null });
+}
+
+export function listPasswordRequests(status = "pending") {
+  return api(`/api/auth/password-requests?status=${encodeURIComponent(status)}`);
+}
+
+export function decidePasswordRequest(id, status) {
+  return apiPatch(`/api/auth/password-requests/${id}`, { status });
 }
