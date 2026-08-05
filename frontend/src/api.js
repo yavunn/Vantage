@@ -453,21 +453,9 @@ export function genSurveyKey() {
 }
 
 // --- kendi kendine parola sıfırlama (giriş öncesi, kimlik gerektirmez) -------
-// Yeni geçici parola sunucu tarafından kullanıcının KENDİ adresine gönderilir;
-// yanıtta dönmez. Yanıt, hesap var olsa da olmasa da aynıdır (numaralandırma).
+// Sunucu mail göndermez (SMTP yok). Hesap e-postayla bulunur, yeni geçici
+// parola DOĞRUDAN uygulanır ve yanıtla birlikte döner; arayüz bunu gösterir
+// ve mailto ile kullanıcının kendi e-postasına göndermeyi önerir.
 export function requestPasswordReset(email) {
   return apiPost("/api/auth/forgot-password", { email });
-}
-
-// --- giden e-posta (SMTP) ayarları — yönetici -------------------------------
-export function getSmtpSettings() {
-  return api("/api/admin/smtp");
-}
-
-export function updateSmtpSettings(patch) {
-  return apiPut("/api/admin/smtp", patch);
-}
-
-export function sendTestEmail(to) {
-  return apiPost("/api/admin/smtp/test", { to });
 }

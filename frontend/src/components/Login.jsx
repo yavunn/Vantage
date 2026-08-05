@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { login, requestPasswordReset } from "../api.js";
 import { LANGS, useLang } from "../i18n.jsx";
+import { toast } from "../toast.js";
 
 // Giriş ekranı. Marka: "Vantage" — sürece tek bir bakış noktasından bakar;
 // gözetim değil, ekibin iyiliği için. Çerçeve (İlke E) burada da görünür.
@@ -50,27 +51,30 @@ function BrandArt() {
 
 /** Kendi kendine parola sıfırlama formu.
  *
- * Yeni geçici parola sunucu tarafından kullanıcının KENDİ adresine e-postayla
- * gönderilir; bu ekranda ASLA gösterilmez. Parolayı ekranda göstermek,
- * e-posta adresini bilen herkese hesabı açardı — postayı alabilmek, isteği
- * gerçekten hesap sahibinin yaptığını doğrulayan tek adımdır.
+ * Sunucu mail göndermez (SMTP yok — bilinçli olarak kurulmadı). Hesap
+ * e-postayla bulunur, yeni bir geçici parola DOĞRUDAN üretilip uygulanır ve
+ * ekranda gösterilir; kullanıcı "E-postama gönder" ile kendi e-posta
+ * istemcisinde önceden doldurulmuş bir taslak açar (mailto — istemci
+ * tarafında, sunucu göndermez). İlk girişte kendi parolasını belirler.
  *
- * GİZLİLİK: sunucu, e-posta kayıtlı olsun ya da olmasın AYNI yanıtı döner;
- * bu ekran da "böyle bir hesap yok" demez (hesap numaralandırma). */
+ * GÜVENLİK ÖDÜNÜ (bilinçli): bu ekran "hesap var mı" bilgisini SIZDIRIR —
+ * e-postayı bilen biri parolayı sıfırlayıp yeni değeri görebilir. Kapalı,
+ * tek kuruluşluk, on-prem bir araç için kabul edilen tasarım kararı (bkz.
+ * backend app/api/auth.py::forgot_password). */
 function ForgotForm({ onBack }) {
   const { t } = useLang();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [sent, setSent] = useState(null);
+  const [result, setResult] = useState(null); // { account_exists, email, new_password }
+  const [copied, setCopied] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const res = await requestPasswordReset(email.trim());
-      setSent(res.message || t("forgot.sentLede"));
+      setResult(await requestPasswordReset(email.trim()));
     } catch (err) {
       setError(err.message || t("common.error"));
     } finally {
@@ -78,12 +82,50 @@ function ForgotForm({ onBack }) {
     }
   }
 
-  if (sent) {
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(result.new_password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast(t("Kopyalanamadı — panoya erişim yok"), "error");
+    }
+  }
+
+  if (result?.account_exists) {
+    const mailto =
+      `mailto:${encodeURIComponent(result.email)}` +
+      `?subject=${encodeURIComponent(t("forgot.mailSubject"))}` +
+      `&body=${encodeURIComponent(t("forgot.mailBody", { password: result.new_password }))}`;
     return (
       <div className="login-card">
-        <h2>{t("forgot.sentTitle")}</h2>
-        <p className="login-sub">{sent}</p>
-        <button type="button" className="login-btn" onClick={onBack}>
+        <h2>{t("forgot.doneTitle")}</h2>
+        <p className="login-sub">{t("forgot.doneLede")}</p>
+        <div className="cred-row">
+          <code className="cred-value">{result.new_password}</code>
+          <button type="button" className="mini" onClick={copyPassword}>
+            {copied ? t("Kopyalandı") : t("Kopyala")}
+          </button>
+        </div>
+        <a className="login-btn" href={mailto} style={{ textAlign: "center" }}>
+          {t("forgot.emailButton")}
+        </a>
+        <button type="button" className="link-btn" onClick={onBack}>
+          {t("login.backToLogin")}
+        </button>
+      </div>
+    );
+  }
+
+  if (result && !result.account_exists) {
+    return (
+      <div className="login-card">
+        <h2>{t("forgot.notFoundTitle")}</h2>
+        <p className="login-sub">{t("forgot.notFoundLede")}</p>
+        <button type="button" className="login-btn" onClick={() => setResult(null)}>
+          {t("common.retry")}
+        </button>
+        <button type="button" className="link-btn" onClick={onBack}>
           {t("login.backToLogin")}
         </button>
       </div>

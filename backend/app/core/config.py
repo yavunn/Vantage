@@ -335,28 +335,6 @@ class ProjectsSettings(BaseModel):
     max_local_commits: int = 100
 
 
-class SmtpSettings(BaseModel):
-    """Giden e-posta (SMTP). Şu an tek kullanıcısı "şifremi unuttum" akışıdır:
-    yeni geçici parola kullanıcının kendi adresine GÖNDERİLİR — ekranda
-    gösterilmez. Bu, parolayı isteyenin gerçekten o kutuya erişebildiğini
-    doğrulayan tek adımdır; SMTP kapalıysa sıfırlama da kapalıdır.
-
-    Parola (password_env) config.yaml'a ASLA yazılmaz — .secrets.env'e gider.
-    security: starttls (587, yaygın) | ssl (465) | none (yalnız iç relay).
-    """
-
-    enabled: bool = False
-    host: str = ""
-    port: int = 587
-    security: str = "starttls"  # starttls | ssl | none
-    username: str = ""
-    password_env: str = "SMTP_PASSWORD"
-    # Gönderen adresi. Boşsa username kullanılır (çoğu sağlayıcı böyle ister).
-    from_address: str = ""
-    from_name: str = "Vantage"
-    timeout_seconds: int = 15
-
-
 class Config(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -370,7 +348,6 @@ class Config(BaseModel):
     survey: SurveySettings = Field(default_factory=SurveySettings)
     projects: ProjectsSettings = Field(default_factory=ProjectsSettings)
     rag: RagSettings = Field(default_factory=RagSettings)
-    smtp: SmtpSettings = Field(default_factory=SmtpSettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —

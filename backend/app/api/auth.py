@@ -3,9 +3,9 @@
 - POST /api/auth/login                 : email + parola -> JWT
 - GET  /api/auth/me                    : token sahibinin bilgisi
 - POST /api/auth/change-password       : çalışan kendi parolasını değiştirir
-- POST /api/auth/forgot-password       : kimliksiz — yeni geçici parolayı
-                                          kullanıcının kendi adresine e-postayla
-                                          gönderir (yanıtta ASLA dönmez)
+- POST /api/auth/forgot-password       : kimliksiz — hesabı bulur, yeni geçici
+                                          parolayı DOĞRUDAN uygular ve döner
+                                          (arayüz mailto ile e-postaya gönderir)
 - GET  /api/auth/employees             : (admin) hesap listesi
 - POST /api/auth/employees             : (admin) yeni çalışan + hesap oluştur
 - POST /api/auth/employees/{id}/password : (admin) bir çalışanın parolasını sıfırla
@@ -18,7 +18,6 @@ kimlik yalnız JWT'den gelir — eski X-Dev-Id katmanı kaldırıldı.
 """
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -46,10 +45,6 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/auth")
-
-# Mail gönderim hatası kullanıcıya genel mesajla döner; yöneticinin sebebi
-# görebilmesi için ayrıntı sunucu loguna yazılır (uvicorn handler'ına düşer).
-logger = logging.getLogger(__name__)
 
 # Login brute-force koruması: ardışık N başarısız denemeden sonra hesap
 # M dakika geçici kilitlenir. Kilit süresi dolunca sayaç sıfırlanır.
@@ -361,19 +356,6 @@ class ForgotPasswordBody(BaseModel):
     email: str
 
 
-RESET_MAIL_SUBJECT = "Vantage — yeni parolanız"
-RESET_MAIL_BODY = (
-    "Merhaba,\n\n"
-    "Hesabınız için parola sıfırlama isteği alındı ve yeni bir geçici parola "
-    "oluşturuldu:\n\n"
-    "    {password}\n\n"
-    "Bu parolayla giriş yaptığınızda kendi parolanızı belirlemeniz istenecek. "
-    "Eski parolanız artık geçersizdir ve açık oturumlarınız kapatılmıştır.\n\n"
-    "Bu isteği siz yapmadıysanız hemen giriş yapıp parolanızı değiştirin ve "
-    "yöneticinize haber verin.\n"
-)
-
-
 @router.post("/forgot-password")
 def forgot_password(
     body: ForgotPasswordBody,
@@ -382,19 +364,20 @@ def forgot_password(
 ):
     """Kendi kendine parola sıfırlama (kimlik doğrulaması gerektirmez).
 
-    Yeni geçici parola kullanıcının KENDİ adresine e-postayla gönderilir;
-    yanıtta ASLA dönmez. Böylece sıfırlamayı isteyenin gerçekten o posta
-    kutusuna eriştiği doğrulanmış olur — parolayı ekranda göstermek bunu
-    doğrulamıyor, yalnızca e-posta adresini bilen herkese hesabı açıyordu.
+    Sunucuda mail gönderimi YOK — kurulum bilerek sunucu/SMTP gerektirmez.
+    Hesap e-postayla bulunur ve yeni bir geçici parola DOĞRUDAN uygulanır;
+    kullanıcı ilk girişte kendi parolasını belirler (must_change_password).
+    Yeni parola yanıtla birlikte döner; arayüz bunu ekranda gösterir ve
+    kullanıcının kendi e-postasına göndermesi için bir mailto bağlantısı
+    sunar (istemci tarafında, kendi mail programını açar — sunucu göndermez).
 
-    SIRA ÖNEMLİ: önce mail gönderilir, ancak gönderim BAŞARILI olursa parola
-    kaydedilir. Tersi sırada, mail gidemediğinde kullanıcı yeni parolayı hiç
-    öğrenemeden hesabından kilitlenirdi.
-
-    NUMARALANDIRMA YOK: e-posta sistemde olsa da olmasa da yanıt AYNIDIR.
+    BİLİNÇLİ GÜVENLİK ÖDÜNÜ: e-posta adresini bilen HERKES o hesabın
+    parolasını sıfırlayıp yeni değeri görebilir — ikinci bir kimlik doğrulama
+    adımı (gerçekten o kutuya erişildiğinin doğrulanması) yoktur. Kapalı, tek
+    kuruluşluk, on-prem bir araç için bilinçli olarak kabul edilen risktir;
+    internete açık bir sistemde KULLANILMAMALIDIR. IP bazlı hız sınırı
+    yalnızca toplu e-posta taramasını yavaşlatır, bu ödünü ortadan kaldırmaz.
     """
-    from app.services.mailer import MailError, is_configured, send_email
-
     now = datetime.now(timezone.utc)
     ip = _client_ip(request)
     pencere = now - timedelta(minutes=RESET_RATE_WINDOW_MIN)
@@ -407,49 +390,23 @@ def forgot_password(
         )
     _reset_attempts[ip].append(now)
 
-    # SMTP kapalıysa sıfırlama da kapalıdır: parolayı değiştirip iletemezsek
-    # kullanıcıyı kilitleriz. Bu, hesabın varlığından BAĞIMSIZ bir kurulum
-    # hatasıdır — numaralandırma sızdırmaz.
-    if not is_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="E-posta gönderimi yapılandırılmamış. Lütfen yöneticinize başvurun.",
-        )
-
     email = (body.email or "").strip().lower()
     user = session.scalar(select(User).where(User.email == email)) if email else None
-    if user is not None and user.is_active:
-        new_password = generate_temp_password()
-        try:
-            send_email(user.email, RESET_MAIL_SUBJECT,
-                       RESET_MAIL_BODY.format(password=new_password))
-        except MailError as e:
-            # Ayrıntı (sunucu adı, kimlik hatası) kullanıcıya sızmasın.
-            logger.error("Parola sıfırlama e-postası gönderilemedi: %s", e)
-            raise HTTPException(
-                status_code=502,
-                detail="E-posta gönderilemedi. Lütfen yöneticinize başvurun.",
-            ) from e
-        # Mail gitti — parolayı ancak şimdi kalıcılaştır.
-        user.password_hash = hash_password(new_password)
-        user.must_change_password = True  # geçici; kullanıcı ilk girişte değiştirir
-        user.token_version = (user.token_version or 0) + 1  # eski oturumları düşür
-        user.updated_at = now
-        from app.services.audit import record_audit
-        # Parolanın KENDİSİ asla kaydedilmez — yalnız "kendi kendine sıfırladı"
-        # olgusu. actor=None: oturum açmış bir yönetici değil, hesabın kendisi.
-        record_audit(session, None, "self_reset_password", target_user_id=user.id,
-                     target_email=user.email)
-        session.commit()
+    if user is None or not user.is_active:
+        return {"ok": True, "account_exists": False, "email": email, "new_password": None}
 
-    # Yanıt her koşulda aynı — hesabın var olup olmadığı sızmaz.
-    return {
-        "ok": True,
-        "message": (
-            "Hesabınız varsa yeni parolanız e-posta adresinize gönderildi. "
-            "Gelen kutunuzu (ve spam klasörünü) kontrol edin."
-        ),
-    }
+    new_password = generate_temp_password()
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = True  # geçici; kullanıcı ilk girişte değiştirir
+    user.token_version = (user.token_version or 0) + 1  # eski oturumları düşür
+    user.updated_at = now
+    from app.services.audit import record_audit
+    # Parolanın KENDİSİ asla kaydedilmez — yalnız "kendi kendine sıfırladı"
+    # olgusu. actor=None: oturum açmış bir yönetici değil, hesabın kendisi.
+    record_audit(session, None, "self_reset_password", target_user_id=user.id,
+                 target_email=user.email)
+    session.commit()
+    return {"ok": True, "account_exists": True, "email": email, "new_password": new_password}
 
 
 @router.post("/change-password")

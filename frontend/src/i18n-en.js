@@ -547,33 +547,6 @@ Object.assign(EN, {
   "Ayarları kaydet": "Save settings",
 });
 
-// --- Giden e-posta (SMTP) ayarları -------------------------------------------
-Object.assign(EN, {
-  "E-posta (SMTP)": "Email (SMTP)",
-  "Şifremi unuttum akışı bunu kullanır: yeni geçici parola kullanıcının kendi e-posta adresine gönderilir, ekranda gösterilmez. Kapalıyken kullanıcılar parolalarını kendileri sıfırlayamaz — yalnızca yönetici sıfırlayabilir.":
-    "The forgot-password flow uses this: the new temporary password is emailed to the user's own address, never shown on screen. While off, users can't reset their own password — only an admin can.",
-  "E-posta gönderimi açık": "Outgoing email enabled",
-  'Kapalıyken kullanıcılar "şifremi unuttum" ile parola sıfırlayamaz.':
-    "While off, users can't reset their password via \"forgot password\".",
-  "Sunucu (host)": "Server (host)",
-  "Port": "Port",
-  "STARTTLS için 587, SSL için 465.": "587 for STARTTLS, 465 for SSL.",
-  "Güvenlik": "Security",
-  "Kullanıcı adı": "Username",
-  "İç relay kimlik doğrulaması istemiyorsa boş bırakın.": "Leave blank if your internal relay doesn't require authentication.",
-  "Config dosyasına yazılmaz; .secrets.env'e gider.": "Never written to the config file; it goes to .secrets.env.",
-  "Gönderen adresi": "From address",
-  "Boşsa kullanıcı adı kullanılır.": "If blank, the username is used.",
-  "Gönderen adı": "From name",
-  "E-posta ayarlarını kaydet": "Save email settings",
-  "E-posta ayarları kaydedildi": "Email settings saved",
-  "Deneme adresi (boşsa kendi adresiniz)": "Test address (blank = your own)",
-  "Deneme e-postası gönder": "Send test email",
-  "Deneme e-postası gönderildi: {to}": "Test email sent to {to}",
-  "Önce ayarları kaydedin": "Save the settings first",
-  "Deneme, KAYDEDİLMİŞ ayarları kullanır — önce kaydedin.": "The test uses the SAVED settings — save first.",
-});
-
 // --- İzinler paneli (takvim, onay, İK özeti) --------------------------------
 Object.assign(EN, {
   "Yıllık": "Annual",

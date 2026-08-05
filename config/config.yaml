@@ -188,20 +188,3 @@ rag:
     # Modeli YA DA korpusu belirgin değiştirirsen bu sayı GEÇERSİZDİR: ölç.
     min_score: 0.517
   index: auto                # auto | memory (pgvector bu kurulumda yok)
-
-# Giden e-posta. Tek kullanıcısı "şifremi unuttum": yeni geçici parola
-# kullanıcının KENDİ kutusuna gönderilir, ekranda gösterilmez. Kapalıyken o
-# akış da kapalıdır (503) — parolayı iletemeden değiştirmek kullanıcıyı
-# hesabından kilitlerdi; sıfırlamayı yönetici yapar.
-#
-# Yönetici paneli → Entegrasyon → E-posta (SMTP) altından düzenlenir; oradaki
-# "Deneme e-postası gönder" ile doğrulayın. PAROLA BURAYA YAZILMAZ —
-# .secrets.env'e (SMTP_PASSWORD) gider.
-smtp:
-  enabled: false
-  host: ''
-  port: 587                  # starttls: 587 · ssl: 465
-  security: starttls         # starttls | ssl | none (kimlik istemeyen iç relay)
-  username: ''               # kimlik doğrulaması istemeyen relay'de boş bırakın
-  from_address: ''           # boşsa username kullanılır
-  from_name: Vantage

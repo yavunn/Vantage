@@ -10,7 +10,6 @@ import {
   updateSources,
 } from "../api.js";
 import { useLang, useT } from "../i18n.jsx";
-import SmtpSettings from "./SmtpSettings.jsx";
 
 const GIT_PROVIDERS = ["fixture", "git_log", "github", "gitlab"];
 const TASK_PROVIDERS = ["fixture", "jira", "trello", "none"];
@@ -685,8 +684,6 @@ export default function IntegrationPanel() {
         {msg && <div className="admin-ok">{msg}</div>}
         {error && <div className="login-error">{error}</div>}
       </section>
-
-      <SmtpSettings />
 
       <IdentitySection nonce={identityNonce} />
     </div>
