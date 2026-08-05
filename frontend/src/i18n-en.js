@@ -139,7 +139,6 @@ export const EN = {
   "Giriş yapılıyor…": "Signing in…",
   "Giriş başarısız": "Sign-in failed",
   "Hesabınla oturum aç.": "Sign in with your account.",
-  "Şifremi unuttum": "Forgot your password?",
   "Parolanı değiştir": "Change your password",
   "Mevcut parola": "Current password",
   "Yeni parola": "New password",

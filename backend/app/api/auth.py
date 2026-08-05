@@ -3,9 +3,6 @@
 - POST /api/auth/login                 : email + parola -> JWT
 - GET  /api/auth/me                    : token sahibinin bilgisi
 - POST /api/auth/change-password       : çalışan kendi parolasını değiştirir
-- POST /api/auth/forgot-password       : kimliksiz — hesabı bulur, yeni geçici
-                                          parolayı DOĞRUDAN uygular ve döner
-                                          (arayüz mailto ile e-postaya gönderir)
 - GET  /api/auth/employees             : (admin) hesap listesi
 - POST /api/auth/employees             : (admin) yeni çalışan + hesap oluştur
 - POST /api/auth/employees/{id}/password : (admin) bir çalışanın parolasını sıfırla
@@ -29,7 +26,6 @@ from app.core.db import get_session
 from app.core.security import (
     create_access_token,
     decode_access_token,
-    generate_temp_password,
     hash_password,
     verify_password,
 )
@@ -257,14 +253,6 @@ def _user_out(session: Session, user: User) -> dict:
     }
 
 
-# Parola sıfırlama TALEBİ için ayrı, daha dar bir IP sınırı. Giriş sayacından
-# ayrıdır: bu uç parola denemiyor, ama sınırsız bırakılırsa hem yöneticinin
-# kuyruğu spam'lenir hem de e-posta numaralandırma denemesi ucuzlar.
-RESET_RATE_MAX = 5
-RESET_RATE_WINDOW_MIN = 15
-_reset_attempts: dict[str, list[datetime]] = {}
-
-
 # --- uçlar --------------------------------------------------------------------
 
 @router.post("/login")
@@ -350,63 +338,6 @@ def update_my_profile(
     user.updated_at = datetime.now(timezone.utc)
     session.commit()
     return _user_out(session, user)
-
-
-class ForgotPasswordBody(BaseModel):
-    email: str
-
-
-@router.post("/forgot-password")
-def forgot_password(
-    body: ForgotPasswordBody,
-    request: Request,
-    session: Session = Depends(get_session),
-):
-    """Kendi kendine parola sıfırlama (kimlik doğrulaması gerektirmez).
-
-    Sunucuda mail gönderimi YOK — kurulum bilerek sunucu/SMTP gerektirmez.
-    Hesap e-postayla bulunur ve yeni bir geçici parola DOĞRUDAN uygulanır;
-    kullanıcı ilk girişte kendi parolasını belirler (must_change_password).
-    Yeni parola yanıtla birlikte döner; arayüz bunu ekranda gösterir ve
-    kullanıcının kendi e-postasına göndermesi için bir mailto bağlantısı
-    sunar (istemci tarafında, kendi mail programını açar — sunucu göndermez).
-
-    BİLİNÇLİ GÜVENLİK ÖDÜNÜ: e-posta adresini bilen HERKES o hesabın
-    parolasını sıfırlayıp yeni değeri görebilir — ikinci bir kimlik doğrulama
-    adımı (gerçekten o kutuya erişildiğinin doğrulanması) yoktur. Kapalı, tek
-    kuruluşluk, on-prem bir araç için bilinçli olarak kabul edilen risktir;
-    internete açık bir sistemde KULLANILMAMALIDIR. IP bazlı hız sınırı
-    yalnızca toplu e-posta taramasını yavaşlatır, bu ödünü ortadan kaldırmaz.
-    """
-    now = datetime.now(timezone.utc)
-    ip = _client_ip(request)
-    pencere = now - timedelta(minutes=RESET_RATE_WINDOW_MIN)
-    denemeler = [t for t in _reset_attempts.get(ip, []) if t > pencere]
-    _reset_attempts[ip] = denemeler
-    if len(denemeler) >= RESET_RATE_MAX:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Çok fazla talep. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
-        )
-    _reset_attempts[ip].append(now)
-
-    email = (body.email or "").strip().lower()
-    user = session.scalar(select(User).where(User.email == email)) if email else None
-    if user is None or not user.is_active:
-        return {"ok": True, "account_exists": False, "email": email, "new_password": None}
-
-    new_password = generate_temp_password()
-    user.password_hash = hash_password(new_password)
-    user.must_change_password = True  # geçici; kullanıcı ilk girişte değiştirir
-    user.token_version = (user.token_version or 0) + 1  # eski oturumları düşür
-    user.updated_at = now
-    from app.services.audit import record_audit
-    # Parolanın KENDİSİ asla kaydedilmez — yalnız "kendi kendine sıfırladı"
-    # olgusu. actor=None: oturum açmış bir yönetici değil, hesabın kendisi.
-    record_audit(session, None, "self_reset_password", target_user_id=user.id,
-                 target_email=user.email)
-    session.commit()
-    return {"ok": True, "account_exists": True, "email": email, "new_password": new_password}
 
 
 @router.post("/change-password")

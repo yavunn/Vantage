@@ -451,11 +451,3 @@ export function getSurveyStatus() {
 export function genSurveyKey() {
   return apiPost("/api/survey/genkey", {});
 }
-
-// --- kendi kendine parola sıfırlama (giriş öncesi, kimlik gerektirmez) -------
-// Sunucu mail göndermez (SMTP yok). Hesap e-postayla bulunur, yeni geçici
-// parola DOĞRUDAN uygulanır ve yanıtla birlikte döner; arayüz bunu gösterir
-// ve mailto ile kullanıcının kendi e-postasına göndermeyi önerir.
-export function requestPasswordReset(email) {
-  return apiPost("/api/auth/forgot-password", { email });
-}

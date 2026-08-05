@@ -25,7 +25,7 @@ describe("çeviri", () => {
 
   it("İngilizce karşılık döner", () => {
     expect(translate("en", "nav.team")).toBe("Team view");
-    expect(translate("en", "login.forgot")).toBe("Forgot your password?");
+    expect(translate("en", "login.submit")).toBe("Sign in");
   });
 
   it("bilinmeyen anahtar HAM HÂLİYLE gösterilmez", () => {

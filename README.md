@@ -139,28 +139,13 @@ cd ..\backend
 > Bu repo, demo için `.pgsql/` altında taşınabilir bir PostgreSQL ile geliştirildi
 > (kurulum gerektirmez): `.pgsql\pgsql\bin\pg_ctl -D .pgsql\data -o "-p 5433" start`
 
-### Şifremi unuttum
+### Parolasını unutan kullanıcı
 
-Giriş ekranındaki **"Şifremi unuttum"**, e-postayla sıfırlama LİNKİ göndermez
-— bu kurulum bilerek bir SMTP sunucusu gerektirmez:
-
-1. Kullanıcı giriş ekranından e-postasını girer.
-2. Sunucu hesabı bulur, **yeni bir geçici parolayı hemen üretip uygular**
-   (`must_change_password` işaretlenir, eski oturumlar düşer).
-3. Yeni parola ekranda gösterilir; kullanıcı **kopyalayabilir** ya da
-   **"E-postama gönder"** ile kendi e-posta istemcisinde önceden doldurulmuş
-   bir taslak açar (`mailto:` — sunucu e-posta göndermez, taslağı göndermek
-   kullanıcıya kalır).
-4. Kullanıcı ilk girişte kendi parolasını belirler.
-
-Güvenlik notu (bilinçli tasarım ödünü): bu uç hesap numaralandırmayı
-**önlemez** ve ikinci bir kimlik doğrulama adımı (e-postaya gönderilen
-link/kod) içermez — yalnızca e-posta adresini bilen biri o hesabın parolasını
-sıfırlayıp yeni değeri görebilir. Kapalı, tek kuruluşluk, on-prem bir araç için
-kabul edilmiş bir risktir; internete açık bir kurulumda **kullanılmamalıdır**.
-IP bazlı hız sınırı (15 dk / 5 istek) yalnızca toplu e-posta taramasını
-yavaşlatır, bu ödünü ortadan kaldırmaz. Yönetici panelindeki hesap oluşturma
-ve parola sıfırlama akışları bundan bağımsız, değişmeden çalışır.
+Kendi kendine sıfırlama YOKTUR — bu bilinçli bir sadelik kararıdır (mail
+altyapısı gerektirmemek için). Parolayı **yönetici sıfırlar**: Yönetici
+paneli → Hesaplar → ilgili satırda **Parola sıfırla**. Verilen geçici parola
+`must_change_password` ile işaretlenir; kullanıcı ilk girişte kendi parolasını
+belirler.
 
 ### Yerel modeller (LLM + RAG kullanacaksanız)
 

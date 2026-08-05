@@ -50,15 +50,6 @@ def ensure_jwt_secret() -> None:
     set_secret("VANTAGE_SECRET", _secrets_mod.token_hex(32))
 
 
-def generate_temp_password(length: int = 12) -> str:
-    """Kolay okunur (karışan karakterler hariç), CSPRNG ile üretilmiş geçici
-    parola. Admin sıfırlaması ve kendi kendine sıfırlama akışı ortak kullanır."""
-    chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    syms = "!@#$%*?"
-    body = "".join(_secrets_mod.choice(chars) for _ in range(length))
-    return body + _secrets_mod.choice(syms)
-
-
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
