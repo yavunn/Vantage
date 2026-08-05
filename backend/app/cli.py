@@ -101,6 +101,13 @@ def set_password() -> None:
             sys.exit(1)
         user.password_hash = hash_password(password)
         user.is_active = True
+        # Elle (CLI) ayarlanan parola GEÇİCİ sayılmaz — API üzerinden yapılan
+        # yönetici/kendi kendine sıfırlamadan farklı olarak burada zorunlu
+        # değiştirme işaretlenmez, aksi hâlde girilen parola bir sonraki
+        # girişte hemen geçersiz kalırdı.
+        user.must_change_password = False
+        user.failed_login_count = 0
+        user.locked_until = None
         user.token_version = (user.token_version or 0) + 1  # eski oturumları düşür
         user.updated_at = datetime.now(timezone.utc)
         session.commit()
