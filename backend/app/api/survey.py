@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import current_user, require_admin, require_owner
 from app.core.config import get_config
 from app.core.db import get_session
+from app.core.i18n import tr_error
 from app.core.survey_crypto import (
     SURVEY_KEY_ENV,
     generate_key,
@@ -87,14 +88,14 @@ def submit_current(
 ):
     cfg = get_config()
     if not cfg.survey.enabled:
-        raise HTTPException(400, detail="Anket modülü kapalı")
+        raise HTTPException(400, detail=tr_error("Anket modülü kapalı"))
     if not survey_svc.is_respondent(cfg, user):
-        raise HTTPException(403, detail="Anketi yöneticiler doldurmaz")
+        raise HTTPException(403, detail=tr_error("Anketi yöneticiler doldurmaz"))
     if not key_configured():
-        raise HTTPException(503, detail="Anket şifrelemesi kurulmadı (hazır değil)")
+        raise HTTPException(503, detail=tr_error("Anket şifrelemesi kurulmadı (hazır değil)"))
     cycle = survey_svc.get_or_create_active_cycle(session, cfg)
     if not cycle.is_open:
-        raise HTTPException(400, detail="Anket döngüsü kapalı")
+        raise HTTPException(400, detail=tr_error("Anket döngüsü kapalı"))
     # Geriye uyum: eski istemcinin tek 'comment' alanını 'comment' text sorusuna bağla.
     texts = dict(body.texts)
     if body.comment and "comment" not in texts:
@@ -102,7 +103,7 @@ def submit_current(
     try:
         survey_svc.submit_response(session, cfg, cycle, user.id, body.answers, texts)
     except ValueError as e:
-        raise HTTPException(409, detail="Bu dönem anketini zaten doldurdun") from e
+        raise HTTPException(409, detail=tr_error("Bu dönem anketini zaten doldurdun")) from e
     except RuntimeError as e:
         raise HTTPException(503, detail=str(e)) from e
     return {"ok": True}
@@ -125,7 +126,7 @@ def get_results(
     c = _cycle_by_key_or_current(session, cfg, cycle)
     session.commit()
     if c is None:
-        raise HTTPException(404, detail="Döngü bulunamadı")
+        raise HTTPException(404, detail=tr_error("Döngü bulunamadı"))
     return survey_svc.aggregate_results(session, cfg, c)
 
 
@@ -213,31 +214,33 @@ def put_questions(
     benzersiz + geçerli anahtar, dolu etiket. DEĞİŞİKLİK BİR SONRAKİ DÖNGÜDE
     geçerli olur — açık/geçmiş döngüler dondurulmuş sorularını korur."""
     if not items:
-        raise HTTPException(422, detail="En az bir soru gerekli")
+        raise HTTPException(422, detail=tr_error("En az bir soru gerekli"))
     seen: set[str] = set()
     clean: list[dict] = []
     has_likert = False
     for it in items:
         typ = it.type
         if typ not in ("likert", "text"):
-            raise HTTPException(422, detail=f"Geçersiz tip: {typ} (likert | text)")
+            raise HTTPException(422, detail=tr_error("Geçersiz tip: {typ} (likert | text)", typ=typ))
         label = (it.label or "").strip()
         if not label:
-            raise HTTPException(422, detail="Soru etiketi boş olamaz")
+            raise HTTPException(422, detail=tr_error("Soru etiketi boş olamaz"))
         if len(label) > 200:
-            raise HTTPException(422, detail="Soru etiketi 200 karakteri aşamaz")
+            raise HTTPException(422, detail=tr_error("Soru etiketi 200 karakteri aşamaz"))
         key = (it.key or "").strip().lower() or _slug(label)
         if not _KEY_RE.match(key):
-            raise HTTPException(422, detail=f"Geçersiz anahtar: '{key}' (yalnız a-z 0-9 _, 1-32)")
+            raise HTTPException(422, detail=tr_error(
+                "Geçersiz anahtar: '{key}' (yalnız a-z 0-9 _, 1-32)", key=key
+            ))
         if key in seen:
-            raise HTTPException(422, detail=f"Anahtar tekrarı: '{key}'")
+            raise HTTPException(422, detail=tr_error("Anahtar tekrarı: '{key}'", key=key))
         seen.add(key)
         if typ == "likert":
             has_likert = True
         required = it.required if it.required is not None else (typ == "likert")
         clean.append({"key": key, "label": label, "type": typ, "required": required})
     if not has_likert:
-        raise HTTPException(422, detail="En az bir likert (1-5 puan) sorusu gerekli")
+        raise HTTPException(422, detail=tr_error("En az bir likert (1-5 puan) sorusu gerekli"))
     return survey_svc.set_template(session, clean)
 
 

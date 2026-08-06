@@ -18,6 +18,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.core.config import Config
+from app.core.i18n import tr_error
 from app.models import RagQueryAudit
 from app.services.code_analysis import mask_secrets
 from app.services.rag.embedding import EmbeddingProvider
@@ -107,7 +108,7 @@ def answer(
         session.commit()
 
     if not cfg.rag.enabled:
-        return RagAnswer(status="disabled", reason="RAG katmanı kapalı (config: rag.enabled).")
+        return RagAnswer(status="disabled", reason=tr_error("RAG katmanı kapalı (config: rag.enabled)."))
 
     if provider is None:
         from app.services.rag.embedding import build_embedding_provider
@@ -116,8 +117,10 @@ def answer(
         _audit("error")
         return RagAnswer(
             status="error",
-            reason=f"Embedding sağlayıcısı kurulamadı (rag.embedding.provider: "
-                   f"{cfg.rag.embedding.provider}).",
+            reason=tr_error(
+                "Embedding sağlayıcısı kurulamadı (rag.embedding.provider: {provider}).",
+                provider=cfg.rag.embedding.provider,
+            ),
         )
 
     if advisor is None:
@@ -127,7 +130,7 @@ def answer(
         _audit("error")
         return RagAnswer(
             status="error",
-            reason="LLM katmanı kapalı (config: llm.enabled) — cevap üretilemez.",
+            reason=tr_error("LLM katmanı kapalı (config: llm.enabled) — cevap üretilemez."),
         )
 
     try:
@@ -136,8 +139,10 @@ def answer(
         _audit("error", model=provider.model)
         return RagAnswer(
             status="error",
-            reason=f"Soru vektöre çevrilemedi ({type(e).__name__}) — "
-                   "embedding sağlayıcısı erişilebilir mi?",
+            reason=tr_error(
+                "Soru vektöre çevrilemedi ({err}) — embedding sağlayıcısı erişilebilir mi?",
+                err=type(e).__name__,
+            ),
         )
 
     index, _impl = build_index(session, cfg, provider.model)
@@ -152,8 +157,10 @@ def answer(
         _audit("insufficient_context", model=provider.model)
         return RagAnswer(
             status="insufficient_context",
-            reason="Bu soruyla yeterince ilgili kayıt bulunamadı. Senkron çalıştı mı, "
-                   "ilgili takımda commit/task var mı kontrol edin.",
+            reason=tr_error(
+                "Bu soruyla yeterince ilgili kayıt bulunamadı. Senkron çalıştı mı, "
+                "ilgili takımda commit/task var mı kontrol edin."
+            ),
         )
 
     context_block, masked = build_context_block(hits)
@@ -164,7 +171,8 @@ def answer(
     except Exception as e:  # noqa: BLE001
         _audit("error", len(hits), len(context_block), masked, provider.model)
         return RagAnswer(
-            status="error", reason=f"LLM çağrısı başarısız ({type(e).__name__}).",
+            status="error",
+            reason=tr_error("LLM çağrısı başarısız ({err}).", err=type(e).__name__),
         )
 
     _audit("ok", len(hits), len(context_block), masked, provider.model)

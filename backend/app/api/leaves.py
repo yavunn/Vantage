@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
+from app.core.i18n import tr_error
 from app.models import Developer, Leave, PayrollDocument, User
 
 router = APIRouter(prefix="/api/leaves")
@@ -44,7 +45,7 @@ def _month_range(month: str) -> tuple[date, date]:
         last = calendar.monthrange(y, m)[1]
         return date(y, m, 1), date(y, m, last)
     except (ValueError, IndexError) as e:
-        raise HTTPException(status_code=422, detail="month biçimi YYYY-MM olmalı") from e
+        raise HTTPException(status_code=422, detail=tr_error("month biçimi YYYY-MM olmalı")) from e
 
 
 def _person_name(session: Session, user_id: int, developer_id: int | None) -> str:
@@ -162,7 +163,7 @@ def leaves_by_user(
     YAZMASIN, var olan bir izin isteğini seçip tarihleri oradan alsın."""
     target = session.get(User, target_user_id)
     if target is None:
-        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Kullanıcı bulunamadı"))
     rows = session.scalars(
         select(Leave).where(Leave.user_id == target_user_id).order_by(Leave.created_at.desc())
     ).all()
@@ -177,14 +178,14 @@ def create_leave(
     user: User = Depends(current_user),
 ):
     if body.leave_type not in _TYPES:
-        raise HTTPException(status_code=422, detail="leave_type: annual | sick | other")
+        raise HTTPException(status_code=422, detail=tr_error("leave_type: annual | sick | other"))
     if body.end_date < body.start_date:
-        raise HTTPException(status_code=422, detail="Bitiş tarihi başlangıçtan önce olamaz")
+        raise HTTPException(status_code=422, detail=tr_error("Bitiş tarihi başlangıçtan önce olamaz"))
 
     # Şirket geneli tatil: tüm aktif çalışanlara tek seferde onaylı izin.
     if body.target_all:
         if not _can_manage(user):
-            raise HTTPException(status_code=403, detail="Herkese izin ekleme yetkisi yok")
+            raise HTTPException(status_code=403, detail=tr_error("Herkese izin ekleme yetkisi yok"))
         now = datetime.now(timezone.utc)
         actives = session.scalars(
             select(User).where(User.is_active.is_(True))
@@ -204,10 +205,10 @@ def create_leave(
     target = user
     if body.target_user_id and body.target_user_id != user.id:
         if not _can_manage(user):
-            raise HTTPException(status_code=403, detail="Başkasına izin ekleme yetkisi yok")
+            raise HTTPException(status_code=403, detail=tr_error("Başkasına izin ekleme yetkisi yok"))
         target = session.get(User, body.target_user_id)
         if target is None:
-            raise HTTPException(status_code=404, detail="Hedef kullanıcı yok")
+            raise HTTPException(status_code=404, detail=tr_error("Hedef kullanıcı yok"))
 
     # Yönetici/İK eklediyse doğrudan onaylı; çalışan kendine istek açtıysa
     # onay bekler (pending) — İK onaylayana kadar. Geriye uyumlu: eski satırlar approved.
@@ -250,9 +251,9 @@ def delete_leave(
 ):
     lv = session.get(Leave, leave_id)
     if lv is None:
-        raise HTTPException(status_code=404, detail="İzin bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("İzin bulunamadı"))
     if lv.user_id != user.id and not _can_manage(user):
-        raise HTTPException(status_code=403, detail="Bu izni silme yetkiniz yok")
+        raise HTTPException(status_code=403, detail=tr_error("Bu izni silme yetkiniz yok"))
     session.delete(lv)
     session.commit()
     return {"ok": True}
@@ -330,13 +331,13 @@ def decide_leave(
     ZORUNLU — çalışan neden reddedildiğini görsün. Karar sonrası izin sahibine
     bildirim düşer (destek dili)."""
     if body.decision not in ("approved", "rejected"):
-        raise HTTPException(status_code=422, detail="decision: approved | rejected")
+        raise HTTPException(status_code=422, detail=tr_error("decision: approved | rejected"))
     note = (body.note or "").strip()
     if body.decision == "rejected" and not note:
-        raise HTTPException(status_code=422, detail="Red için gerekçe gerekli")
+        raise HTTPException(status_code=422, detail=tr_error("Red için gerekçe gerekli"))
     lv = session.get(Leave, leave_id)
     if lv is None:
-        raise HTTPException(status_code=404, detail="İzin bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("İzin bulunamadı"))
     lv.status = body.decision
     lv.decision_note = note or None
     lv.approved_by = actor.id

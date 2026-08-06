@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from app.api.admin import router as admin_router
 from app.api.annotations import router as annotations_router
@@ -23,9 +25,29 @@ from app.api.routes import router
 from app.api.survey import router as survey_router
 from app.core.config import PROJECT_ROOT, get_config
 from app.core.db import Base, ensure_schema_patches, get_engine
+from app.core.i18n import normalize_lang, reset_current_lang, set_current_lang, tr_error
 from app.services.pipeline import run_pipeline
 
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+
+
+class LanguageMiddleware(BaseHTTPMiddleware):
+    """İsteğin `Accept-Language` başlığını bir ContextVar'a yazar.
+
+    NEDEN MIDDLEWARE: `HTTPException(detail=...)` çağrıları (bkz. `core.i18n.
+    tr_error`) düzinelerce dosyada yüzlerce yerde geçiyor. Her birine
+    `request: Request` parametresi eklemek imza kirliliği ve unutma riski
+    demekti — bir endpoint eklenip lang parametresi unutulursa o uç sessizce
+    hep Türkçe hata döner. ContextVar bunu tek merkezden garanti eder."""
+
+    async def dispatch(self, request: Request, call_next):
+        token = set_current_lang(normalize_lang(request.headers.get("accept-language")))
+        try:
+            return await call_next(request)
+        finally:
+            # ASGI sunucusu aynı thread'i sıradaki isteğe yeniden kullanabilir;
+            # sıfırlanmazsa bu isteğin dili bir SONRAKİ isteğe sızar.
+            reset_current_lang(token)
 
 
 def _zamanlanmis_senkron() -> None:
@@ -73,6 +95,9 @@ app = FastAPI(
                 "bireysel gözetim aracı DEĞİLDİR.",
     lifespan=lifespan,
 )
+app.add_middleware(LanguageMiddleware)
+
+
 @app.get("/api/health")
 def health():
     """Kimliksiz sağlık kontrolü — izleme/otomasyon buraya bağlanır.
@@ -93,7 +118,7 @@ def health():
     try:
         son = session.scalar(select(func.max(MetricResult.computed_at)))
     except Exception as e:
-        raise HTTPException(503, detail="Veritabanına erişilemiyor") from e
+        raise HTTPException(503, detail=tr_error("Veritabanına erişilemiyor")) from e
     finally:
         session.close()
 

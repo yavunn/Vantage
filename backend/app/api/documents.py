@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
-from app.core.i18n import lang_from_request
+from app.core.i18n import lang_from_request, tr_error
 from app.models import Developer, Leave, PayrollDocument, User
 from app.services import hr_documents as storage
 from app.services.hr_doc_types import (
@@ -69,7 +69,7 @@ def _parse_period(value: str | None) -> str | None:
     if value is None or value == "":
         return None
     if not _PERIOD_RE.match(value):
-        raise HTTPException(status_code=422, detail="Dönem biçimi YYYY-MM olmalı")
+        raise HTTPException(status_code=422, detail=tr_error("Dönem biçimi YYYY-MM olmalı"))
     return value
 
 
@@ -79,7 +79,13 @@ def _parse_date(value: str | None, field: str) -> date | None:
     try:
         return date.fromisoformat(value)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=f"{field} biçimi YYYY-AA-GG olmalı") from e
+        # `field` kendisi de TR metin ("Başlangıç tarihi"/"Bitiş tarihi") — İngilizce
+        # arayüzde şablon çevrilip içindeki alan adı Türkçe kalmasın diye o da
+        # ayrıca tr_error'dan geçer (iç içe çeviri).
+        raise HTTPException(
+            status_code=422,
+            detail=tr_error("{field} biçimi YYYY-AA-GG olmalı", field=tr_error(field)),
+        ) from e
 
 
 def _linked_leave_info(session: Session, leave_id: int | None) -> dict | None:
@@ -175,7 +181,7 @@ def list_documents(
             stmt = stmt.where(PayrollDocument.user_id == user_id)
     else:
         if user_id is not None and user_id != user.id:
-            raise HTTPException(status_code=403, detail="Başkasının belgelerini görme yetkiniz yok")
+            raise HTTPException(status_code=403, detail=tr_error("Başkasının belgelerini görme yetkiniz yok"))
         stmt = stmt.where(PayrollDocument.user_id == user.id)
     if period:
         stmt = stmt.where(PayrollDocument.period == _parse_period(period))
@@ -183,7 +189,7 @@ def list_documents(
         stmt = stmt.where(PayrollDocument.doc_type == doc_type)
     if status:
         if status not in _STATUSES:
-            raise HTTPException(status_code=422, detail="status: pending | approved | rejected")
+            raise HTTPException(status_code=422, detail=tr_error("status: pending | approved | rejected"))
         stmt = stmt.where(PayrollDocument.status == status)
     rows = session.scalars(stmt.order_by(PayrollDocument.created_at.desc())).all()
     return [_serialize(session, d, user, lang) for d in rows]
@@ -315,31 +321,31 @@ async def upload_document(
     dosyasız kayıtlar bırakırdı."""
     meta = DOC_TYPE_MAP.get(doc_type)
     if meta is None:
-        raise HTTPException(status_code=422, detail="Bilinmeyen belge türü")
+        raise HTTPException(status_code=422, detail=tr_error("Bilinmeyen belge türü"))
 
     target = user
     if target_user_id is not None and target_user_id != user.id:
         if not _can_manage(user):
-            raise HTTPException(status_code=403, detail="Başkası adına belge yükleme yetkiniz yok")
+            raise HTTPException(status_code=403, detail=tr_error("Başkası adına belge yükleme yetkiniz yok"))
         target = session.get(User, target_user_id)
         if target is None:
-            raise HTTPException(status_code=404, detail="Hedef kullanıcı yok")
+            raise HTTPException(status_code=404, detail=tr_error("Hedef kullanıcı yok"))
 
     p = _parse_period(period)
     s_date = _parse_date(start_date, "Başlangıç tarihi")
     e_date = _parse_date(end_date, "Bitiş tarihi")
 
     if meta["needs_period"] and not p:
-        raise HTTPException(status_code=422, detail="Bu belge için bordro dönemi (YYYY-MM) zorunlu")
+        raise HTTPException(status_code=422, detail=tr_error("Bu belge için bordro dönemi (YYYY-MM) zorunlu"))
     if meta["needs_dates"] and not (s_date and e_date):
-        raise HTTPException(status_code=422, detail="Bu belge için başlangıç ve bitiş tarihi zorunlu")
+        raise HTTPException(status_code=422, detail=tr_error("Bu belge için başlangıç ve bitiş tarihi zorunlu"))
     if s_date and e_date and e_date < s_date:
-        raise HTTPException(status_code=422, detail="Bitiş tarihi başlangıçtan önce olamaz")
+        raise HTTPException(status_code=422, detail=tr_error("Bitiş tarihi başlangıçtan önce olamaz"))
 
     if leave_id is not None:
         lv = session.get(Leave, leave_id)
         if lv is None or lv.user_id != target.id:
-            raise HTTPException(status_code=404, detail="İlgili izin kaydı bulunamadı")
+            raise HTTPException(status_code=404, detail=tr_error("İlgili izin kaydı bulunamadı"))
 
     # Dosya diske SON adımda yazılır: doğrulama hatalarında disk kirlenmesin.
     try:
@@ -405,9 +411,9 @@ def download_document(
     ediliyor — tarayıcının render ettiği her biçim saldırı yüzeyidir."""
     doc = session.get(PayrollDocument, doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Belge bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Belge bulunamadı"))
     if doc.user_id != user.id and not _can_manage(user):
-        raise HTTPException(status_code=403, detail="Bu belgeyi görme yetkiniz yok")
+        raise HTTPException(status_code=403, detail=tr_error("Bu belgeyi görme yetkiniz yok"))
 
     try:
         path = storage.file_path(doc.user_id, doc.stored_name)
@@ -415,7 +421,7 @@ def download_document(
         raise HTTPException(status_code=e.status, detail=e.message) from e
     if not path.is_file():
         # DB kaydı var, dosya yok: sessiz 500 yerine anlaşılır bir hata.
-        raise HTTPException(status_code=410, detail="Belgenin dosyası sunucuda bulunamadı")
+        raise HTTPException(status_code=410, detail=tr_error("Belgenin dosyası sunucuda bulunamadı"))
 
     # Başkasının özel nitelikli belgesini KİM açtı — kaydedilir.
     if doc.user_id != user.id:
@@ -456,13 +462,13 @@ def decide_document(
     """Admin/İK belgeyi onaylar ya da reddeder. Redde gerekçe ZORUNLU — çalışan
     hangi belgeyi neden yeniden yüklemesi gerektiğini bilsin."""
     if body.decision not in ("approved", "rejected"):
-        raise HTTPException(status_code=422, detail="decision: approved | rejected")
+        raise HTTPException(status_code=422, detail=tr_error("decision: approved | rejected"))
     note = (body.note or "").strip()
     if body.decision == "rejected" and not note:
-        raise HTTPException(status_code=422, detail="Red için gerekçe gerekli")
+        raise HTTPException(status_code=422, detail=tr_error("Red için gerekçe gerekli"))
     doc = session.get(PayrollDocument, doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Belge bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Belge bulunamadı"))
 
     doc.status = body.decision
     doc.review_note = note or None
@@ -552,16 +558,16 @@ def delete_document(
     gereksiz tutmak KVKK'nın veri minimizasyonuna aykırı."""
     doc = session.get(PayrollDocument, doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Belge bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Belge bulunamadı"))
     manage = _can_manage(user)
     own = doc.user_id == user.id
     if not manage:
         if not own:
-            raise HTTPException(status_code=403, detail="Bu belgeyi silme yetkiniz yok")
+            raise HTTPException(status_code=403, detail=tr_error("Bu belgeyi silme yetkiniz yok"))
         if (doc.status or "pending") != "pending":
             raise HTTPException(
                 status_code=403,
-                detail="İncelenmiş belge silinemez; kaldırılması için İK ile görüşün",
+                detail=tr_error("İncelenmiş belge silinemez; kaldırılması için İK ile görüşün"),
             )
 
     stored_name, owner_id = doc.stored_name, doc.user_id

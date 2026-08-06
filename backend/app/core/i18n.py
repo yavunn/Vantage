@@ -1,24 +1,42 @@
 """Sunucu tarafı dil desteği (TR / EN).
 
-NEDEN SUNUCUDA DA GEREKLİ: metrik adları, açıklamaları ve durum etiketleri
-API'den geliyor. Arayüzü tek başına çevirmek panoyu yarı Türkçe bırakırdı —
-"Cycle Time · Zorlanıyor — yardım gerekebilir" gibi.
+NEDEN SUNUCUDA DA GEREKLİ: metrik adları, açıklamaları, durum etiketleri VE
+hata mesajları API'den geliyor. Arayüzü tek başına çevirmek panoyu yarı
+Türkçe bırakırdı — "Cycle Time · Zorlanıyor — yardım gerekebilir" gibi ya da
+İngilizce arayüzde aniden Türkçe bir 422 mesajı çıkması gibi.
 
-KAPSAM SINIRI (bilinçli): burada ÇEVRİLEN şey sabit sözlüktür — metrik adları,
-açıklamalar, durum etiketleri, boyut adları. Kural motorunun ürettiği uzun
-öneri metinleri, senkron uyarıları ve AI çıktısı hâlâ Türkçedir; onlar üretilmiş
-düzyazıdır ve ayrı bir iş kalemidir. Yarım çevrilmiş bir cümle, çevrilmemiş
-cümleden kötüdür.
+KAPSAM SINIRI (bilinçli): burada ÇEVRİLEN şey — metrik adları, açıklamalar,
+durum etiketleri, boyut adları VE `HTTPException` hata mesajları (bkz.
+`tr_error`, gettext deseni — frontend i18n.jsx/i18n-en.js ile AYNI kural: TR
+kaynak metin ANAHTARDIR, eksik çeviri TR'ye düşer, ham anahtar asla dönmez).
+Kural motorunun ürettiği uzun öneri metinleri, senkron uyarıları ve AI çıktısı
+hâlâ Türkçedir; onlar üretilmiş DÜZYAZIDIR (sabit anahtar değil) ve ayrı bir iş
+kalemidir. Yarım çevrilmiş bir cümle, çevrilmemiş cümleden kötüdür.
 
-Dil AKIŞI: arayüz `Accept-Language` başlığı gönderir → `lang_from_request`
-onu okur → sözlükler o dilde döner. Tanımsız/desteklenmeyen dil TR'ye düşer.
+Dil AKIŞI (iki yol, aynı sonuca çıkar):
+  1. `lang_from_request` — bir uç `request: Request` alıyorsa doğrudan okur.
+  2. `LanguageMiddleware` (app/main.py) + `tr_error` — hata mesajları YÜZLERCE
+     çağrı noktasında (`raise HTTPException(...)`) üretiliyor; her birine
+     `request: Request` eklemek imza kirliliği ve unutma riski demekti.
+     Middleware her isteğin başında dili bir ContextVar'a yazar; `tr_error`
+     onu okuyup çeviriyi orada uygular. Senkron path fonksiyonları FastAPI
+     tarafından threadpool'a (anyio.to_thread) taşınır ama ContextVar,
+     Python'un context-copy garantisi gereği o thread'e DE taşınır — bu
+     yüzden `tr_error`'ı çağıran fonksiyonun `request` parametresi almasına
+     gerek YOK.
 """
 from __future__ import annotations
+
+import contextvars
 
 from fastapi import Request
 
 DEFAULT_LANG = "tr"
 SUPPORTED = ("tr", "en")
+
+_current_lang: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_lang", default=DEFAULT_LANG
+)
 
 
 def normalize_lang(value: str | None) -> str:
@@ -36,6 +54,42 @@ def normalize_lang(value: str | None) -> str:
 def lang_from_request(request: Request) -> str:
     """FastAPI bağımlılığı: isteğin dilini verir."""
     return normalize_lang(request.headers.get("accept-language"))
+
+
+def set_current_lang(lang: str) -> contextvars.Token:
+    """`LanguageMiddleware` her istek başında çağırır. Token, middleware'in
+    isteği bitince ContextVar'ı eski değerine döndürmesi için (ASGI sunucusu
+    aynı thread'i sıradaki isteklerde de kullanabilir; sıfırlanmazsa bir
+    isteğin dili sonrakine SIZAR)."""
+    return _current_lang.set(lang)
+
+
+def reset_current_lang(token: contextvars.Token) -> None:
+    _current_lang.reset(token)
+
+
+def current_lang() -> str:
+    """Şu anki isteğin dili. Middleware hiç çalışmadıysa (ör. testte doğrudan
+    servis fonksiyonu çağrılıyorsa) DEFAULT_LANG'e düşer — asla patlamaz."""
+    return _current_lang.get()
+
+
+def tr_error(message: str, **params: object) -> str:
+    """API hata mesajı çevirisi — HTTPException(detail=...) için.
+
+    Frontend'deki gettext deseninin AYNISI: `message` Türkçe kaynak metnin
+    kendisidir (aynı zamanda anahtar). `errors_en.ERRORS_EN` içinde karşılığı
+    yoksa TR metin DÖNER (ham anahtar/boş kutu değil). `{ad}` biçimli
+    yer tutucular varsa `str.format(**params)` ile doldurulur — hem TR hem
+    EN metinde AYNI yer tutucu adı kullanılmalı.
+
+    KULLANIM: `raise HTTPException(422, detail=tr_error("Bitiş tarihi başlangıçtan önce olamaz"))`
+    Dinamik: `raise HTTPException(422, detail=tr_error("{n} dk sonra tekrar deneyin.", n=5))`
+    """
+    from app.core.errors_en import ERRORS_EN  # döngüsel import'tan kaçın
+
+    text = ERRORS_EN.get(message, message) if current_lang() == "en" else message
+    return text.format(**params) if params else text
 
 
 # --- metrik adları ve açıklamaları -------------------------------------------

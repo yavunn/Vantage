@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import current_user, require_admin
 from app.core.config import Config, get_config
 from app.core.db import get_session
-from app.core.i18n import lang_from_request, metric_meta, status_labels
+from app.core.i18n import lang_from_request, metric_meta, status_labels, tr_error
 from app.metrics.engine import load_team_data
 from app.models import (
     Commit,
@@ -97,7 +97,7 @@ def team_summary(
     cfg = get_config()
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     # En geniş period = pencere metriği (seri kovaları daha kısadır)
     rows = session.scalars(
         select(MetricResult).where(
@@ -148,11 +148,11 @@ def team_report(
     from app.services.report import VALID_DAYS, live_report
 
     if days not in VALID_DAYS:
-        raise HTTPException(422, f"days yalnızca {sorted(VALID_DAYS)} olabilir")
+        raise HTTPException(422, tr_error("days yalnızca {list} olabilir", list=sorted(VALID_DAYS)))
     cfg = get_config()
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     return live_report(session, team, days, cfg, lang)
 
 
@@ -169,11 +169,11 @@ def team_metric_breakdown(
     from app.services.report import VALID_DAYS, metric_breakdown
 
     if days not in VALID_DAYS:
-        raise HTTPException(422, f"days yalnızca {sorted(VALID_DAYS)} olabilir")
+        raise HTTPException(422, tr_error("days yalnızca {list} olabilir", list=sorted(VALID_DAYS)))
     cfg = get_config()
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     return metric_breakdown(session, team, metric_key, days, cfg, lang)
 
 
@@ -186,7 +186,7 @@ def team_series(
 ):
     cfg = get_config()
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     rows = session.scalars(
         select(MetricResult).where(
             MetricResult.scope == "team",
@@ -227,7 +227,7 @@ def team_series(
 
 def _dev_access(dev_id: int, user):
     if user.role != "admin" and user.developer_id != dev_id:
-        raise HTTPException(403, "Bu görünümü yalnızca kişinin kendisi ve admin görebilir")
+        raise HTTPException(403, tr_error("Bu görünümü yalnızca kişinin kendisi ve admin görebilir"))
 
 
 # --- Bildirimler (giriş yapan kullanıcı) -------------------------------------
@@ -301,7 +301,7 @@ def team_report_csv(team_id: int, session: Session = Depends(get_session)):
     """Takım metrik özetini CSV indirir. Etik: takım-agregat, kişi satırı yok."""
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     summary = team_summary(team_id, session)
     body = [
         [m["name"], m["key"], m["value"], m["status_label"],
@@ -319,7 +319,7 @@ def my_code_health(session: Session = Depends(get_session), user=Depends(current
                     lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health
     if user.developer_id is None:
-        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+        raise HTTPException(404, tr_error("Hesap bir geliştiriciye bağlı değil"))
     return developer_code_health(session, user.developer_id, get_config(), lang)
 
 
@@ -328,7 +328,7 @@ def my_code_health_breakdown(session: Session = Depends(get_session), user=Depen
                               lang: str = Depends(lang_from_request)):
     from app.services.code_health import developer_code_health_breakdown
     if user.developer_id is None:
-        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+        raise HTTPException(404, tr_error("Hesap bir geliştiriciye bağlı değil"))
     return developer_code_health_breakdown(session, user.developer_id, lang)
 
 
@@ -337,7 +337,7 @@ def my_code_analysis_run(session: Session = Depends(get_session), user=Depends(c
     """Kullanıcı KENDİ kodunu analiz eder (git yazarı = kendisi)."""
     from app.services.code_analysis import run_code_analysis
     if user.developer_id is None:
-        raise HTTPException(404, "Hesap bir geliştiriciye bağlı değil")
+        raise HTTPException(404, tr_error("Hesap bir geliştiriciye bağlı değil"))
     return run_code_analysis(session, get_config(), only_developer_id=user.developer_id)
 
 
@@ -366,7 +366,7 @@ def team_code_health_endpoint(team_id: int, session: Session = Depends(get_sessi
     from app.services.code_health import team_code_health
 
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     return team_code_health(session, team_id, get_config(), lang)
 
 
@@ -377,7 +377,7 @@ def team_code_health_breakdown_endpoint(team_id: int, session: Session = Depends
     from app.services.code_health import team_code_health_breakdown
 
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     return team_code_health_breakdown(session, team_id, lang)
 
 
@@ -388,7 +388,7 @@ def team_code_health_series_endpoint(team_id: int, session: Session = Depends(ge
     from app.services.code_health import team_code_health_series
 
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     return team_code_health_series(session, team_id, get_config(), lang)
 
 
@@ -463,17 +463,17 @@ def developer_summary(
     - kıyas yalnızca kişinin KENDİ geçmişiyle yapılır, asla başkasıyla."""
     cfg = get_config()
     if not cfg.app.individual_view_enabled or cfg.app.anonymize_individuals:
-        raise HTTPException(403, "Bireysel görünüm bu kurulumda kapalı (takım-agregat mod)")
+        raise HTTPException(403, tr_error("Bireysel görünüm bu kurulumda kapalı (takım-agregat mod)"))
     dev = session.get(Developer, dev_id)
     if dev is None:
-        raise HTTPException(404, "Kişi bulunamadı")
+        raise HTTPException(404, tr_error("Kişi bulunamadı"))
     # Yetki YALNIZ JWT kimliğiyle: admin herkesi görebilir; aksi halde kişinin
     # KENDİSİ (user.developer_id) ya da yöneticisi. Yetki hatası 403 (401 DEĞİL:
     # istemcide oturumu düşürmesin). Kimliksiz istek router seviyesinde 401 olur.
     if user.role != "admin":
         requester = session.get(Developer, user.developer_id) if user.developer_id else None
         if requester is None or (requester.id != dev.id and not _is_manager_of(session, requester, dev)):
-            raise HTTPException(403, "Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir")
+            raise HTTPException(403, tr_error("Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir"))
 
     now = datetime.now(timezone.utc)
     window = timedelta(days=cfg.app.window_days)
@@ -621,13 +621,13 @@ def ai_advice(team_id: int, session: Session = Depends(get_session)):
 
     advisor = build_advisor(cfg)
     if advisor is None:
-        raise HTTPException(
-            503, "LLM öneri katmanı kapalı (config: llm.enabled). On-prem kısıtı "
-                 "gereği varsayılan olarak hiçbir veri dış servise gönderilmez."
-        )
+        raise HTTPException(503, tr_error(
+            "LLM öneri katmanı kapalı (config: llm.enabled). On-prem kısıtı "
+            "gereği varsayılan olarak hiçbir veri dış servise gönderilmez."
+        ))
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     summary = team_summary(team_id, session)
     block = "\n".join(
         f"- {m['name']}: {m['value']:.2f} ({m['status_label']}, tamlık %{m['data_completeness']*100:.0f})"
@@ -668,21 +668,21 @@ def ask_team(
     üretilmez (hata değil, dürüst boşluk)."""
     cfg = get_config()
     if not cfg.rag.enabled:
-        raise HTTPException(
-            503, "RAG asistanı kapalı (config: rag.enabled). On-prem kısıtı gereği "
-                 "varsayılan olarak kapalıdır."
-        )
+        raise HTTPException(503, tr_error(
+            "RAG asistanı kapalı (config: rag.enabled). On-prem kısıtı gereği "
+            "varsayılan olarak kapalıdır."
+        ))
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     if not _can_access_team(session, user, team_id):
-        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+        raise HTTPException(403, tr_error("Bu takımın kayıtlarına erişim yetkiniz yok"))
 
     from app.services.rag.query import answer as rag_answer
 
     result = rag_answer(session, cfg, body.question, team_id)
     if result.status == "error":
-        raise HTTPException(503, result.reason or "RAG cevabı üretilemedi")
+        raise HTTPException(503, result.reason or tr_error("RAG cevabı üretilemedi"))
     return {
         "team": team.name,
         "status": result.status,
@@ -709,12 +709,12 @@ def _task_of_team(session: Session, user: User, team_id: int, task_id: int) -> T
     İkinci kontrol şart: yalnız takım erişimine bakılsaydı, erişimi olan bir
     kullanıcı URL'deki task_id'yi değiştirerek BAŞKA takımın işini okuyabilirdi."""
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     if not _can_access_team(session, user, team_id):
-        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+        raise HTTPException(403, tr_error("Bu takımın kayıtlarına erişim yetkiniz yok"))
     task = session.get(Task, task_id)
     if task is None or task.team_id != team_id:
-        raise HTTPException(404, "İş bulunamadı")
+        raise HTTPException(404, tr_error("İş bulunamadı"))
     return task
 
 
@@ -729,9 +729,9 @@ def team_task_links(team_id: int,
     from app.services.task_link import list_links
 
     if session.get(Team, team_id) is None:
-        raise HTTPException(404, "Takım bulunamadı")
+        raise HTTPException(404, tr_error("Takım bulunamadı"))
     if not _can_access_team(session, user, team_id):
-        raise HTTPException(403, "Bu takımın kayıtlarına erişim yetkiniz yok")
+        raise HTTPException(403, tr_error("Bu takımın kayıtlarına erişim yetkiniz yok"))
 
     out = []
     for task in session.scalars(select(Task).where(Task.team_id == team_id)):
@@ -777,7 +777,7 @@ def decide_task_link(team_id: int, task_id: int, commit_id: int,
 
     _task_of_team(session, user, team_id, task_id)
     if session.get(Commit, commit_id) is None:
-        raise HTTPException(404, "Commit bulunamadı")
+        raise HTTPException(404, tr_error("Commit bulunamadı"))
     row = decide(session, task_id, commit_id, body.status, user_id=user.id)
     return {"task_id": task_id, "commit_id": commit_id, "status": row.status}
 
@@ -795,7 +795,7 @@ def task_analysis(team_id: int, task_id: int,
     _task_of_team(session, user, team_id, task_id)
     result = analyze_task(session, get_config(), task_id)
     if result.status == "error":
-        raise HTTPException(503, result.reason or "Analiz üretilemedi")
+        raise HTTPException(503, result.reason or tr_error("Analiz üretilemedi"))
     return {
         "task_id": result.task_id, "status": result.status,
         "analysis": result.text, "reason": result.reason,

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import require_admin, require_owner
 from app.core.config import active_config_path, get_config, reset_config_cache
 from app.core.db import get_session
-from app.core.i18n import lang_from_request
+from app.core.i18n import lang_from_request, tr_error
 from app.models import MetricResult, User
 
 router = APIRouter(prefix="/api/admin")
@@ -192,7 +192,7 @@ def update_sources(
     if body.jira_auth is not None:
         secim = body.jira_auth.strip().lower()
         if secim not in ("basic", "bearer"):
-            raise HTTPException(422, "jira_auth 'basic' ya da 'bearer' olmalı.")
+            raise HTTPException(422, tr_error("jira_auth 'basic' ya da 'bearer' olmalı."))
         raw["sources"]["tasks"]["jira"]["auth"] = secim
     if body.jira_email is not None:
         # E-posta sır DEĞİLDİR (token sırdır) → config'e yazılabilir.
@@ -200,7 +200,7 @@ def update_sources(
     if body.jira_api_style is not None:
         secim = body.jira_api_style.strip().lower()
         if secim not in ("auto", "cloud", "server"):
-            raise HTTPException(422, "jira_api_style 'auto', 'cloud' ya da 'server' olmalı.")
+            raise HTTPException(422, tr_error("jira_api_style 'auto', 'cloud' ya da 'server' olmalı."))
         raw["sources"]["tasks"]["jira"]["api_style"] = secim
     if body.jira_story_points_field is not None:
         # Boş bırakmak bilinçli tercihtir: alan hiç okunmaz, uyarı da üretilmez.
@@ -395,7 +395,9 @@ def update_llm_provider(body: LlmProviderUpdate, _: User = Depends(require_owner
     from app.core.secrets import set_secret
 
     if body.provider is not None and body.provider not in LLM_PROVIDERS:
-        raise HTTPException(422, detail=f"provider yalnızca {', '.join(LLM_PROVIDERS)} olabilir")
+        raise HTTPException(422, detail=tr_error(
+            "provider yalnızca {list} olabilir", list=", ".join(LLM_PROVIDERS)
+        ))
 
     raw = {}
     if active_config_path().exists():
@@ -480,7 +482,7 @@ def set_developer_git_email(
 
     dev = session.get(Developer, dev_id)
     if dev is None:
-        raise HTTPException(404, "Kişi bulunamadı")
+        raise HTTPException(404, tr_error("Kişi bulunamadı"))
     ext = dict(dev.external_ids or {})
     email = (body.git_email or "").strip().lower()
     if email:
@@ -557,7 +559,7 @@ def set_developer_task_identity(
 
     dev = session.get(Developer, dev_id)
     if dev is None:
-        raise HTTPException(404, "Kişi bulunamadı")
+        raise HTTPException(404, tr_error("Kişi bulunamadı"))
     source = body.source.strip().lower()
     key = (body.key or "").strip()
     ext = dict(dev.external_ids or {})
@@ -789,7 +791,7 @@ def sync_job_durumu(job_id: str, _: User = Depends(require_admin)):
 
     job = sync_job.is_getir(job_id)
     if job is None:
-        raise HTTPException(404, "Senkron işi bulunamadı.")
+        raise HTTPException(404, tr_error("Senkron işi bulunamadı."))
     return {"job": job.payload()}
 
 
@@ -916,7 +918,7 @@ def create_team(
 
     name = body.name.strip()
     if session.scalar(select(Team).where(Team.name == name)) is not None:
-        raise HTTPException(status_code=409, detail=f"'{name}' adlı takım zaten var.")
+        raise HTTPException(status_code=409, detail=tr_error("'{name}' adlı takım zaten var.", name=name))
     team = Team(name=name)
     session.add(team)
     session.commit()
@@ -939,12 +941,12 @@ def rename_team(
 
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Takım bulunamadı"))
     new_name = body.name.strip()
     if new_name == team.name:
         return {"ok": True, "id": team.id, "name": team.name, "config_updated": False}
     if session.scalar(select(Team).where(Team.name == new_name)) is not None:
-        raise HTTPException(status_code=409, detail=f"'{new_name}' adlı takım zaten var.")
+        raise HTTPException(status_code=409, detail=tr_error("'{name}' adlı takım zaten var.", name=new_name))
 
     old_name = team.name
     team.name = new_name
@@ -990,7 +992,7 @@ def delete_team(
 
     team = session.get(Team, team_id)
     if team is None:
-        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Takım bulunamadı"))
     usage = _team_usage(session, team_id)
     blockers = []
     if usage["members"]:

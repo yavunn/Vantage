@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import current_user
 from app.core.config import get_config
 from app.core.db import get_session
+from app.core.i18n import tr_error
 from app.models import CommitReview, Developer, ProjectCommit, User, UserProject
 from app.services.commit_review import review_commits
 from app.services.credentials import get_token
@@ -79,9 +80,9 @@ def _project_out(session: Session, p: UserProject, with_owner: bool = False) -> 
 def _get_project(session: Session, project_id: int, user: User) -> UserProject:
     p = session.get(UserProject, project_id)
     if p is None:
-        raise HTTPException(status_code=404, detail="Proje bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Proje bulunamadı"))
     if p.user_id != user.id and user.role != "admin":
-        raise HTTPException(status_code=403, detail="Bu projeye erişim yetkiniz yok")
+        raise HTTPException(status_code=403, detail=tr_error("Bu projeye erişim yetkiniz yok"))
     return p
 
 
@@ -146,11 +147,12 @@ def create_project(
     # Yönetici proje EKLEMEZ — projeleri yalnız görüntüler (herkesinkini görür).
     if user.role == "admin":
         raise HTTPException(status_code=403,
-                            detail="Yöneticiler proje eklemez — projeleri yalnız görüntüler.")
+                            detail=tr_error("Yöneticiler proje eklemez — projeleri yalnız görüntüler."))
     kaynak = (body.source_type or "github").strip().lower()
     if kaynak not in SOURCE_TYPES:
         raise HTTPException(status_code=422,
-                            detail=f"source_type yalnızca {', '.join(SOURCE_TYPES)} olabilir")
+                            detail=tr_error("source_type yalnızca {list} olabilir",
+                                            list=", ".join(SOURCE_TYPES)))
 
     # Kaynağa göre doğrula ve saklanacak referansı belirle. Yerel yol doğrulaması
     # EKLEMEDE yapılır ki kullanıcı hatayı anında görsün; _sync her koşuda
@@ -256,7 +258,7 @@ def review_project(
         .order_by(ProjectCommit.committed_at.desc().nullslast())
     ).all()
     if not rows:
-        raise HTTPException(status_code=400, detail="Değerlendirilecek commit yok — önce senkronize edin")
+        raise HTTPException(status_code=400, detail=tr_error("Değerlendirilecek commit yok — önce senkronize edin"))
     commits = [{"message": c.message, "committed_at": c.committed_at} for c in rows]
     result = review_commits(get_config(), commits)
     review = CommitReview(

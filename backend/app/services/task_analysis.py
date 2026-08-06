@@ -23,6 +23,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.core.config import Config
+from app.core.i18n import tr_error
 from app.models import Task
 from app.services.code_analysis import mask_secrets
 from app.services.task_link import as_utc, confirmed_commits, task_window
@@ -141,15 +142,17 @@ def analyze_task(session: Session, cfg: Config, task_id: int,
     task = session.get(Task, task_id)
     if task is None:
         return TaskAnalysis(status="error", task_id=task_id,
-                            reason="Task bulunamadı.")
+                            reason=tr_error("Task bulunamadı."))
 
     commits = confirmed_commits(session, task_id)
     if not commits:
         # LLM'e GİTMİYORUZ — bu dalın testi var.
         return TaskAnalysis(
             status="no_confirmed_links", task_id=task_id,
-            reason="Bu iş için onaylanmış commit bağı yok. Analiz tahmine "
-                   "dayanmaz — önce önerilen bağları onaylayın.",
+            reason=tr_error(
+                "Bu iş için onaylanmış commit bağı yok. Analiz tahmine "
+                "dayanmaz — önce önerilen bağları onaylayın."
+            ),
         )
 
     if advisor is None:
@@ -158,15 +161,17 @@ def analyze_task(session: Session, cfg: Config, task_id: int,
     if advisor is None:
         return TaskAnalysis(
             status="disabled", task_id=task_id,
-            reason="LLM katmanı kapalı (config: llm.enabled) — analiz üretilemez.",
+            reason=tr_error("LLM katmanı kapalı (config: llm.enabled) — analiz üretilemez."),
         )
 
     context, _masked = build_context(task, commits)
     try:
         text = advisor.chat(SYSTEM_PROMPT, context)
     except Exception as e:  # noqa: BLE001 — uç 500 vermesin, sebep dönsün
-        return TaskAnalysis(status="error", task_id=task_id,
-                            reason=f"LLM çağrısı başarısız ({type(e).__name__}).")
+        return TaskAnalysis(
+            status="error", task_id=task_id,
+            reason=tr_error("LLM çağrısı başarısız ({err}).", err=type(e).__name__),
+        )
 
     ham = text if isinstance(text, str) else str(text)
     uyum, govde = parse_alignment(ham)

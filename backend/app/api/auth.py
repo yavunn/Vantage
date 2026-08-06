@@ -29,6 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_session
+from app.core.i18n import tr_error
 from app.core.security import (
     create_access_token,
     decode_access_token,
@@ -221,22 +222,22 @@ def current_user(
     authorization: str | None = Header(default=None),
 ) -> User:
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Giriş gerekli")
+        raise HTTPException(status_code=401, detail=tr_error("Giriş gerekli"))
     token = authorization.split(" ", 1)[1].strip()
     payload = decode_access_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Oturum geçersiz veya süresi doldu")
+        raise HTTPException(status_code=401, detail=tr_error("Oturum geçersiz veya süresi doldu"))
     user = session.get(User, int(payload["sub"]))
     if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="Hesap bulunamadı veya pasif")
+        raise HTTPException(status_code=401, detail=tr_error("Hesap bulunamadı veya pasif"))
     if int(payload.get("tv", 0)) != (user.token_version or 0):
-        raise HTTPException(status_code=401, detail="Oturum geçersiz — parola değişti, tekrar giriş yapın")
+        raise HTTPException(status_code=401, detail=tr_error("Oturum geçersiz — parola değişti, tekrar giriş yapın"))
     return user
 
 
 def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Bu işlem için yönetici yetkisi gerekli")
+        raise HTTPException(status_code=403, detail=tr_error("Bu işlem için yönetici yetkisi gerekli"))
     return user
 
 
@@ -244,14 +245,14 @@ def require_admin_or_hr(user: User = Depends(current_user)) -> User:
     """Paylaşımlı İK uçları: çalışan rehberi, izin özeti/onayı, kapasite.
     admin (ve owner=admin) ile hr geçer; düz user geçemez."""
     if user.role not in ("admin", "hr"):
-        raise HTTPException(status_code=403, detail="Bu işlem için yönetici veya İK yetkisi gerekli")
+        raise HTTPException(status_code=403, detail=tr_error("Bu işlem için yönetici veya İK yetkisi gerekli"))
     return user
 
 
 def require_owner(user: User = Depends(current_user)) -> User:
     """Yalnızca baş yönetici (owner). En üst yetki gerektiren işlemler için."""
     if not user.is_owner:
-        raise HTTPException(status_code=403, detail="Bu işlem için baş yönetici yetkisi gerekli")
+        raise HTTPException(status_code=403, detail=tr_error("Bu işlem için baş yönetici yetkisi gerekli"))
     return user
 
 
@@ -261,7 +262,7 @@ def _guard_owner_target(target: User, actor: User) -> None:
     if target.is_owner and target.id != actor.id:
         raise HTTPException(
             status_code=403,
-            detail="Baş yönetici hesabı korunuyor; bu işlem yapılamaz",
+            detail=tr_error("Baş yönetici hesabı korunuyor; bu işlem yapılamaz"),
         )
 
 
@@ -333,7 +334,8 @@ def login(body: LoginBody, request: Request, session: Session = Depends(get_sess
     if _rate_limited(ip, now):
         raise HTTPException(
             status_code=429,
-            detail=f"Çok fazla giriş denemesi. {LOGIN_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+            detail=tr_error("Çok fazla giriş denemesi. {mins} dk sonra tekrar deneyin.",
+                            mins=LOGIN_RATE_WINDOW_MIN),
         )
 
     user = session.scalar(select(User).where(User.email == body.email.lower()))
@@ -348,7 +350,10 @@ def login(body: LoginBody, request: Request, session: Session = Depends(get_sess
             remaining = int((locked_until - now).total_seconds() // 60) + 1
             raise HTTPException(
                 status_code=429,
-                detail=f"Çok fazla başarısız deneme. Hesap geçici kilitli — {remaining} dk sonra tekrar deneyin.",
+                detail=tr_error(
+                    "Çok fazla başarısız deneme. Hesap geçici kilitli — {mins} dk sonra tekrar deneyin.",
+                    mins=remaining,
+                ),
             )
         # Kilit süresi doldu: temizle.
         user.failed_login_count = 0
@@ -367,7 +372,7 @@ def login(body: LoginBody, request: Request, session: Session = Depends(get_sess
                 user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
                 user.failed_login_count = 0
             session.commit()
-        raise HTTPException(status_code=401, detail="E-posta ya da parola hatalı")
+        raise HTTPException(status_code=401, detail=tr_error("E-posta ya da parola hatalı"))
 
     # Başarılı giriş: sayaç + kilit sıfırlanır.
     user.failed_login_count = 0
@@ -415,7 +420,7 @@ def change_password(
     user: User = Depends(current_user),
 ):
     if not verify_password(body.current_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Mevcut parola hatalı")
+        raise HTTPException(status_code=400, detail=tr_error("Mevcut parola hatalı"))
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = False
     user.token_version = (user.token_version or 0) + 1  # eski/diğer oturumları düşür
@@ -491,7 +496,8 @@ def forgot_password(
     ):
         raise HTTPException(
             status_code=429,
-            detail=f"Çok fazla istek. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+            detail=tr_error("Çok fazla istek. {mins} dk sonra tekrar deneyin.",
+                            mins=RESET_RATE_WINDOW_MIN),
         )
 
     # Mail hiç yapılandırılmamışsa akış çalışamaz. Bu, hesabın varlığından
@@ -499,7 +505,7 @@ def forgot_password(
     if not is_configured():
         raise HTTPException(
             status_code=503,
-            detail="E-posta gönderimi yapılandırılmamış. Lütfen yöneticinize başvurun.",
+            detail=tr_error("E-posta gönderimi yapılandırılmamış. Lütfen yöneticinize başvurun."),
         )
 
     user = session.scalar(select(User).where(User.email == email)) if email else None
@@ -516,7 +522,7 @@ def forgot_password(
             logger.error("Parola sıfırlama kodu gönderilemedi: %s", e)
             raise HTTPException(
                 status_code=502,
-                detail="E-posta gönderilemedi. Lütfen yöneticinize başvurun.",
+                detail=tr_error("E-posta gönderilemedi. Lütfen yöneticinize başvurun."),
             ) from e
         # Mail gitti — kodu ancak şimdi kalıcılaştır.
         _aktif_kodlari_iptal_et(session, user.id, now)
@@ -560,7 +566,8 @@ def verify_reset_code(
     ):
         raise HTTPException(
             status_code=429,
-            detail=f"Çok fazla istek. {RESET_RATE_WINDOW_MIN} dk sonra tekrar deneyin.",
+            detail=tr_error("Çok fazla istek. {mins} dk sonra tekrar deneyin.",
+                            mins=RESET_RATE_WINDOW_MIN),
         )
 
     user = session.scalar(select(User).where(User.email == email)) if email else None
@@ -576,7 +583,7 @@ def verify_reset_code(
         )
     # Hesap yok / kod yok / süresi dolmuş — hepsi AYNI yanıt.
     if kayit is None or _as_utc(kayit.expires_at) <= now:
-        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+        raise HTTPException(status_code=400, detail=tr_error(_GENERIC_CODE_ERROR))
 
     girilen = (body.code or "").strip()
     # Sabit zamanlı karşılaştırma: yanıt süresinden kod tahmin edilemesin.
@@ -585,7 +592,7 @@ def verify_reset_code(
         if kayit.attempts >= RESET_MAX_ATTEMPTS:
             kayit.used_at = now  # kod yakıldı; kullanıcı yenisini istemeli
         session.commit()
-        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+        raise HTTPException(status_code=400, detail=tr_error(_GENERIC_CODE_ERROR))
 
     # Doğru kod: tek kullanımlık jeton üret. Jeton da HASH'li saklanır — o da
     # parolayı değiştirmeye yeten bir sırdır.
@@ -622,11 +629,11 @@ def reset_password(
         or kayit.reset_token_expires_at is None
         or _as_utc(kayit.reset_token_expires_at) <= now
     ):
-        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+        raise HTTPException(status_code=400, detail=tr_error(_GENERIC_CODE_ERROR))
 
     user = session.get(User, kayit.user_id)
     if user is None or not user.is_active:
-        raise HTTPException(status_code=400, detail=_GENERIC_CODE_ERROR)
+        raise HTTPException(status_code=400, detail=tr_error(_GENERIC_CODE_ERROR))
 
     user.password_hash = hash_password(body.new_password)
     # Kullanıcı parolayı KENDİ seçti — admin'in verdiği geçici parola değil,
@@ -671,13 +678,13 @@ def create_employee(
 ):
     email = body.email.lower()
     if body.role not in ("user", "admin", "hr"):
-        raise HTTPException(status_code=422, detail="role yalnızca 'user', 'admin' veya 'hr' olabilir")
+        raise HTTPException(status_code=422, detail=tr_error("role yalnızca 'user', 'admin' veya 'hr' olabilir"))
     # İK işe alım yapar ama rol veremez: HR yalnız role=user hesap açabilir,
     # admin/hr yükseltmesi yapamaz (yetki tırmanması önleme).
     if actor.role == "hr" and body.role != "user":
-        raise HTTPException(status_code=403, detail="İK yalnızca çalışan (user) hesabı oluşturabilir")
+        raise HTTPException(status_code=403, detail=tr_error("İK yalnızca çalışan (user) hesabı oluşturabilir"))
     if session.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status_code=409, detail="Bu e-posta zaten kayıtlı")
+        raise HTTPException(status_code=409, detail=tr_error("Bu e-posta zaten kayıtlı"))
 
     dev = Developer(display_name=body.display_name, external_ids={}, anonymizable=True)
     session.add(dev)
@@ -719,7 +726,7 @@ def update_employee(
 ):
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bulunamadı"))
     # Baş yönetici korunur: rolü ve aktifliği bu uçtan HİÇ değiştirilemez
     # (başka admin tarafından da, kaza ile kendi tarafından da). En üst yetki sabit.
     if user.is_owner and (
@@ -728,7 +735,7 @@ def update_employee(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Baş yönetici hesabının rolü veya aktifliği değiştirilemez",
+            detail=tr_error("Baş yönetici hesabının rolü veya aktifliği değiştirilemez"),
         )
     # Kendini kilitleme koruması: admin kendi rolünü/aktifliğini bu uçtan bozamaz.
     if user.id == admin.id and (
@@ -737,7 +744,7 @@ def update_employee(
     ):
         raise HTTPException(
             status_code=400,
-            detail="Kendi rolünü ya da aktiflik durumunu buradan değiştiremezsin",
+            detail=tr_error("Kendi rolünü ya da aktiflik durumunu buradan değiştiremezsin"),
         )
     # Son aktif yöneticiyi düşürme/pasifleştirme koruması (kilitlenme önleme).
     demoting = body.role is not None and body.role != "admin" and user.role == "admin"
@@ -745,12 +752,12 @@ def update_employee(
     if (demoting or deactivating) and _active_admin_count(session) <= 1:
         raise HTTPException(
             status_code=400,
-            detail="Sistemde en az bir aktif yönetici kalmalı",
+            detail=tr_error("Sistemde en az bir aktif yönetici kalmalı"),
         )
     changes: dict = {}
     if body.role is not None:
         if body.role not in ("user", "admin", "hr"):
-            raise HTTPException(status_code=422, detail="role yalnızca 'user', 'admin' veya 'hr' olabilir")
+            raise HTTPException(status_code=422, detail=tr_error("role yalnızca 'user', 'admin' veya 'hr' olabilir"))
         if body.role != user.role:
             changes["role"] = f"{user.role}->{body.role}"
         user.role = body.role
@@ -775,13 +782,13 @@ def delete_employee(
 ):
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bulunamadı"))
     if user.is_owner:
-        raise HTTPException(status_code=403, detail="Baş yönetici hesabı silinemez")
+        raise HTTPException(status_code=403, detail=tr_error("Baş yönetici hesabı silinemez"))
     if user.id == admin.id:
-        raise HTTPException(status_code=400, detail="Kendi hesabını silemezsin")
+        raise HTTPException(status_code=400, detail=tr_error("Kendi hesabını silemezsin"))
     if user.role == "admin" and _active_admin_count(session) <= 1:
-        raise HTTPException(status_code=400, detail="Sistemde en az bir aktif yönetici kalmalı")
+        raise HTTPException(status_code=400, detail=tr_error("Sistemde en az bir aktif yönetici kalmalı"))
 
     dev_id = user.developer_id
     # Özlük/bordro evrakı: DB satırları FK cascade ile gider ama DOSYALAR diskte
@@ -825,10 +832,10 @@ def set_employee_password(
 ):
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bulunamadı"))
     # İK yalnızca düz çalışan (user) parolası sıfırlayabilir; admin/hr/owner hedefi red.
     if admin.role == "hr" and user.role != "user":
-        raise HTTPException(status_code=403, detail="İK yalnızca çalışan (user) parolasını sıfırlayabilir")
+        raise HTTPException(status_code=403, detail=tr_error("İK yalnızca çalışan (user) parolasını sıfırlayabilir"))
     # Baş yöneticinin parolasını yalnızca kendisi değiştirebilir (ele geçirme önleme).
     _guard_owner_target(user, admin)
     user.password_hash = hash_password(body.new_password)
@@ -854,7 +861,7 @@ def set_employment(
     Bu alanlar performans metriğine KARIŞMAZ — yalnız İK/kapasite bağlamı."""
     user = session.get(User, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="Hesap bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bulunamadı"))
     changes: dict = {}
     if body.hire_date is not None and body.hire_date != user.hire_date:
         changes["hire_date"] = body.hire_date.isoformat()
@@ -882,9 +889,9 @@ def add_membership(
 ):
     user = session.get(User, user_id)
     if user is None or user.developer_id is None:
-        raise HTTPException(status_code=404, detail="Hesap bir geliştiriciye bağlı değil")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bir geliştiriciye bağlı değil"))
     if session.get(Team, body.team_id) is None:
-        raise HTTPException(status_code=404, detail="Takım bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Takım bulunamadı"))
     role = body.role if body.role in ("member", "manager") else "member"
     existing = session.scalar(
         select(TeamMembership).where(
@@ -911,7 +918,7 @@ def remove_membership(
 ):
     user = session.get(User, user_id)
     if user is None or user.developer_id is None:
-        raise HTTPException(status_code=404, detail="Hesap bir geliştiriciye bağlı değil")
+        raise HTTPException(status_code=404, detail=tr_error("Hesap bir geliştiriciye bağlı değil"))
     m = session.scalar(
         select(TeamMembership).where(
             TeamMembership.developer_id == user.developer_id,
@@ -919,7 +926,7 @@ def remove_membership(
         )
     )
     if m is None:
-        raise HTTPException(status_code=404, detail="Üyelik bulunamadı")
+        raise HTTPException(status_code=404, detail=tr_error("Üyelik bulunamadı"))
     session.delete(m)
     session.commit()
     return _user_out(session, user)
@@ -938,10 +945,10 @@ def setup(body: SetupBody, session: Session = Depends(get_session)):
     # Güvenlik: yalnızca sistemde hiç aktif admin yoksa çalışır (aksi halde
     # herkes admin oluşturabilirdi). İlk admin kurulduktan sonra bu uç kapanır.
     if _active_admin_count(session) > 0:
-        raise HTTPException(status_code=403, detail="Kurulum zaten tamamlanmış")
+        raise HTTPException(status_code=403, detail=tr_error("Kurulum zaten tamamlanmış"))
     email = body.email.lower()
     if session.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status_code=409, detail="Bu e-posta zaten kayıtlı")
+        raise HTTPException(status_code=409, detail=tr_error("Bu e-posta zaten kayıtlı"))
 
     dev = Developer(display_name=body.display_name, external_ids={}, anonymizable=True)
     session.add(dev)

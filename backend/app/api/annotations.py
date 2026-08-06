@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
+from app.core.i18n import tr_error
 from app.models import TrendAnnotation, User
 
 router = APIRouter(prefix="/api/annotations", dependencies=[Depends(current_user)])
@@ -65,9 +66,9 @@ def create_annotation(
     actor: User = Depends(require_admin_or_hr),
 ):
     if payload.kind not in VALID_KINDS:
-        raise HTTPException(422, f"kind yalnızca {sorted(VALID_KINDS)} olabilir")
+        raise HTTPException(422, tr_error("kind yalnızca {list} olabilir", list=sorted(VALID_KINDS)))
     if not payload.label.strip():
-        raise HTTPException(422, "label boş olamaz")
+        raise HTTPException(422, tr_error("label boş olamaz"))
     a = TrendAnnotation(
         team_id=payload.team_id,
         date=payload.date,
@@ -90,7 +91,7 @@ def delete_annotation(
 ):
     a = session.get(TrendAnnotation, annotation_id)
     if a is None:
-        raise HTTPException(404, "Anotasyon bulunamadı")
+        raise HTTPException(404, tr_error("Anotasyon bulunamadı"))
     session.delete(a)
     session.commit()
     return {"ok": True}

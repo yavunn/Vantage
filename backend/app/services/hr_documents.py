@@ -43,11 +43,18 @@ _SAFE_CONTENT_TYPES = {
 
 
 class UploadError(Exception):
-    """İnsan-okur doğrulama hatası. API katmanı bunu 4xx'e çevirir."""
+    """İnsan-okur doğrulama hatası. API katmanı bunu 4xx'e çevirir.
 
-    def __init__(self, message: str, status: int = 422) -> None:
-        super().__init__(message)
-        self.message = message
+    `message` çeviri ANAHTARI olarak İSTEĞİN DİLİNE göre burada, oluşturma
+    anında çevrilir (bkz. core.i18n.tr_error) — çağıran taraf ayrıca çeviri
+    yapmaz, `e.message` doğrudan HTTPException(detail=...)'a akar."""
+
+    def __init__(self, message: str, status: int = 422, **params: object) -> None:
+        from app.core.i18n import tr_error
+
+        translated = tr_error(message, **params)
+        super().__init__(translated)
+        self.message = translated
         self.status = status
 
 
@@ -87,7 +94,8 @@ def validate_upload_name(filename: str) -> str:
         raise UploadError("Dosyanın uzantısı okunamadı; uzantılı bir dosya seçin")
     if ext not in allowed:
         raise UploadError(
-            f"'{ext}' uzantısı kabul edilmiyor. İzinli türler: {', '.join(allowed)}"
+            "'{ext}' uzantısı kabul edilmiyor. İzinli türler: {allowed}",
+            ext=ext, allowed=", ".join(allowed),
         )
     return ext
 
@@ -117,7 +125,7 @@ async def save_upload(upload, *, user_id: int) -> dict:
                 size += len(chunk)
                 if size > limit:
                     raise UploadError(
-                        f"Dosya çok büyük (en fazla {cfg.max_file_mb} MB)", status=413
+                        "Dosya çok büyük (en fazla {mb} MB)", status=413, mb=cfg.max_file_mb
                     )
                 digest.update(chunk)
                 out.write(chunk)
