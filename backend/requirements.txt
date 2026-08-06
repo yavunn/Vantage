@@ -1,4 +1,7 @@
 fastapi>=0.115
+# Multipart form (İK evrak yükleme uçları). FastAPI'nin transitif bağımlılığı
+# olarak gelebiliyor ama UploadFile/Form onsuz çalışmaz — açıkça beyan edilir.
+python-multipart>=0.0.9
 uvicorn[standard]>=0.32
 sqlalchemy>=2.0.36
 psycopg[binary]>=3.2

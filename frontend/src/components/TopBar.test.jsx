@@ -48,7 +48,9 @@ describe("rol bazlı sekme kümesi", () => {
   it("İK'ya performans sekmeleri gösterilmez", () => {
     ciz({ isHr: true });
     const sekmeler = sekmeAdlari();
-    expect(sekmeler).toEqual(["İK Panosu", "İzinler", "Hesaplar", "Anket", "Ayarlar"]);
+    expect(sekmeler).toEqual([
+      "İK Panosu", "İzinler", "Evraklar", "Hesaplar", "Anket", "Ayarlar",
+    ]);
     // Etik sınır: bunların HİÇBİRİ görünmemeli.
     expect(sekmeler).not.toContain("Takım görünümü");
     expect(sekmeler).not.toContain("Bireysel görünüm");

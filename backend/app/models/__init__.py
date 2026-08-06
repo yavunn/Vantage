@@ -425,6 +425,66 @@ class Leave(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class PayrollDocument(Base):
+    """Bordro/özlük evrakı: çalışanın yüklediği belgenin KAYDI (dosya diskte).
+
+    İÇERİK DB'DE DEĞİL: dosya `services/hr_documents.storage_root()` altında
+    durur, burada yalnız meta + disk adı tutulur. Belgeler ölçekte megabaytlarca
+    tarama/PDF; bunları satır içinde taşımak yedeklemeyi ve her sorguyu ağırlaştırır.
+
+    ÖZEL NİTELİKLİ VERİ: istirahat raporu, engellilik raporu, icra müzekkeresi.
+    Bu yüzden erişim dar (sahibi + admin/İK), her okuma denetim kaydına yazılır
+    ve içerik hiçbir koşulda LLM katmanına verilmez.
+
+    doc_type: services/hr_doc_types.DOC_TYPES kataloğunun anahtarı. Serbest metin
+    DEĞİL — "kimin özlük dosyası eksik" ancak sabit anahtarla hesaplanabilir.
+
+    period: belgenin ait olduğu bordro dönemi ("2026-08"). Rapor tarihi ile
+    bordro dönemi AYNI ŞEY DEĞİLDİR (ay sonunda başlayan rapor bir sonraki
+    bordroya sarkar), bu yüzden ayrı kolon.
+
+    status: pending | approved | rejected — İK'nın belgeyi bordroya işlediğini
+    (ya da neden işleyemediğini) çalışan görebilsin. Reddedilen kayıt SİLİNMEZ:
+    gerekçe kaybolursa çalışan aynı eksik belgeyi tekrar yükler.
+    """
+
+    __tablename__ = "payroll_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Belge KİMİN hakkında (her zaman çalışanın kendisi).
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Kim yükledi — çalışanın kendisi ya da onun adına İK. Hesap silinse de
+    # belgenin kaydı kalsın diye SET NULL.
+    uploaded_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    doc_type: Mapped[str] = mapped_column(String(40), index=True)
+    period: Mapped[str | None] = mapped_column(String(7), nullable=True, index=True)  # YYYY-MM
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # İlgili izin kaydı (rapor ↔ izin). Bağ opsiyoneldir: belge izin talebinden
+    # önce de gelebilir. İzin silinirse belge kaybolmasın diye SET NULL.
+    leave_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leaves.id", ondelete="SET NULL"), nullable=True
+    )
+    # --- dosya meta ---
+    original_name: Mapped[str] = mapped_column(String(255))
+    stored_name: Mapped[str] = mapped_column(String(80))  # uuid4hex + uzantı
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    sha256: Mapped[str] = mapped_column(String(64))
+    # --- İK kararı ---
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Redde ZORUNLU gerekçe (izin akışındaki decision_note ile aynı kural).
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Recommendation(Base):
     """Kural motorunun ürettiği insan-dostu öneriler (İlke D)."""
 

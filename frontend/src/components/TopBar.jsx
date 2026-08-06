@@ -73,8 +73,9 @@ export default function TopBar({
           <button className="mini ghost cmdk-trigger" onClick={onOpenPalette} title={t("top.searchTitle")}>
             <span aria-hidden="true">⌕</span> {t("top.search")} <kbd>Ctrl K</kbd>
           </button>
-          <NotificationBell onNavigate={({ teamId: tid, survey: goSurvey }) => {
+          <NotificationBell onNavigate={({ teamId: tid, survey: goSurvey, tab: goTab }) => {
             if (goSurvey) { onTab("survey"); return; }
+            if (goTab) { onTab(goTab); return; }
             if (tid != null) { onTeam(tid); onTab("team"); }
           }} />
           <button className="mini ghost" onClick={onCycleTheme} title={t("top.themeTitle")}>{themeLabel}</button>
@@ -94,6 +95,7 @@ export default function TopBar({
             <>
               <Tab id="hr">{t("nav.hr")}</Tab>
               <Tab id="leaves">{t("nav.leaves")}</Tab>
+              <Tab id="documents">{t("nav.documents")}</Tab>
               <Tab id="accounts">{t("nav.accounts")}</Tab>
               {surveyRespondent && (
                 <Tab id="survey">
@@ -108,6 +110,7 @@ export default function TopBar({
               {individualAvailable && <Tab id="me">{t("nav.me")}</Tab>}
               <Tab id="projects">{t("nav.projects")}</Tab>
               <Tab id="leaves">{t("nav.leaves")}</Tab>
+              <Tab id="documents">{t("nav.documents")}</Tab>
               {surveyRespondent && (
                 <Tab id="survey">
                   {t("nav.survey")}{surveyPending && <span className="tab-dot" aria-label={t("top.pending")} />}

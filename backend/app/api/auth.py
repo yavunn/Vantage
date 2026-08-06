@@ -784,6 +784,16 @@ def delete_employee(
         raise HTTPException(status_code=400, detail="Sistemde en az bir aktif yönetici kalmalı")
 
     dev_id = user.developer_id
+    # Özlük/bordro evrakı: DB satırları FK cascade ile gider ama DOSYALAR diskte
+    # kalırdı. Silinen bir çalışanın istirahat raporunun sunucuda durması KVKK
+    # veri minimizasyonuna aykırı — hesap silinirken dosyalar da imha edilir.
+    from app.models import PayrollDocument
+    from app.services.hr_documents import purge_user_files
+    for doc in session.scalars(
+        select(PayrollDocument).where(PayrollDocument.user_id == user_id)
+    ).all():
+        session.delete(doc)
+    purged_files = purge_user_files(user_id)
     session.delete(user)
     # Geliştiricinin metrik geçmişi yoksa developer + üyelikleri de temizlenir;
     # geçmiş varsa developer korunur (commit/PR/task bağları bozulmasın).
@@ -799,7 +809,9 @@ def delete_employee(
             developer_removed = True
     from app.services.audit import record_audit
     record_audit(session, admin, "delete_employee", target_user_id=user_id,
-                 target_email=user.email, detail={"developer_removed": developer_removed})
+                 target_email=user.email,
+                 detail={"developer_removed": developer_removed,
+                         "documents_purged": purged_files})
     session.commit()
     return {"ok": True, "developer_removed": developer_removed}
 

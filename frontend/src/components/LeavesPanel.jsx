@@ -331,6 +331,13 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                   <div className="leave-list-top">
                     <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                     <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
+                    {/* İzin-evrak senkronu: kanıt Evraklar sekmesinden zaten yüklendiyse
+                        ikinci kez sorulmasın diye görünür kılınır. */}
+                    {lv.has_document && (
+                      <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
+                        📎 {t("belge var")}
+                      </span>
+                    )}
                   </div>
                   <div className="leave-list-dates">
                     {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -370,6 +377,11 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                       <strong>{lv.person}</strong>
                       <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                       <span className="leave-status pending">{t(STATUS_LABEL.pending)}</span>
+                      {lv.has_document && (
+                        <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi — Evraklar sekmesinden de onaylanabilir")}>
+                          📎 {t("belge var")}
+                        </span>
+                      )}
                     </div>
                     <div className="leave-list-dates">
                       {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
@@ -469,6 +481,11 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                     <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
                     {lv.status && lv.status !== "approved" && (
                       <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
+                    )}
+                    {lv.has_document && (
+                      <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
+                        📎 {t("belge var")}
+                      </span>
                     )}
                   </div>
                   <div className="leave-list-dates">

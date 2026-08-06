@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import current_user, require_admin_or_hr
 from app.core.db import get_session
-from app.models import Developer, Leave, User
+from app.models import Developer, Leave, PayrollDocument, User
 
 router = APIRouter(prefix="/api/leaves")
 
@@ -56,6 +56,38 @@ def _person_name(session: Session, user_id: int, developer_id: int | None) -> st
     return u.email.split("@")[0] if u else "?"
 
 
+def _leaves_with_documents(session: Session, leave_ids: list[int]) -> set[int]:
+    """Evrak senkronu: hangi Leave kayıtlarına en az bir belge BAĞLI.
+
+    Belge yükleme akışında (api/documents.py) kişi var olan bir izin isteğine
+    bağlanabiliyor — burada geri döndürülmesi, İzin panosunda 'bu iznin kanıtı
+    zaten yüklendi' bilgisini gösterip aynı belgenin İK tarafından ikinci kez
+    aranmasını/istemesini önler."""
+    if not leave_ids:
+        return set()
+    return set(session.scalars(
+        select(PayrollDocument.leave_id).where(PayrollDocument.leave_id.in_(leave_ids))
+    ).all())
+
+
+def _serialize_own_leave(lv: Leave, has_document: bool) -> dict:
+    """Sahibinin/İK'nın TAM görebildiği alanlarla (karar notu dahil) tek bir
+    izin kaydı. `/mine` ve `/by-user/{id}` AYNI şekli döner ki belge yükleme
+    formundaki 'ilgili izin kaydı' seçici ikisinde de aynı alanları bulsun."""
+    return {
+        "id": lv.id,
+        "leave_type": lv.leave_type,
+        "start_date": lv.start_date.isoformat(),
+        "end_date": lv.end_date.isoformat(),
+        "description": lv.description,
+        "status": lv.status or "approved",
+        "decision_note": lv.decision_note,
+        "has_document": has_document,
+        "created_at": lv.created_at.isoformat() if lv.created_at else None,
+        "can_cancel": (lv.status or "approved") == "pending",
+    }
+
+
 @router.get("")
 def list_leaves(
     month: str = Query(...),
@@ -70,6 +102,7 @@ def list_leaves(
         # Çalışan yalnız KENDİ izinlerini görür (takım arkadaşları dahil değil).
         stmt = stmt.where(Leave.user_id == user.id)
     rows = session.scalars(stmt.order_by(Leave.start_date)).all()
+    with_docs = _leaves_with_documents(session, [lv.id for lv in rows])
     out = []
     for lv in rows:
         status = lv.status or "approved"
@@ -92,6 +125,9 @@ def list_leaves(
             "status": status,
             # Gizlilik: karar notu yalnız sahibi/yöneticiye açılır.
             "decision_note": lv.decision_note if (own or manage) else None,
+            # Evrak senkronu: bu izne bağlı en az bir belge (rapor, izin formu…)
+            # yüklendi mi — İK aynı kanıtı ikinci kez istemesin.
+            "has_document": lv.id in with_docs,
             "own": own,
             "can_delete": own or manage,
             "can_decide": manage and status == "pending",
@@ -109,17 +145,29 @@ def my_leaves(
     rows = session.scalars(
         select(Leave).where(Leave.user_id == user.id).order_by(Leave.created_at.desc())
     ).all()
-    return [{
-        "id": lv.id,
-        "leave_type": lv.leave_type,
-        "start_date": lv.start_date.isoformat(),
-        "end_date": lv.end_date.isoformat(),
-        "description": lv.description,
-        "status": lv.status or "approved",
-        "decision_note": lv.decision_note,
-        "created_at": lv.created_at.isoformat() if lv.created_at else None,
-        "can_cancel": (lv.status or "approved") == "pending",
-    } for lv in rows]
+    with_docs = _leaves_with_documents(session, [lv.id for lv in rows])
+    return [_serialize_own_leave(lv, lv.id in with_docs) for lv in rows]
+
+
+@router.get("/by-user/{target_user_id}")
+def leaves_by_user(
+    target_user_id: int,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_admin_or_hr),
+):
+    """Admin/İK: belirli bir çalışanın TÜM izin istekleri.
+
+    Evrak yükleme formundaki 'ilgili izin kaydı' seçicisi bunu kullanır: İK ya
+    da çalışan aynı başlangıç/bitiş tarihini bir de belge formuna ELLE
+    YAZMASIN, var olan bir izin isteğini seçip tarihleri oradan alsın."""
+    target = session.get(User, target_user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+    rows = session.scalars(
+        select(Leave).where(Leave.user_id == target_user_id).order_by(Leave.created_at.desc())
+    ).all()
+    with_docs = _leaves_with_documents(session, [lv.id for lv in rows])
+    return [_serialize_own_leave(lv, lv.id in with_docs) for lv in rows]
 
 
 @router.post("", status_code=201)
@@ -255,6 +303,7 @@ def pending_leaves(
     rows = session.scalars(
         select(Leave).where(Leave.status == "pending").order_by(Leave.start_date)
     ).all()
+    with_docs = _leaves_with_documents(session, [lv.id for lv in rows])
     return [{
         "id": lv.id,
         "user_id": lv.user_id,
@@ -263,6 +312,9 @@ def pending_leaves(
         "start_date": lv.start_date.isoformat(),
         "end_date": lv.end_date.isoformat(),
         "description": lv.description,
+        # Evrak senkronu: kanıt zaten yüklendiyse İK'nın ayrıca istemesine gerek
+        # yok — Evraklar sekmesinden tek kararla (belge onayı) da çözülebilir.
+        "has_document": lv.id in with_docs,
         "created_at": lv.created_at.isoformat() if lv.created_at else None,
     } for lv in rows]
 

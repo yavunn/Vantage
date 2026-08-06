@@ -1157,3 +1157,74 @@ Object.assign(EN, {
     "⚠ only {n} records — small sample, interpret with care",
   "{n} kayıt üzerinden": "based on {n} records",
 });
+
+// --- bordro / özlük evrakı ---------------------------------------------------
+Object.assign(EN, {
+  "Bordro ve özlük evrakı": "Payroll & personnel documents",
+  "Rapor, izin belgesi, icra yazısı ve özlük evrakını buradan yükleyin. Belgeler yalnız size ve İK'ya açıktır; içerik hiçbir yapay zekâ katmanına gönderilmez.":
+    "Upload medical reports, leave documents, garnishment orders and personnel paperwork here. "
+    + "Documents are visible only to you and HR; their content is never sent to any AI layer.",
+  "Belge yükle": "Upload a document",
+  "Belge türü": "Document type",
+  "Dosya": "File",
+  "Seçiniz…": "Select…",
+  "Kimin adına": "On behalf of",
+  "Kendim": "Myself",
+  "Bordro dönemi": "Payroll period",
+  "Başlangıç": "Start",
+  "Bitiş": "End",
+  "Açıklama (opsiyonel)": "Note (optional)",
+  "Yükle": "Upload",
+  "Bordroyu etkiler": "Affects payroll",
+  "Bordro": "Payroll",
+  "Belge yüklendi, İK incelemesine gönderildi.": "Document uploaded and sent to HR for review.",
+  "İncelemede": "Under review",
+  "Kabul edildi": "Accepted",
+  "Kabul edilmedi": "Not accepted",
+  "Kabul et": "Accept",
+  "Kabul etme": "Reject",
+  "İndir": "Download",
+  "İK notu": "HR note",
+  "Kabul edilmeme gerekçesi (çalışan görecek):":
+    "Reason for rejection (the employee will see this):",
+  "Bu belge kalıcı olarak silinecek. Emin misiniz?":
+    "This document will be permanently deleted. Are you sure?",
+  "{n} belge incelemede": "{n} document(s) under review",
+  "Özlük dosyanda {n} zorunlu belge eksik:":
+    "{n} mandatory document(s) missing from your personnel file:",
+  "Dönem özeti": "Period summary",
+  "Bu döneme ait belge yok.": "No documents for this period.",
+  "Bordroyu etkileyen {n} belge hâlâ incelenmedi.":
+    "{n} document(s) affecting payroll are still unreviewed.",
+  "Kabul": "Accepted",
+  "Red": "Rejected",
+  "Özlük dosyası eksikleri": "Personnel file gaps",
+  "Zorunlu {n} belgeden kaçı kabul edilmiş. Kabul edilmeyen belge yeniden eksik sayılır.":
+    "How many of the {n} mandatory documents are accepted. A rejected document counts as missing again.",
+  "Eksik belgeler": "Missing documents",
+  "Eksik yok ✓": "Nothing missing ✓",
+  "incelemede": "under review",
+  "Tam": "Complete",
+  "Tüm belgeler": "All documents",
+  "Belgelerim": "My documents",
+  "Herkes": "Everyone",
+  "Tüm durumlar": "All statuses",
+  "Henüz belge yok.": "No documents yet.",
+});
+
+// --- izin ↔ evrak senkronu ----------------------------------------------------
+Object.assign(EN, {
+  "İlgili izin kaydı": "Related leave request",
+  "Bağlantısız (onaylanınca yeni izin kaydı oluşturulur)":
+    "Not linked (a new leave request will be created on approval)",
+  "belge var": "has document",
+  "Tarihler seçilen izin kaydından alınıyor.": "Dates are taken from the selected leave request.",
+  "Belge yüklendi, İK incelemesine gönderildi. Onaylanınca bağlı izin kaydı da onaylanır.":
+    "Document uploaded and sent to HR for review. Approving it will also approve the linked leave request.",
+  "Belge yüklendi, İK incelemesine gönderildi. Onaylanınca izin takvimine otomatik işlenir.":
+    "Document uploaded and sent to HR for review. Approving it will automatically add it to the leave calendar.",
+  "İzin kaydına bağlı": "Linked to a leave request",
+  "Bu izne bağlı bir belge yüklendi": "A document is attached to this leave request",
+  "Bu izne bağlı bir belge yüklendi — Evraklar sekmesinden de onaylanabilir":
+    "A document is attached to this leave request — it can also be approved from the Documents tab",
+});

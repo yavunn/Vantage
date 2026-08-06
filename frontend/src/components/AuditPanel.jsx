@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { downloadCsv, listAudit } from "../api.js";
+import { downloadFile, listAudit } from "../api.js";
 import { toast } from "../toast.js";
 import { useLang, useT } from "../i18n.jsx";
 
@@ -44,7 +44,7 @@ export default function AuditPanel() {
         <h2>{t("Denetim kaydı ({n})", { n: filtered.length })}</h2>
         <span className="input-with-btn">
           <input className="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Eylem, aktör veya hedefe göre ara…")} />
-          <button className="mini" onClick={() => downloadCsv("/api/admin/audit.csv", "denetim-kaydi.csv").catch((e) => toast(e.message, "error"))}>{t("CSV indir")}</button>
+          <button className="mini" onClick={() => downloadFile("/api/admin/audit.csv", "denetim-kaydi.csv").catch((e) => toast(e.message, "error"))}>{t("CSV indir")}</button>
         </span>
       </div>
       <p className="desc">{t("Yönetici işlemleri burada kayıt altındadır (hesap verebilirlik). Parola gibi hassas içerik saklanmaz.")}</p>

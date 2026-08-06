@@ -266,8 +266,78 @@ export function pendingLeaves() {
 export function myLeaveRequests() {
   return api("/api/leaves/mine");
 }
+/** Admin/İK: belirli bir çalışanın tüm izin istekleri (evrak formunda "ilgili
+ * izin kaydı" seçimi için — aynı tarih iki yerde ayrı ayrı yazılmasın). */
+export function leavesByUser(userId) {
+  return api(`/api/leaves/by-user/${userId}`);
+}
 export function decideLeave(id, decision, note) {
   return apiPost(`/api/leaves/${id}/decision`, { decision, note });
+}
+
+// --- bordro / özlük evrakı ----------------------------------------------------
+// Belge türü kataloğu SUNUCUDAN gelir (mevzuata bağlı, tek kaynak). Burada
+// sabitlenirse yeni bir tür eklendiğinde arayüz ile sunucu ayrışır.
+
+export function documentTypes() {
+  return api("/api/documents/types");
+}
+
+export function listDocuments(filters = {}) {
+  const p = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v != null && v !== "") p.set(k, v);
+  });
+  const q = p.toString();
+  return api(`/api/documents${q ? `?${q}` : ""}`);
+}
+
+export function pendingDocuments() {
+  return api("/api/documents/pending");
+}
+
+export function documentChecklist() {
+  return api("/api/documents/checklist");
+}
+
+export function documentSummary(period) {
+  return api(`/api/documents/summary?period=${period}`);
+}
+
+export function myDocumentSummary() {
+  return api("/api/documents/mine/summary");
+}
+
+/** fields: {doc_type, period, start_date, end_date, note, leave_id, target_user_id} */
+export async function uploadDocument(file, fields) {
+  const form = new FormData();
+  form.append("file", file);
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v != null && v !== "") form.append(k, String(v));
+  });
+  // Content-Type BİLEREK set edilmiyor: FormData'yı fetch'e verirken tarayıcı
+  // multipart sınırını (boundary) kendisi üretmeli. Elle "multipart/form-data"
+  // yazmak boundary'siz bir başlık gönderir ve sunucu gövdeyi ayrıştıramaz.
+  const resp = await fetch("/api/documents", {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return resp.json();
+}
+
+export function decideDocument(id, decision, note) {
+  return apiPost(`/api/documents/${id}/decision`, { decision, note });
+}
+
+export function deleteDocument(id) {
+  return apiDelete(`/api/documents/${id}`);
+}
+
+/** İçerik yalnız kimlikli uçtan akar — doğrudan <a href> ile indirilemez. */
+export function downloadDocument(id, filename) {
+  return downloadFile(`/api/documents/${id}/download`, filename);
 }
 
 // --- anotasyonlar (tatil/olay işaretleri) -------------------------------------
@@ -307,9 +377,12 @@ export function oneOnOne(devId) {
   return api(`/api/developers/${devId}/one-on-one`);
 }
 
-// --- CSV indirme (auth başlıklı; blob olarak indirir) -------------------------
+// --- kimlikli indirme (blob olarak indirir) ----------------------------------
+//
+// Basit bir <a href> yetmiyor: bu uçlar Authorization başlığı istiyor ve tarayıcı
+// gezinme isteklerine o başlığı koymaz. İçerik blob olarak alınıp indirtiliyor.
 
-export async function downloadCsv(path, filename) {
+export async function downloadFile(path, filename) {
   const resp = await fetch(path, { headers: authHeaders() });
   if (!resp.ok) throw await parseError(resp);
   const blob = await resp.blob();

@@ -24,6 +24,7 @@ import TrendChart from "./components/TrendChart.jsx";
 // Varsayılan (takım) görünümde gerekmeyen ağır panelleri tembel yükle —
 // ilk açılış paketi küçülür.
 const AdminPanel = lazy(() => import("./components/AdminPanel.jsx"));
+const DocumentsPanel = lazy(() => import("./components/DocumentsPanel.jsx"));
 const HrDashboard = lazy(() => import("./components/HrDashboard.jsx"));
 const IndividualView = lazy(() => import("./components/IndividualView.jsx"));
 const MyCodeHealth = lazy(() => import("./components/MyCodeHealth.jsx"));
@@ -93,8 +94,8 @@ export default function App() {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
       const order = user && user.role === "hr"
-        ? ["hr", "leaves", "accounts", "survey", "settings"]
-        : ["team", "me", "projects", "leaves", "survey", "admin", "settings"];
+        ? ["hr", "leaves", "documents", "accounts", "survey", "settings"]
+        : ["team", "me", "projects", "leaves", "documents", "survey", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
         e.preventDefault();
@@ -112,10 +113,10 @@ export default function App() {
     let allowed;
     let fallback;
     if (user.role === "hr") {
-      allowed = new Set(["hr", "leaves", "accounts", "survey", "settings"]);
+      allowed = new Set(["hr", "leaves", "documents", "accounts", "survey", "settings"]);
       fallback = "hr";
     } else {
-      allowed = new Set(["team", "projects", "leaves", "survey", "settings"]);
+      allowed = new Set(["team", "projects", "leaves", "documents", "survey", "settings"]);
       if (uiConfig.individual_view_enabled) allowed.add("me");
       if (user.role === "admin") allowed.add("admin");
       fallback = "team";
@@ -353,6 +354,10 @@ export default function App() {
 
         {tab === "leaves" && <LeavesPanel user={user} canManage={canManageLeaves} teams={teams} />}
 
+        {/* Bordro/özlük evrakı: herkes kendi belgesini yükler, admin+İK herkesinkini
+            görür ve karara bağlar (sunucu da aynı sınırı zorlar). */}
+        {tab === "documents" && <DocumentsPanel user={user} canManage={canManageLeaves} />}
+
         {tab === "hr" && isHr && <HrDashboard />}
 
         {/* İK hesap rehberi: yalnız çalışan (user) ekler/sıfırlar. Performans
@@ -549,6 +554,7 @@ export default function App() {
         tabs={isHr ? [
           { key: "hr", label: t("nav.hr") },
           { key: "leaves", label: t("nav.leaves") },
+          { key: "documents", label: t("nav.documents") },
           { key: "accounts", label: t("nav.accounts") },
           ...(surveyRespondent ? [{ key: "survey", label: t("nav.survey") }] : []),
           { key: "settings", label: t("nav.settings") },
@@ -557,6 +563,7 @@ export default function App() {
           ...(individualAvailable ? [{ key: "me", label: t("nav.me") }] : []),
           { key: "projects", label: t("nav.projects") },
           { key: "leaves", label: t("nav.leaves") },
+          { key: "documents", label: t("nav.documents") },
           ...(surveyRespondent ? [{ key: "survey", label: t("nav.survey") }] : []),
           ...(isAdmin ? [{ key: "admin", label: t("nav.admin") }] : []),
           { key: "settings", label: t("nav.settings") },

@@ -61,6 +61,13 @@ export default function NotificationBell({ onNavigate }) {
     if (m) {
       onNavigate({ teamId: Number(m[1]) });
       setOpen(false);
+      return;
+    }
+    // Düz sekme adı ("leaves", "documents"): izin ve evrak bildirimleri bunu
+    // gönderiyordu ama burada karşılığı yoktu — tıklama hiçbir şey yapmıyordu.
+    if (n.link && /^[a-z]+$/.test(n.link)) {
+      onNavigate({ tab: n.link });
+      setOpen(false);
     }
   }
   async function readAll() {

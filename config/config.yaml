@@ -188,3 +188,34 @@ rag:
     # Modeli YA DA korpusu belirgin değiştirirsen bu sayı GEÇERSİZDİR: ölç.
     min_score: 0.517
   index: auto                # auto | memory (pgvector bu kurulumda yok)
+
+# --- Bordro / özlük evrakı ----------------------------------------------------
+# Çalışanların yüklediği belgeler (istirahat raporu, icra yazısı, özlük evrakı).
+# Bu dosyalar ÖZEL NİTELİKLİ kişisel veri taşır:
+#   - storage_dir web köküne (frontend/dist) ASLA gösterilmemeli; oradan servis
+#     edilen bir dosya kimliksiz indirilebilir. Boş bırakılırsa PROJECT_ROOT/data/hr-docs.
+#   - Üretimde şifreli bir diske alınması ve yedeklenmesi önerilir.
+# allowed_extensions bir ALLOWLIST'tir; svg/html bilerek yok (depolanmış XSS).
+hr_documents:
+  storage_dir: ''            # boş = <proje kökü>/data/hr-docs
+  max_file_mb: 15
+  allowed_extensions:
+    - pdf
+    - jpg
+    - jpeg
+    - png
+    - webp
+    - heic
+    - heif
+    - doc
+    - docx
+    - xls
+    - xlsx
+    - odt
+    - ods
+    - txt
+    - zip
+    - rar
+  # Bilgi amaçlı saklama penceresi — sistem KENDİLİĞİNDEN SİLMEZ, imha kararı
+  # insanındır (İş Kanunu zamanaşımı süreleriyle uyumlu).
+  retention_years: 10

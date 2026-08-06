@@ -20,3 +20,8 @@ backend/fixtures/
 
 # Sırlar (arayüzden girilen token/anahtar — asla commit edilmez)
 backend/.secrets.env
+
+# Yüklenen İK/bordro evrakı (özel nitelikli kişisel veri: sağlık raporu, icra
+# yazısı, engellilik raporu). Bir dosyası bile depoya girmemeli.
+data/hr-docs/
+data/

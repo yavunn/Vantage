@@ -335,6 +335,39 @@ class ProjectsSettings(BaseModel):
     max_local_commits: int = 100
 
 
+class HrDocumentSettings(BaseModel):
+    """Bordro/özlük evrakı yükleme ayarları.
+
+    Bu klasördeki dosyalar ÖZEL NİTELİKLİ kişisel veri taşır: istirahat raporu,
+    engelli sağlık kurulu raporu, icra müzekkeresi, nafaka kararı. Bu yüzden
+    tasarım kararları pazarlıksız:
+
+    - Dosyalar `frontend/dist` altına (StaticFiles ile servis edilen web köküne)
+      ASLA yazılmaz. Oraya yazmak, tahmin edilebilir bir URL'i olan herkese
+      birinin sağlık raporunu açardı. Varsayılan konum PROJECT_ROOT/data/hr-docs
+      ve içerik yalnız kimlikli `/api/documents/{id}/download` ucundan akar.
+    - Dosya adı SUNUCU üretir (uuid4 + doğrulanmış uzantı); kullanıcının verdiği
+      ad yalnız gösterim için saklanır — yol geçişi (../) imkânsız olsun.
+    - LLM katmanına hiçbir koşulda gönderilmez (bkz. services/rag, code_analysis).
+
+    retention_years: İş Kanunu'ndaki zamanaşımı süreleriyle uyumlu saklama
+    penceresi. Sistem KENDİLİĞİNDEN SİLMEZ — yalnızca arayüzde "saklama süresi
+    doldu" bilgisi üretmek için tutulur; imha kararı insanındır.
+    """
+
+    # Boş = PROJECT_ROOT/data/hr-docs. Mutlak yol verilebilir (ör. şifreli disk).
+    storage_dir: str = ""
+    max_file_mb: int = 15
+    # Uzantı ALLOWLIST'i (küçük harf, noktasız). svg/html/htm/xhtml BİLEREK yok:
+    # tarayıcıda script çalıştırabilen biçimlerdir ve yüklenen dosya aynı origin'den
+    # servis edildiği için depolanmış XSS'e dönüşürdü.
+    allowed_extensions: list[str] = Field(default_factory=lambda: [
+        "pdf", "jpg", "jpeg", "png", "webp", "heic", "heif",
+        "doc", "docx", "xls", "xlsx", "odt", "ods", "txt", "zip", "rar",
+    ])
+    retention_years: int = 10
+
+
 class Config(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -348,6 +381,7 @@ class Config(BaseModel):
     survey: SurveySettings = Field(default_factory=SurveySettings)
     projects: ProjectsSettings = Field(default_factory=ProjectsSettings)
     rag: RagSettings = Field(default_factory=RagSettings)
+    hr_documents: HrDocumentSettings = Field(default_factory=HrDocumentSettings)
 
     def metric(self, key: str) -> MetricConfig:
         """Metrik config'i döner; config'te hiç yoksa 'kapalı' kabul edilir —
