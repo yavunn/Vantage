@@ -8,6 +8,7 @@
  *  - Seçim kalıcı ve sunucuya `Accept-Language` ile gider (metrik adları
  *    API'den geliyor; yalnız arayüzü çevirmek panoyu yarı Türkçe bırakırdı).
  */
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -98,6 +99,32 @@ describe("dil seçimi", () => {
     render(<LangProvider><Bad /></LangProvider>);
     fireEvent.click(screen.getByText("DE"));
     expect(screen.getByTestId("lang").textContent).toBe("tr");
+  });
+});
+
+describe("dil değişiminde yeniden çekim", () => {
+  it("aynı commit'te tetiklenen istek YENİ dili taşır", () => {
+    // Kusur şuydu: `currentLang` yalnız LangProvider'ın efektinde yazılıyordu.
+    // React alt bileşenlerin efektlerini üstünkinden ÖNCE çalıştırır; dolayısıyla
+    // `lang`e bağlı bir veri efekti (panonun yeniden çekimi) ESKİ dili okuyor,
+    // sunucu bir önceki dilde cevap veriyordu — düzeltme hep bir dil GERİDEN
+    // gelirdi. Bu test o sırayı sabitler.
+    const gorulen = [];
+    function VeriCeken() {
+      const { lang } = useLang();
+      useEffect(() => {
+        gorulen.push(getLang()); // api.js `Accept-Language` için bunu okur
+      }, [lang]);
+      return null;
+    }
+    render(
+      <LangProvider>
+        <VeriCeken />
+        <Probe />
+      </LangProvider>,
+    );
+    fireEvent.click(screen.getByText("EN"));
+    expect(gorulen).toEqual(["tr", "en"]);
   });
 });
 

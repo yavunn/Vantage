@@ -227,7 +227,13 @@ export function translate(lang, key, vars) {
 // değişiminde yeniden çizimi sağlar; sağlayıcı dışında kalan bir bileşen
 // (ör. testte tek başına render edilen TopBar) ham anahtar göstermez.
 const LangContext = createContext({
-  lang: currentLang,
+  // GETTER, düz alan değil: bu nesne modül yüklenirken BİR KEZ kurulur. Düz
+  // yazılsaydı sağlayıcı dışında render edilen bileşen (ör. testte tek başına
+  // TopBar) dili ilk yükleme anındaki değerde DONMUŞ görürdü — dil seçicideki
+  // "aktif" işareti yanlış dili gösterirdi.
+  get lang() {
+    return currentLang;
+  },
   setLang: () => {},
   t: (k, v) => translate(currentLang, k, v),
 });
@@ -235,6 +241,8 @@ const LangContext = createContext({
 export function LangProvider({ children }) {
   const [lang, setLangState] = useState(() => detectLang());
 
+  // `currentLang` burada yalnız İLK MOUNT için hizalanır; değişimi `setLang`
+  // senkron olarak yazar (nedeni aşağıda).
   useEffect(() => {
     currentLang = lang;
     localStorage.setItem(LANG_KEY, lang);
@@ -242,7 +250,15 @@ export function LangProvider({ children }) {
   }, [lang]);
 
   const setLang = useCallback((next) => {
-    if (LANGS[next]) setLangState(next);
+    if (!LANGS[next]) return;
+    // SENKRON — efekte BIRAKILAMAZ. `api.js` dili React ağacının dışından
+    // `getLang()` ile okur ve React alt bileşenlerin efektlerini üst
+    // bileşeninkinden ÖNCE çalıştırır. Yazma yalnız yukarıdaki efektte olsaydı,
+    // dil değişimiyle AYNI commit'te tetiklenen her istek ESKİ
+    // `Accept-Language` ile giderdi: sunucu bir önceki dilde cevap verir,
+    // "yeniden çek" düzeltmesi de sessizce bir dil GERİDEN gelirdi.
+    currentLang = next;
+    setLangState(next);
   }, []);
 
   const t = useCallback((key, vars) => translate(lang, key, vars), [lang]);

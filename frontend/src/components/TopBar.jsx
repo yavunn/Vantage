@@ -23,6 +23,13 @@ function BrandMark() {
   );
 }
 
+// Dil değişimi uygulama ağacını baştan kurar (App.jsx `key={lang}`) — bu buton
+// da yok olup yeniden doğar ve odak <body>'ye düşer. Klavyeyle gezen kullanıcı
+// az önce bastığı düğmeyi kaybetmesin diye son seçilen kod MODÜL seviyesinde
+// tutulur: bileşenin kendi ref'i/state'i unmount ile birlikte silinirdi.
+// İlk açılışta null olduğu için sayfa yüklenirken odak ÇALINMAZ.
+let sonSecilenDil = null;
+
 /** Dil seçici — giriş ekranındakiyle aynı bileşen davranışı, üst çubuk ölçeği. */
 function LangSwitch() {
   const { lang, setLang, t } = useLang();
@@ -34,7 +41,13 @@ function LangSwitch() {
           type="button"
           className={`lang-opt ${lang === code ? "active" : ""}`}
           aria-pressed={lang === code}
-          onClick={() => setLang(code)}
+          ref={(el) => {
+            if (el && sonSecilenDil === code) {
+              sonSecilenDil = null;
+              el.focus();
+            }
+          }}
+          onClick={() => { sonSecilenDil = code; setLang(code); }}
           title={label}
         >
           {code.toUpperCase()}

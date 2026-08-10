@@ -123,16 +123,6 @@ llm:
   provider: local
   local:
     base_url: http://localhost:11434
-    # Genel amaçlı model — coder DEĞİL. qwen2.5-coder:7b bir kod modeli;
-    # Türkçe bağlamı özetlemede kendi içinde çelişen cevaplar üretiyordu.
-    #
-    # 7B DEĞİL, 14B. Ölçüldü: qwen2.5:7b iş analizinde sayıyı okuyamıyor
-    # ("+1232/-7 satır"ı "12 commit" diye yazdı) ve Türkçe'de var olmayan
-    # kelimeler üretiyordu. Prompt iki kez sıkılaştırıldı, düzelmedi — bu
-    # 7B'nin Türkçe tavanı, prompt sorunu değil. Modeli küçültürsen aynı
-    # bozulmayı geri getirirsin.
-    #
-    # Kurulum:  ollama pull qwen2.5:14b   (~9 GB)
     model: qwen2.5:14b
   claude:
     model: claude-sonnet-5
@@ -158,64 +148,36 @@ projects:
   - C:/Users/Asus/Documents/GitHub
   max_local_commits: 100
 rag:
-  # Açmadan önce: embedding sağlayıcısı ayakta olmalı (Ollama + bge-m3).
-  # Kapalıyken /api/teams/{id}/ask ucu 503 döner, senkron indeksleme atlar.
   enabled: true
   embedding:
-    provider: local          # local | hash (hash yalnız test içindir)
+    provider: local
     base_url: http://localhost:11434
-    # bge-m3: çok dilli. Kayıtlar Türkçe; İngilizce ağırlıklı bir model
-    # (nomic-embed-text) burada ilgiliyi ilgisizden ayıramıyordu — ölçüldü:
-    # ilgili kayıt skorları 0.598-0.751, ilgisizler 0.590-0.653 (çakışıyor).
     model: bge-m3
   chunk:
     words: 400
     overlap: 60
   retrieval:
-    # Ölçüm (scripts/rag_eval.py, bge-m3): ilgili kayıt 8 sorunun 8'inde de
-    # 1. sırada. 3 = cevabın kendisi + 2 destekleyici kayıt.
     top_k: 3
-    # ÖLÇÜM (scripts/rag_eval.py, bge-m3, 2026-08-04, güncel korpus):
-    #   ilgili kayıtların en düşük skoru   : 0.5456   (hit@1: 8/8 = %100)
-    #   alakasız soruların en yüksek skoru : 0.4885
-    # Eşik bu boşluğun ortasında: ilgiliyi kesmiyor, alakasızı geçirmiyor.
-    #
-    # ÖNCEKİ ölçüm (0.4681 / 0.5134) ile eşik 0.49'du; korpus değiştiği için
-    # boşluk kaydı ve 0.49 alakasız banda 0.0015 kalıyordu — yani neredeyse
-    # sıfır pay. Korpusu değiştiren iki iş: commit GÖVDELERİNİN indekse
-    # girmesi ve kaynakta olmayan kayıtların indeksten çıkarılması.
-    #
-    # Modeli YA DA korpusu belirgin değiştirirsen bu sayı GEÇERSİZDİR: ölç.
     min_score: 0.517
-  index: auto                # auto | memory (pgvector bu kurulumda yok)
-
-# --- Bordro / özlük evrakı ----------------------------------------------------
-# Çalışanların yüklediği belgeler (istirahat raporu, icra yazısı, özlük evrakı).
-# Bu dosyalar ÖZEL NİTELİKLİ kişisel veri taşır:
-#   - storage_dir web köküne (frontend/dist) ASLA gösterilmemeli; oradan servis
-#     edilen bir dosya kimliksiz indirilebilir. Boş bırakılırsa PROJECT_ROOT/data/hr-docs.
-#   - Üretimde şifreli bir diske alınması ve yedeklenmesi önerilir.
-# allowed_extensions bir ALLOWLIST'tir; svg/html bilerek yok (depolanmış XSS).
+  index: auto
 hr_documents:
-  storage_dir: ''            # boş = <proje kökü>/data/hr-docs
+  storage_dir: ''
   max_file_mb: 15
   allowed_extensions:
-    - pdf
-    - jpg
-    - jpeg
-    - png
-    - webp
-    - heic
-    - heif
-    - doc
-    - docx
-    - xls
-    - xlsx
-    - odt
-    - ods
-    - txt
-    - zip
-    - rar
-  # Bilgi amaçlı saklama penceresi — sistem KENDİLİĞİNDEN SİLMEZ, imha kararı
-  # insanındır (İş Kanunu zamanaşımı süreleriyle uyumlu).
+  - pdf
+  - jpg
+  - jpeg
+  - png
+  - webp
+  - heic
+  - heif
+  - doc
+  - docx
+  - xls
+  - xlsx
+  - odt
+  - ods
+  - txt
+  - zip
+  - rar
   retention_years: 10

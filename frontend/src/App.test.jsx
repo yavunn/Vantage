@@ -12,6 +12,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App.jsx";
+import { LangProvider } from "./i18n.jsx";
 
 function mockResponse({ ok = true, status = 200, body = {} } = {}) {
   return { ok, status, json: async () => body };
@@ -27,13 +28,17 @@ const UNAUTHORIZED = mockResponse({
  * Yol → cevap eşlemesi ile fetch taklidi. Eşleşmeyen /api yolları asla
  * çözülmez (askıda kalır): test ettiğimiz karar noktasından sonrasını
  * render etmeye çalışmayalım diye bilerek böyle.
+ *
+ * Fonksiyon cevaplara isteğin DİLİ geçilir: sunucu metrik adlarını ve durum
+ * etiketlerini `Accept-Language`e göre çevirir, taklit de aynısını yapabilsin.
  */
 function stubFetch(routes) {
-  const fetchMock = vi.fn((url) => {
+  const fetchMock = vi.fn((url, init) => {
     const path = String(url).split("?")[0];
     const hit = routes[path];
     if (!hit) return new Promise(() => {});
-    return Promise.resolve(typeof hit === "function" ? hit() : hit);
+    const lang = init?.headers?.["Accept-Language"] || "tr";
+    return Promise.resolve(typeof hit === "function" ? hit(lang) : hit);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -65,6 +70,96 @@ describe("açılışta süresi dolmuş token", () => {
     // Oturumun düşmesi bir "hata" değil; ekranda hata kutusu olmamalı.
     expect(screen.queryByText(/^Hata:/)).not.toBeInTheDocument();
     expect(localStorage.getItem("vantage_token")).toBeNull();
+  });
+});
+
+describe("dil değişimi", () => {
+  /**
+   * Kusur: dil seçici arayüz metinlerini anında çeviriyordu ama SUNUCUDAN gelen
+   * metinleri (metrik adı, durum etiketi) çevirmiyordu — hiçbir veri efekti
+   * `lang`e bağlı değildi. Pano verisi App'in kendi state'inde durur ve App hiç
+   * unmount olmaz; bu yüzden sekme değiştirip geri gelmek de kurtarmıyordu,
+   * kartlar sayfa yenilenene kadar eski dilde kalıyordu.
+   */
+  const oturumAc = () => {
+    localStorage.setItem("vantage_token", "tok");
+    localStorage.setItem(
+      "vantage_user",
+      JSON.stringify({ id: 1, display_name: "Ali", role: "admin" }),
+    );
+  };
+
+  const RAPOR = (lang) =>
+    mockResponse({
+      body: {
+        metrics: [{
+          key: "cycle_time",
+          name: lang === "en" ? "Cycle Time" : "Cycle Time",
+          description: lang === "en" ? "Average time from work opened to done" : "Ortalama tamamlanma süresi",
+          value: 3, unit: "gün",
+          status: "green",
+          status_label: lang === "en" ? "Flowing" : "Akıyor",
+          data_completeness: 1,
+        }],
+        recommendations: [],
+        series: [],
+        signals: [],
+      },
+    });
+
+  function stubPano() {
+    return stubFetch({
+      "/api/auth/setup-status": mockResponse({ body: { needs_setup: false } }),
+      "/api/auth/me": mockResponse({ body: { id: 1, display_name: "Ali", role: "admin" } }),
+      "/api/config/ui": mockResponse({ body: { individual_view_enabled: false, anonymize_individuals: false, metric_thresholds: {} } }),
+      "/api/teams": mockResponse({ body: [{ id: 1, name: "Takım A" }] }),
+      "/api/directory": mockResponse({ body: [] }),
+      "/api/survey/current": mockResponse({ body: { enabled: false } }),
+      "/api/me/notifications": mockResponse({ body: [] }),
+      "/api/annotations": mockResponse({ body: [] }),
+      "/api/teams/1/report": RAPOR,
+      "/api/teams/1/code-health": mockResponse({ body: null }),
+      "/api/teams/1/code-health/series": mockResponse({ body: null }),
+    });
+  }
+
+  it("sunucudan gelen metinleri de yeni dilde tazeler", async () => {
+    oturumAc();
+    stubPano();
+
+    render(<LangProvider><App /></LangProvider>);
+
+    // Türkçe pano: durum etiketi SUNUCUDAN geldi.
+    expect(await screen.findByText(/Akıyor/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "EN" }));
+
+    // Arayüz metni (istemci sözlüğü) VE sunucu metni birlikte İngilizceye geçmeli.
+    expect(await screen.findByText(/Flowing/)).toBeInTheDocument();
+    expect(screen.queryByText(/Akıyor/)).not.toBeInTheDocument();
+
+    // Tazeleme ağacı baştan kurduğu için düğme de yeniden doğar; klavyeyle
+    // gezen kullanıcı az önce bastığı düğmeyi kaybetmemeli.
+    expect(screen.getByRole("button", { name: "EN" })).toHaveFocus();
+  });
+
+  it("dil değişince istekler yeni Accept-Language ile gider", async () => {
+    oturumAc();
+    const fetchMock = stubPano();
+
+    render(<LangProvider><App /></LangProvider>);
+    await screen.findByText(/Akıyor/);
+
+    await userEvent.click(screen.getByRole("button", { name: "EN" }));
+
+    await waitFor(() => {
+      const raporlar = fetchMock.mock.calls.filter((c) =>
+        String(c[0]).startsWith("/api/teams/1/report"),
+      );
+      // İlk çekim tr, dil değişimiyle gelen ikinci çekim en olmalı — bir dil
+      // GERİDEN gelmemeli (currentLang efekte bırakılırsa tam olarak bu olur).
+      expect(raporlar.map((c) => c[1].headers["Accept-Language"])).toEqual(["tr", "en"]);
+    });
   });
 });
 

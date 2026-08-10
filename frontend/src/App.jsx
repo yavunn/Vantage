@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { api, fetchMe, getCurrentSurvey, getStoredUser, getToken, logout, setupStatus } from "./api.js";
 import { toast } from "./toast.js";
 import { applyTheme, RANGE_OPTIONS, readNav, writeNav } from "./nav.js";
-import { useT } from "./i18n.jsx";
+import { useLang, useT } from "./i18n.jsx";
 import ForceChangePassword from "./components/ForceChangePassword.jsx";
 import Login from "./components/Login.jsx";
 import SurveyBanner from "./components/SurveyBanner.jsx";
@@ -43,7 +43,7 @@ function LazyFallback() {
 
 
 export default function App() {
-  const t = useT();
+  const { lang, t } = useLang();
   const [authReady, setAuthReady] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [user, setUser] = useState(null);
@@ -218,24 +218,39 @@ export default function App() {
   }, [user]);
 
   // Rapor: seçilen aralığa (7/30/90) göre ANLIK hesap — metrik+trend+sinyal+delta.
+  //
+  // `lang` NEDEN BAĞIMLILIK: metrik adı/açıklaması ve durum etiketi sunucudan
+  // ÇEVRİLMİŞ gelir (Accept-Language). Bu veri App'in kendi state'inde durur ve
+  // App hiç unmount olmaz — dil değişince yeniden çekilmezse pano eski dilde
+  // DONAR; sekme değiştirip geri gelmek de kurtarmaz (aşağıdaki key={lang}
+  // yalnız ALT ağacı tazeler, App'in state'ini değil).
   useEffect(() => {
     if (teamId == null) return;
+    // Hızlı TR↔EN geçişinde önceki isteğin cevabı sonra dönebilir; iptal
+    // bayrağı olmadan eski dildeki cevap yeninin üstüne yazardı.
+    let iptal = false;
     api(`/api/teams/${teamId}/report?days=${range}`)
       .then((rep) => {
+        if (iptal) return;
         setSummary(rep);
         setSeries(rep.series || []);
         setSignals(rep.signals || []);
       })
-      .catch(setError);
-  }, [teamId, range]);
+      .catch((e) => { if (!iptal) setError(e); });
+    return () => { iptal = true; };
+  }, [teamId, range, lang]);
 
-  // Anotasyon + kod sağlığını aralıktan bağımsız yükle (takım değişince).
+  // Anotasyon + kod sağlığını aralıktan bağımsız yükle (takım ya da dil değişince
+  // — kod sağlığı boyut adları ve durum etiketleri de sunucudan çevrili gelir).
   useEffect(() => {
     if (teamId == null) return;
-    api(`/api/annotations?team_id=${teamId}`).then(setAnnotations).catch(() => setAnnotations([]));
-    api(`/api/teams/${teamId}/code-health`).then(setCodeHealth).catch(() => setCodeHealth(null));
-    api(`/api/teams/${teamId}/code-health/series`).then(setCodeHealthSeries).catch(() => setCodeHealthSeries(null));
-  }, [teamId]);
+    let iptal = false;
+    const ata = (setter) => (v) => { if (!iptal) setter(v); };
+    api(`/api/annotations?team_id=${teamId}`).then(ata(setAnnotations)).catch(() => ata(setAnnotations)([]));
+    api(`/api/teams/${teamId}/code-health`).then(ata(setCodeHealth)).catch(() => ata(setCodeHealth)(null));
+    api(`/api/teams/${teamId}/code-health/series`).then(ata(setCodeHealthSeries)).catch(() => ata(setCodeHealthSeries)(null));
+    return () => { iptal = true; };
+  }, [teamId, lang]);
 
   function doLogout() {
     logout();
@@ -302,7 +317,23 @@ export default function App() {
   const surveyPending = !!(surveyRespondent && survey && survey.enabled && survey.ready && survey.is_open && !survey.already_submitted);
 
   return (
-    <div className="app">
+    // key={lang}: dil değişince BU ağaç baştan kurulur, yani her panel kendi
+    // verisini yeni `Accept-Language` ile TEKRAR çeker.
+    //
+    // NEDEN MERKEZÎ ÇÖZÜM (her panele tek tek `lang` bağımlılığı eklemek yerine):
+    // sunucudan çevrilmiş metin dönen uç sayısı çok — belge kataloğu, izin
+    // türleri, kod sağlığı boyutları, İK kontrol listesi, metrik drill-down…
+    // Her birine ayrı ayrı bağımlılık eklemek "yeni panelde eklemeyi unutma"
+    // riskini kalıcı hâle getirirdi; backend'de aynı sorun için tek merkezden
+    // ContextVar middleware'i tercih edildi (bkz. app/core/i18n.py).
+    //
+    // BEDELİ bilinçli: panele ait geçici arayüz durumu (açık modal, yarım
+    // doldurulmuş form, kaydırma konumu) sıfırlanır. Dil değiştirmek nadir ve
+    // KASITLI bir eylem; yarısı Türkçe kalan bir ekrandan iyidir.
+    //
+    // Giriş/kurulum ekranları bu ağacın DIŞINDA (yukarıdaki erken dönüşler):
+    // dil değiştirmek yazılmakta olan e-posta/parolayı silmesin.
+    <div className="app" key={lang}>
       <TopBar
         user={user}
         isAdmin={isAdmin}
