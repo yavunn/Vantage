@@ -452,6 +452,38 @@ export function setTaskIdentity(devId, source, key) {
   return apiPatch(`/api/admin/developers/${devId}/task-identity`, { source, key });
 }
 
+// Board üyeleri + hangi giriş hesabına bağlı oldukları. Üye id'si opak bir
+// hash'tir; elle yazılabilir olsaydı da kimse yazmazdı — bağ bu listeden kurulur.
+export function listTrelloMembers() {
+  return api("/api/admin/trello/members");
+}
+
+// Kişinin git commit e-posta(ları). Aynı insan kişisel adresi + GitHub'ın
+// noreply adresiyle commit atar; liste olarak gönderilir.
+export function setGitEmails(devId, emails) {
+  return apiPatch(`/api/admin/developers/${devId}/git-email`, { git_emails: emails });
+}
+
+// --- kendi kimliklerim (self-service) ---------------------------------------
+//
+// Kimlik bağını yalnız admin kurabildiği sürece pratikte kimse kurmuyordu:
+// kişinin commit'leri kimseye atfedilmiyor, kartları "görevlerim"de görünmüyordu.
+
+export function getMyIdentities() {
+  return api("/api/me/identities");
+}
+
+// Verilmeyen alan değişmez. task_identity: "" → bağ kaldırılır.
+export function updateMyIdentities(body) {
+  return apiPatch("/api/me/identities", body);
+}
+
+// Kişinin görevleri + bağlı commit'leri. Yetki bireysel özetle aynı:
+// yalnız kişinin kendisi, yöneticisi ya da admin.
+export function getDeveloperTaskLinks(devId) {
+  return api(`/api/developers/${devId}/task-links`);
+}
+
 // İki kişi kaydını elle birleştirir (hedef = devId, silinen = duplicateId).
 // Aynı insan iki git e-postasıyla geldiyse otomatik ipucu yoktur; kararı insan
 // verir. GERİ ALINAMAZ — çağıran onay almalı.

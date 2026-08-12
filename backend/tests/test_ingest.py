@@ -243,3 +243,92 @@ def test_gorev_kaynagi_her_zaman_tam_cekilir(session):
     t = _T()
     run_ingest(session, None, t)
     assert t.since_cagrilari == [None]
+
+
+# --- Çoklu atanan (Trello kartı birden çok üyeye atanabilir) -------------------
+#
+# Adaptör yıllarca `idMembers[0]`'ı alıp gerisini sessizce atıyordu. Kaybedilen
+# "eksik alan" değil YANLIŞ bilgiydi: ikinci kişinin işi hiçbir yerde görünmüyordu.
+
+def test_kartin_tum_atananlari_yazilir(session):
+    from sqlalchemy import select
+
+    from app.adapters.base import NormalizedAssignee, NormalizedTask
+    from app.models import Developer, Task, TaskAssignee
+    from app.services.ingest import Ingestor
+
+    t = NormalizedTask(
+        source="trello", external_id="c1", title="iş", team_name="T",
+        assignee_key="m1", assignee_name="Ayşe",
+        assignees=[NormalizedAssignee("m1", "Ayşe"), NormalizedAssignee("m2", "Mehmet")],
+    )
+
+    Ingestor(session).ingest_tasks([t])
+    session.commit()
+
+    rows = list(session.scalars(select(TaskAssignee)))
+    assert len(rows) == 2
+    adlar = {session.get(Developer, r.developer_id).display_name for r in rows}
+    assert adlar == {"Ayşe", "Mehmet"}
+    # Birincil atanan `tasks.assignee_id` ile AYNI kişi olmalı: WIP ve kişi
+    # bazlı metrikler hâlâ o alan üzerinden çalışıyor.
+    birincil = next(r for r in rows if r.is_primary)
+    assert session.scalar(select(Task)).assignee_id == birincil.developer_id
+
+
+def test_tek_atananli_kaynak_da_ayni_yerden_okunur(session):
+    """Jira/fixture `assignees` doldurmaz; çağıran kaynağı bilmek zorunda
+    kalmasın diye ingest `assignee_key`'e düşer."""
+    from sqlalchemy import select
+
+    from app.models import TaskAssignee
+    from app.services.ingest import Ingestor
+
+    t = _task("c1")
+    t.assignee_key, t.assignee_name = "m9", "Tek Kişi"
+
+    Ingestor(session).ingest_tasks([t])
+    session.commit()
+
+    rows = list(session.scalars(select(TaskAssignee)))
+    assert len(rows) == 1 and rows[0].is_primary is True
+
+
+def test_atananlar_her_senkronda_kaynaga_gore_yenilenir(session):
+    """Kaynak gerçeği esastır: karttan çıkarılan üye DB'de kalmamalı, ama
+    tekrar tekrar çoğalmamalı da."""
+    from sqlalchemy import select
+
+    from app.adapters.base import NormalizedAssignee
+    from app.models import TaskAssignee
+    from app.services.ingest import Ingestor
+
+    t = _task("c1")
+    t.assignees = [NormalizedAssignee("m1", "Ayşe"), NormalizedAssignee("m2", "Mehmet")]
+    Ingestor(session).ingest_tasks([t])
+    session.commit()
+
+    t.assignees = [NormalizedAssignee("m2", "Mehmet")]
+    Ingestor(session).ingest_tasks([t])
+    session.commit()
+
+    rows = list(session.scalars(select(TaskAssignee)))
+    assert len(rows) == 1
+    from app.models import Developer
+    assert session.get(Developer, rows[0].developer_id).display_name == "Mehmet"
+
+
+def test_ayni_uye_iki_kez_listelenirse_tek_satir(session):
+    from sqlalchemy import select
+
+    from app.adapters.base import NormalizedAssignee
+    from app.models import TaskAssignee
+    from app.services.ingest import Ingestor
+
+    t = _task("c1")
+    t.assignees = [NormalizedAssignee("m1", "Ayşe"), NormalizedAssignee("m1", "Ayşe")]
+
+    Ingestor(session).ingest_tasks([t])
+    session.commit()
+
+    assert len(list(session.scalars(select(TaskAssignee)))) == 1

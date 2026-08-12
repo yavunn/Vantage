@@ -222,6 +222,9 @@ class Task(Base):
     story_points: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     transitions: Mapped[list["TaskStatusTransition"]] = relationship(back_populates="task")
+    # Kartın tüm atananları (Trello kartı birden çok üyeye atanabilir).
+    # `assignee_id` bunların BİRİNCİSİDİR; ikisi bir arada tutulur, bkz. TaskAssignee.
+    assignees: Mapped[list["TaskAssignee"]] = relationship(back_populates="task")
 
 
 class TaskStatusTransition(Base):
@@ -237,6 +240,34 @@ class TaskStatusTransition(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     task: Mapped[Task] = relationship(back_populates="transitions")
+
+
+class TaskAssignee(Base):
+    """Kartın TÜM atananları. `tasks.assignee_id` birincil atananı tutar.
+
+    NEDEN AYRI TABLO: Trello kartı birden çok üyeye atanabilir ve adaptör
+    yıllarca `idMembers[0]`'ı alıp gerisini sessizce atıyordu. Kayıp yalnız
+    "eksik veri" değil, YANLIŞ veriydi: çift kişilik bir kartın ikinci kişisi
+    hiçbir yerde görünmediği için o kişinin işi yokmuş gibi duruyor, kart↔commit
+    eşleşmesinde de kişi sinyali yanlış tarafa çalışıyordu.
+
+    `assignee_id` KALDI (kaldırılmadı): WIP ve kişi bazlı metrikler tek atanan
+    varsayımı üzerine kurulu; onu değiştirmek bu işin kapsamı değil. Bu tablo
+    ek bir katmandır — okuyan taraf hangisini istediğini seçer.
+    """
+
+    __tablename__ = "task_assignees"
+    __table_args__ = (UniqueConstraint("task_id", "developer_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"))
+    developer_id: Mapped[int] = mapped_column(ForeignKey("developers.id"))
+    # Kaynaktaki sıranın ilki: `tasks.assignee_id` ile aynı kişi.
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
+    task: Mapped[Task] = relationship(back_populates="assignees")
 
 
 class TaskCommitLink(Base):

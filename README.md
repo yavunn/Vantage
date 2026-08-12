@@ -94,8 +94,9 @@ backend/
     services/   # ingest, pipeline, sağlık durumu eşlemesi
   migrations/   # Alembic
   scripts/seed_dirty_data.py   # sentetik KİRLİ veri üreteci
+  scripts/task_link_eval.py    # görev↔commit ilk sıra isabeti (prim sabitleri ölçülür)
   tests/        # metrikler (tam+eksik veri), kurallar, etik uçlar, auth/İK/izin,
-                # anket anonimliği, kod-analiz prompt, projeler (246 test)
+                # anket anonimliği, kod-analiz prompt, projeler, kimlik eşleme
 frontend/       # React dashboard
 config/config.yaml
 ```
@@ -198,6 +199,16 @@ ag_scale_test.py         # asistan indeksi ölçeği
 ag_eval.py --model bge-m3  # retrieval kalitesi + eşik
 ```
 
+Görev↔commit eşleştirmesinin isabeti ayrı ölçülür (bu betik **mevcut**
+veritabanını salt okur, yazmaz — ölçüm kümesi insanın onayladığı bağlardır):
+
+```powershell
+.venv\Scripts\python scripts\task_link_eval.py
+# Kimlikler henüz eşlenmemişse kişi sinyali hiç oluşmaz ve ölçüm "etkisiz" der.
+# "Eşleme yapılsaydı ne olurdu" sorusu için kayıtları geçici olarak birleştirin:
+.venv\Scripts\python scripts\task_link_eval.py --link 31=1
+```
+
 ## Hesap yönetimi ve ek modüller
 
 Ürün arayüzü gerçek giriş sistemi ve İK/çalışan modülleri içerir.
@@ -217,7 +228,53 @@ ag_eval.py --model bge-m3  # retrieval kalitesi + eşik
   parola sıfırla, takım atama, toplu pasifleştir, arama/sıralama/sayfalama.
   Son aktif yönetici düşürülemez/silinemez (kilitlenme koruması).
 - **Ayarlar sayfası:** profil, kendi parolasını değiştirme, tema (açık/koyu/oto),
-  oturumu kapatma.
+  oturumu kapatma, **kaynak kimlikleri** (aşağıda).
+
+### Hesapları git ve Trello kimliğine bağlama
+
+Bir insan üç ayrı yerde üç ayrı kimlikle görünür: giriş hesabı (e-posta), git
+(commit e-postası), Trello (opak üye id'si). **Bu bağ kurulmadan sistem onları
+ayrı insan sayar** — commit'ler bir kayda, kartlar diğerine düşer, takım kadrosu
+şişer ve WIP kişi başına bölündüğü için metrik olduğundan İYİ görünür.
+
+İki yol var; ikisi de aynı veriyi yazar (`developers.external_ids`):
+
+- **Yönetici paneli → Entegrasyon → Trello üyeleri.** Board'un kadrosu doğrudan
+  Trello'dan listelenir (bağlı/bağsız, hangi hesapta). Bağsız üye bir hesapla
+  eşlenir; aynı üye id'sini taşıyan **kopya kişi kaydı hedefe birleştirilir**
+  (kartları taşınır, kopya silinir). Sistem yalnız **aday** önerir — tam ad ya da
+  kullanıcı adı bir hesabın adı/e-postasıyla birebir tutuyorsa (Türkçe karakterler
+  katlanarak) satır "muhtemelen X" diye işaretlenir. **Otomatik bağlama yoktur**:
+  yanlış eşleme, bir insanın işini sessizce başkasına atfeder.
+- **Ayarlar → Kaynak kimliklerim (kullanıcının kendisi).** Kişi kendi git
+  e-postalarını ve Trello üyeliğini seçer. Bu yol olmadan bağ pratikte hiç
+  kurulmuyordu: kendi commit e-postasını bilen tek kişi zaten sahibidir.
+
+Her iki yolda da **başkasında olan bir kimlik alınamaz** (409, kimde olduğunu
+söyler); giriş hesabı olan bir kayıt "kopya" sayılıp birleştirilemez — o başka
+bir insandır. Kullanıcının kendi yaptığı değişiklik denetim kaydına yazılır.
+
+- **Çoklu git e-postası:** aynı insan kişisel adresiyle ve GitHub'ın
+  `…@users.noreply.github.com` adresiyle commit atar. `external_ids["git"]` artık
+  hem tek metin hem **liste** kabul eder, ikisi de aynı kişiye çözülür. Kayıt
+  birleştirmede e-postalar **birleşir** — eskiden kopyanınki atılıyor ve bir
+  sonraki senkron aynı kopyayı yeniden açıyordu (sessiz döngü).
+- **Çoklu atanan:** Trello kartı birden çok üyeye atanabilir; adaptör yalnız
+  `idMembers[0]`'ı okuyordu ve ikinci kişi hiçbir yerde görünmüyordu. Artık tüm
+  atananlar `task_assignees` tablosuna yazılır (`tasks.assignee_id` birincil
+  atanan olarak korunur — WIP ve kişi bazlı metrikler ona dayanıyor).
+- **Kurulum kontrol listesi** (Yönetici → Onboarding) artık "hesapların kaçı
+  Trello üyeliğine bağlı" adımını da gösterir.
+
+### Görevlerim ve commit'lerim (kişi bazlı)
+
+Bireysel görünümde kişinin kartları ve o kartlara bağlanmış commit'ler listelenir
+(`GET /api/developers/{id}/task-links`). Bağın kaynağı görünür: *kesin* (commit
+mesajında kart numarası) ya da *öneri*. Yetki bireysel özetle **aynı kapıdan**
+geçer (yalnız kişinin kendisi, yöneticisi, admin; anonimleştirme modunda kapalı).
+
+Bu bir üretkenlik ölçümü **değildir**: uç tek kişi döner, hiçbir sayaç/skor
+toplamı/sıralama üretmez ve bunu bir test zorlar (`test_api_ethics.py`).
 
 ### Projelerim (GitHub) + commit değerlendirme
 - Kullanıcı kendi GitHub reposunu ekler; commitler `project_commits` tablosuna
@@ -263,6 +320,7 @@ değildir** (İlke B):
 | `sources.tasks.jira.story_points_field` | story point alan kimliği kurulumdan kuruluma değişir; bulunamazsa senkron uyarı verir. Boş bırakılırsa alan hiç okunmaz |
 | `sources.git.scan_all_branches` | `git_log`: yalnız HEAD (varsayılan) ya da `--all` ile tüm dallar |
 | `llm.local.api_style` / `.context_tokens` | `ollama` → `/api/chat` + `num_ctx` (bağlam gerçekten ayarlanır); `openai` → `/v1/chat/completions` (vLLM/OpenRouter). Bütçeyi aşan prompt gönderilmeden kırpılır ve kırpıldığı beyan edilir |
+| `llm.local.timeout_seconds` | istek zaman aşımı (varsayılan 300). Doğrusu **donanıma bağlıdır**: 14B model CPU'da ölçüldüğünde soğuk başlatma ~23 sn, tek bir iş analizi 26-58 sn sürüyor; eski sabit 120 sn ilk isteği `ReadTimeout`'a düşürüyordu. Büyütmek modeli hızlandırmaz — beklemek istemiyorsanız daha küçük model ya da `llm.enabled: false` |
 | `metrics.<ad>.enabled` | metriği aç/kapat — kapalıysa hesaplanmaz, kartı bile görünmez |
 | `metrics.cycle_time.source/fallback` | veri katmanı zinciri (`jira_status` → `pr_merge`) |
 | `health_thresholds` | yeşil/kırmızı eşikleri + `data_completeness_min` (altında "veri yetersiz") |
@@ -298,6 +356,28 @@ değildir** (İlke B):
 > (Trello'da `idShort` board başına benzersizdir) bağ kurulmaz, senkron bunu
 > uyarı olarak bildirir. Geçmiş commit'ler bu yolla kurtarılamaz — konvansiyon
 > yalnız bundan sonrasını çözer, eskiler için onay ekranı kullanılır.
+
+> 👤 **Kişi sinyali hesaplanır, sıralamaya girmez — çünkü ölçüldü.** Kartın
+> atananı ile commit'in yazarı aynı insansa bu bilgi bağın yanında (`same_person`,
+> arayüzde "aynı kişi") gösterilir. Ama sıralama primi **0.0**'dır:
+>
+> ```
+> scripts\task_link_eval.py --link 31=1     # 6 onaylı bağ, 63 aday commit
+>   yalın benzerlik   ilk sıra 5/6 · ort. sıra 1.50
+>   +zaman (0.03)     ilk sıra 5/6 · ort. sıra 1.50
+>   +kişi  (0.05)     ilk sıra 5/6 · ort. sıra 1.50   ← hiçbir değişiklik
+> ```
+>
+> Sebep yapısal: bu depodaki **tüm commit'ler tek yazara ait**, dolayısıyla prim
+> adayların hepsine gidiyor ve hiçbir şeyi yeniden sıralayamıyor (betik bunu
+> ayrıca uyarı olarak basar). Ölçülmemiş bir fayda için sıralamayı oynatmak,
+> sistemin kaçındığı şeyin ta kendisi olurdu: uydurulmuş kesinlik. Birden çok
+> yazarlı bir depoda sinyal ayırt edici hâle gelir; o zaman
+> `--person-bonus 0.05` ile **yeniden ölçüp** `task_link.PERSON_BONUS`'u öyle
+> değiştirin — kopyalamayın.
+>
+> Ölçüm kümesi = insanın **onayladığı** bağlar (`status='confirmed'`);
+> konvansiyonla kurulanlar hariç tutulur (onlar sıralamaya hiç girmez).
 
 > 📏 `rag.retrieval.min_score` embedding modeline **ve** korpus büyüklüğüne bağlı
 > ampirik bir sayıdır — kopyalanmaz, ölçülür. Model değiştirdiğinizde ya da veri
@@ -343,7 +423,7 @@ tarihi bozuk kayıtlar, hotspot dosyalar, cuma-akşamı-deploy + hafta-sonu-fix
 - **CRM** — review darboğazı + hotspot + yüksek WIP + riskli deploy penceresi
 
 Veri fixture JSON'larına yazılır ve **normal ingest hattından** geçirilir —
-dayanıklılık gerçek pipeline üzerinde kanıtlanır. Test paketi (246 pytest + 40 vitest) her
+dayanıklılık gerçek pipeline üzerinde kanıtlanır. Test paketi (426 pytest + 73 vitest) her
 metriği hem tam hem eksik veriyle, her kuralın tetiklenme senaryosunu, etik
 kısıtları (leaderboard ucu yok, bireysel görünüm yetkisi), auth/İK izinlerini
 ve migration zincirini kapsar.
@@ -356,6 +436,9 @@ ve migration zincirini kapsar.
 | `GET /api/teams/{id}/series/{metric}` | haftalık trend |
 | `GET /api/teams/{id}/code-health` | AI kod analizi özeti (dış araç yok — kendi modülümüz) |
 | `GET /api/developers/{id}/summary` | bireysel görünüm — yalnız kişinin kendisi, yöneticisi ya da admin; aksi hâlde 403 |
+| `GET /api/developers/{id}/task-links` | kişinin kartları + bağlı commit'ler (aynı yetki kuralı; sayaç/sıralama üretmez) |
+| `GET · PATCH /api/me/identities` | kişinin kendi git e-postaları ve görev kaynağı üyeliği; başkasının kimliği alınamaz (409) |
+| `GET /api/admin/trello/members` | board kadrosu + hangi giriş hesabına bağlı (yönetici) |
 | `GET /api/teams/{id}/ai-advice` | LLM önerisi — `llm.enabled: true` değilse 503 |
 | `GET /api/config/ui` | frontend'in göstereceği metrik seti |
 

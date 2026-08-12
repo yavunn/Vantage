@@ -66,7 +66,11 @@ class LocalAdvisor:
         # app/llm/local_client.py. Burada kendi httpx çağrısını kurmak, bağlam
         # sınırının bir çağrı yolunda ayarlanıp diğerinde unutulmasına yol açıyordu.
         return local_chat(
-            self.local, system, user, api_key=self._api_key, timeout=120,
+            self.local, system, user, api_key=self._api_key,
+            # Zaman aşımı config'ten: yerel 14B model CPU'da soğuk başlatma +
+            # üretimle 120 sn'yi aşabiliyor (ölçüldü) ve sabit değer, özelliği
+            # donanıma göre kullanılamaz hâle getiriyordu.
+            timeout=float(self.local.timeout_seconds),
         ).text
 
 

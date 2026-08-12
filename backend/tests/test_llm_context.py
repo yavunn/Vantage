@@ -143,3 +143,53 @@ def test_fit_to_budget_sinirlari():
     assert len(kisa) < len(metin)
     ayni, kirpildi2 = fit_to_budget("kısa", 1000)
     assert (ayni, kirpildi2) == ("kısa", False)
+
+
+def test_turkce_metinde_yanlis_kesilme_alarmi_verilmez(monkeypatch):
+    """GERÇEK OLAY: iş↔commit analizi hiç çalışmıyordu.
+
+    Türkçe düzyazı ~3 karakter/token paketlenir; bütçeleme için ölçülen 2,0
+    kar/token oranı bu metinde token sayısını FAZLA tahmin ediyor. Alarm eşiği
+    o tahmine bakınca (1.048 gerçek < 1.555 tahmin × 0,8) "prompt kesildi"
+    diyordu — oysa num_ctx 16.384 iken 1.000 token'lık bir prompt'un kesilmesi
+    fiziksel olarak mümkün değil. Kıyas artık ALT SINIRLA yapılıyor.
+    """
+    metin = "a" * 3_100          # ~1.555 token TAHMİN, alt sınır 775
+    post = _Post(_ollama_govde(prompt_eval_count=1048))
+    monkeypatch.setattr(local_client.httpx, "post", post)
+    local = LLMLocal(base_url="http://uc.local", model="m", context_tokens=16384)
+
+    sonuc = local_chat(local, "sistem", metin)
+
+    assert sonuc.prompt_tokens == 1048   # hata YOK, analiz üretilebilir
+
+
+def test_gercek_kesilme_hala_yakalanir(monkeypatch):
+    """Yanlış alarmı susturmak, asıl korumayı kaldırmamalı: ölçülen olayda
+    30.768 karakter gönderilmiş, uç 2.050 token görmüştü."""
+    post = _Post(_ollama_govde(prompt_eval_count=2050))
+    monkeypatch.setattr(local_client.httpx, "post", post)
+    local = LLMLocal(base_url="http://uc.local", model="m", context_tokens=16384)
+
+    with pytest.raises(ContextOverflowError):
+        local_chat(local, "sistem", "x" * 30_768)
+
+
+def test_zaman_asimi_configten_gelir(monkeypatch):
+    """120 sn SABİTTİ: 14B model CPU'da soğuk başlatma (~23 sn) + üretim
+    (30-38 sn ölçüldü) üst üste gelince ilk istek ReadTimeout'a düşüyordu."""
+    from app.llm.advisor import LocalAdvisor
+
+    yakalanan = {}
+
+    def sahte(local, system, user, api_key=None, timeout=None, max_output_tokens=None):
+        yakalanan["timeout"] = timeout
+        return local_client.LocalChatResult(text="ok", prompt_tokens=10,
+                                            sent_chars=10, truncated=False)
+
+    monkeypatch.setattr("app.llm.advisor.local_chat", sahte)
+    local = LLMLocal(base_url="http://uc.local", model="m", timeout_seconds=450)
+
+    LocalAdvisor(local).chat("sistem", "soru")
+
+    assert yakalanan["timeout"] == 450

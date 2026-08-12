@@ -1,5 +1,11 @@
-import { useMemo, useState } from "react";
-import { MIN_PASSWORD_LENGTH, changePassword, updateProfile } from "../api.js";
+import { useEffect, useMemo, useState } from "react";
+import {
+  MIN_PASSWORD_LENGTH,
+  changePassword,
+  getMyIdentities,
+  updateMyIdentities,
+  updateProfile,
+} from "../api.js";
 import { toast } from "../toast.js";
 import { useLang, useT } from "../i18n.jsx";
 
@@ -26,6 +32,123 @@ function passwordStrength(t, pw) {
 function fmtDate(iso, lang) {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString(lang === "en" ? "en-US" : "tr-TR"); } catch { return "—"; }
+}
+
+// Kendi kaynak kimliklerim: git commit e-postaları + görev kaynağı üyeliği.
+//
+// NEDEN KULLANICIDA: bu bağı yalnız admin kurabildiği sürece pratikte kurulmuyordu.
+// Sonuç sessizdi — kişinin commit'leri kimseye atfedilmiyor, kartları
+// "görevlerim"de görünmüyordu. Kendi e-postasını bilen tek kişi zaten sahibi.
+function IdentitiesSection() {
+  const t = useT();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [emails, setEmails] = useState("");
+  const [uye, setUye] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    getMyIdentities()
+      .then((d) => {
+        setData(d);
+        setEmails((d.git_emails || []).join("\n"));
+        setUye(d.task_identity || "");
+      })
+      .catch((e) => setError(e.message));
+  }
+  useEffect(load, []);
+
+  async function kaydet(alanlar) {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateMyIdentities(alanlar);
+      toast(t("Kimlik güncellendi."), "success");
+      load();
+    } catch (e) {
+      // 409: kimlik başkasında. Mesaj sunucudan gelir ve kimde olduğunu söyler.
+      setError(e.message);
+      toast(e.message, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !data) return <div className="login-error">{error}</div>;
+  if (!data) return null;
+
+  return (
+    <section className="section">
+      <h2>{t("Kaynak kimliklerim")}</h2>
+      <p className="desc">
+        {t("Commit'lerinizin ve Trello kartlarınızın size ait olduğu buradan anlaşılır. Bağlamazsanız sistem ikisini ayrı kişi sayar; kartlarınız 'görevlerim'de görünmez.")}
+      </p>
+
+      <label className="field">
+        {t("Git commit e-postalarım (her satıra bir tane)")}
+        <textarea
+          rows={3}
+          value={emails}
+          onChange={(e) => setEmails(e.target.value)}
+          placeholder={"ad.soyad@sirket.com\n12345+kullanici@users.noreply.github.com"}
+        />
+        <span className="desc">
+          {t("GitHub gizlilik adresi kullanıyorsanız onu da ekleyin — aynı kişi olarak sayılır.")}
+        </span>
+      </label>
+      <button
+        className="mini"
+        disabled={busy}
+        onClick={() =>
+          kaydet({
+            git_emails: emails.split("\n").map((s) => s.trim()).filter(Boolean),
+          })
+        }
+      >
+        {busy ? t("Kaydediliyor…") : t("E-postaları kaydet")}
+      </button>
+
+      {data.task_source === "trello" && (
+        <>
+          <label className="field">
+            {t("Trello üyeliğim")}
+            <select value={uye} onChange={(e) => setUye(e.target.value)}>
+              <option value="">{t("(bağlı değil)")}</option>
+              {data.members.map((m) => (
+                <option
+                  key={m.member_id}
+                  value={m.member_id}
+                  // Başkasında olan kimlik seçilemez: seçtirip 409 göstermek
+                  // kullanıcıyı sebebini bilmediği bir hataya sokardı.
+                  disabled={!m.available && m.member_id !== data.task_identity}
+                >
+                  {(m.full_name || m.username || m.member_id) +
+                    (m.available || m.member_id === data.task_identity
+                      ? ""
+                      : t(" — başka hesapta"))}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="mini"
+            disabled={busy || uye === (data.task_identity || "")}
+            onClick={() => kaydet({ task_identity: uye })}
+          >
+            {busy ? t("Kaydediliyor…") : t("Trello üyeliğini kaydet")}
+          </button>
+          {data.members.length === 0 && (
+            <p className="desc">{t("Board üyeleri okunamadı — yöneticinize başvurun.")}</p>
+          )}
+        </>
+      )}
+
+      {data.warnings?.map((w, i) => (
+        <p key={i} className="desc">{w}</p>
+      ))}
+      {error && <div className="login-error">{error}</div>}
+    </section>
+  );
 }
 
 export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onProfileUpdated }) {
@@ -187,6 +310,8 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
           </button>
         </form>
       </section>
+
+      <IdentitiesSection />
 
       <section className="section">
         <h2>{t("Görünüm")}</h2>

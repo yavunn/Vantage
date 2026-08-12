@@ -524,3 +524,72 @@ def test_jira_anahtari_paranteZsiz_de_taninir(session):
     assert referenced_keys("bkz [#7] ve VAN-3") == {"7", "VAN-3"}
     assert referenced_keys("fix #7") == set()
     assert referenced_keys(None) == set()
+
+
+# --- Kişi sinyali -------------------------------------------------------------
+#
+# Kartın atananı ile commit'in yazarı aynı insan mı? Bu ancak hesaplar hem
+# Trello üyeliğine hem git e-postasına bağlıysa bilinebilir.
+#
+# SIRALAMAYA GİRMEZ (PERSON_BONUS = 0.0) ve bu bir ihmal değil ÖLÇÜM SONUCUDUR:
+# tek yazarlı bir depoda prim adayların HEPSİNE gittiği için hiçbir şeyi yeniden
+# sıralayamıyor (bkz. scripts/task_link_eval.py). Ölçülmemiş bir fayda için
+# sıralamayı oynatmak, bu sistemin kaçındığı "uydurulmuş kesinlik" olurdu.
+
+def test_kisi_sinyali_iki_atanan_alanini_da_okur(session):
+    """Kart iki kişiye atanmışsa ikincisi de "atanan"dır: yalnız birincil alana
+    bakmak, çok atananlı kartta ikinci kişiyi hiç göstermezdi."""
+    from app.models import Developer, Task, TaskAssignee
+    from app.services.task_link import task_developer_ids
+
+    a = Developer(display_name="A", external_ids={"trello": "m1"})
+    b = Developer(display_name="B", external_ids={"trello": "m2"})
+    task = Task(source="trello", external_id="c1", title="iş")
+    session.add_all([a, b, task])
+    session.flush()
+    task.assignee_id = a.id
+    session.add(TaskAssignee(task_id=task.id, developer_id=b.id))
+    session.commit()
+
+    assert task_developer_ids(task) == {a.id, b.id}
+
+
+def test_ayni_kisi_rozeti_bagda_gosterilir(session):
+    """`same_person` SAKLANMAZ, okunurken türetilir: kimlik eşlemesi sonradan
+    yapıldığında eski bağlar da doğru rozeti gösterir."""
+    from datetime import datetime, timezone
+
+    from app.models import Commit, Developer, Repo, Task, TaskCommitLink
+    from app.services.task_link import list_links
+
+    dev = Developer(display_name="Ayşe", external_ids={"git": "a@x.com"})
+    baskasi = Developer(display_name="Mehmet", external_ids={"git": "m@x.com"})
+    repo = Repo(name="r1")
+    session.add_all([dev, baskasi, repo])
+    session.flush()
+    task = Task(source="trello", external_id="c1", title="iş", assignee_id=dev.id)
+    c_ayni = Commit(repo_id=repo.id, sha="a1", author_id=dev.id, message="benim işim")
+    c_baska = Commit(repo_id=repo.id, sha="b2", author_id=baskasi.id, message="başkasının")
+    session.add_all([task, c_ayni, c_baska])
+    session.flush()
+    now = datetime.now(timezone.utc)
+    session.add_all([
+        TaskCommitLink(task_id=task.id, commit_id=c_ayni.id, status="suggested",
+                       matched_by="semantic", score=0.5, created_at=now),
+        TaskCommitLink(task_id=task.id, commit_id=c_baska.id, status="suggested",
+                       matched_by="semantic", score=0.6, created_at=now),
+    ])
+    session.commit()
+
+    baglar = {x["commit_id"]: x for x in list_links(session, task.id)}
+
+    assert baglar[c_ayni.id]["same_person"] is True
+    assert baglar[c_baska.id]["same_person"] is False
+
+
+def test_kisi_primi_varsayilan_olarak_siralamayi_degistirmez():
+    """Ölçüm fayda göstermedi → prim eklenmedi. Bu sabit büyütülecekse ÖNCE
+    scripts/task_link_eval.py ile ilk sıra isabetinin arttığı gösterilmeli."""
+    from app.services import task_link
+
+    assert task_link.PERSON_BONUS == 0.0

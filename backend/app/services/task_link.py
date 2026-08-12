@@ -30,6 +30,12 @@ yalnız 2'sinde assignee dolu. Geriye iki sinyal kalıyor:
    taşınsın" (28-29 Tem) ile ilgili commit 24 Tem'de. Sert pencere bu doğru
    eşleşmeleri sessizce keserdi. Zaman yalnızca yakınlık PRİMİ verir.
 
+3. KİŞİ (yalnız GÖSTERİLİR, sıralamaya girmez). Kartın atananı ile commit'in
+   yazarı aynı insansa bağ `same_person` işaretiyle döner. Bu sinyal ancak
+   giriş hesapları hem Trello üyeliğine hem git e-postasına bağlıysa doğar
+   (bkz. services/identity.py). Sıralama primi ÖLÇÜLDÜ ve fayda görülmediği
+   için 0.0 bırakıldı — gerekçe PERSON_BONUS'un yanında.
+
 Eşleştirme kesin değil TAHMİNdir; bu yüzden her bağ skorunu ve zaman
 uyumunu taşır, çağıran taraf bunu kullanıcıya gösterebilsin.
 """
@@ -66,6 +72,30 @@ WINDOW_MARGIN_DAYS = 7
 # Büyütmek, aynı hafta yazılmış alakasız commit'i öne taşır.
 TIME_BONUS = 0.03
 
+# 3. KİŞİ. Kartın atananı ile commit'in yazarı aynı insan mı? Hesaplar hem
+# Trello üyeliğine hem git e-postasına bağlıysa bu HESAPLANIR ve `same_person`
+# olarak taşınır (ekranda "aynı kişi" rozeti; kişi bazlı görünümün de temeli).
+#
+# AMA SIRALAMAYA GİRMEZ — prim 0.0. Bu bir ihmal değil, ÖLÇÜM SONUCU:
+#
+#   scripts/task_link_eval.py --link 31=1   (6 onaylı bağ, 63 aday commit)
+#     yalın benzerlik  ilk sıra 5/6 · ort. sıra 1.50
+#     +kişi (0.05)     ilk sıra 5/6 · ort. sıra 1.50   → HİÇBİR DEĞİŞİKLİK
+#
+# Sebep yapısal: bu depoda tüm commit'ler tek yazara ait, dolayısıyla prim
+# adayların HEPSİNE gidiyor ve hiçbir şeyi yeniden sıralayamıyor (ölçüm bunu
+# ayrıca uyarı olarak basar). Ölçülmemiş bir fayda için sıralamayı oynatmak,
+# bu sistemin kaçındığı şeyin ta kendisi olurdu: uydurulmuş kesinlik.
+#
+# BİRDEN ÇOK YAZARLI bir depoda sinyal ayırt edici hâle gelir. O zaman değeri
+# yeniden ÖLÇÜN (kopyalamayın): `--person-bonus 0.05` ile koşup ilk sıra
+# isabetinin gerçekten arttığını görmeden bu sabiti büyütmeyin.
+#
+# SERT FİLTRE zaten hiç düşünülmedi: kartların çoğunda atanan boş ve kartı açan
+# ile kodu yazan çoğu zaman aynı kişi değil — sert filtre doğru eşleşmeleri
+# sessizce keserdi (zaman penceresinde aynı hatadan dönülmüştü).
+PERSON_BONUS = 0.0
+
 
 @dataclass(frozen=True)
 class CommitLink:
@@ -73,9 +103,12 @@ class CommitLink:
     sha: str
     message: str
     committed_at: datetime | None
-    score: float          # anlamsal benzerlik (zaman primi HARİÇ)
+    score: float          # anlamsal benzerlik (zaman/kişi primi HARİÇ)
     in_window: bool       # commit, task'ın hareket penceresine yakın mı
     rank_score: float     # sıralamada kullanılan bileşik skor
+    # Commit'in yazarı, kartın atananlarından biri mi? Ekranda "aynı kişi"
+    # rozeti olarak gösterilir; sıralamaya etkisi PERSON_BONUS kadardır (0.0).
+    same_person: bool = False
 
 
 @dataclass
@@ -87,6 +120,18 @@ class TaskLinks:
     window_end: datetime | None
     span_days: int | None
     links: list[CommitLink]
+
+
+def task_developer_ids(task: Task) -> set[int]:
+    """Kartın atananları: birincil (`assignee_id`) + tüm üyeler (task_assignees).
+
+    İkisi birden okunur çünkü kaynaklar farklı: Trello kartı birden çok üyeye
+    atanabilir, Jira'da tek atanan vardır. Çağıran hangisi olduğunu bilmek
+    zorunda kalmasın."""
+    ids = {a.developer_id for a in task.assignees if a.developer_id}
+    if task.assignee_id:
+        ids.add(task.assignee_id)
+    return ids
 
 
 def task_window(task: Task) -> tuple[datetime | None, datetime | None]:
@@ -240,6 +285,7 @@ def link_tasks(session: Session, cfg: Config, *, team_id: int | None = None,
         start, end = task_window(task)
         lo = (as_utc(start) - timedelta(days=WINDOW_MARGIN_DAYS)) if start else None
         hi = (as_utc(end) + timedelta(days=WINDOW_MARGIN_DAYS)) if end else None
+        atananlar = task_developer_ids(task)
 
         links: list[CommitLink] = []
         for commit_id, cvec in commit_vecs.items():
@@ -250,11 +296,22 @@ def link_tasks(session: Session, cfg: Config, *, team_id: int | None = None,
             at = commit.committed_at
             at_utc = as_utc(at)
             in_window = bool(at_utc and lo and hi and lo <= at_utc <= hi)
+            # Kişi sinyali yalnız İKİ TARAF DA biliniyorsa oluşur: kartın
+            # atananı yoksa ya da commit yazarı çözülememişse prim verilmez —
+            # bilinmezliği "uymuyor" saymak, eşik altındaki doğru eşleşmeyi
+            # cezalandırmak olurdu.
+            same_person = bool(commit.author_id and commit.author_id in atananlar)
             links.append(CommitLink(
                 commit_id=commit_id, sha=commit.sha,
                 message=_head(commit.message)[:120],
                 committed_at=at, score=round(score, 4), in_window=in_window,
-                rank_score=round(score + (TIME_BONUS if in_window else 0.0), 4),
+                rank_score=round(
+                    score
+                    + (TIME_BONUS if in_window else 0.0)
+                    + (PERSON_BONUS if same_person else 0.0),
+                    4,
+                ),
+                same_person=same_person,
             ))
 
         links.sort(key=lambda x: x.rank_score, reverse=True)
@@ -408,10 +465,18 @@ def list_links(session: Session, task_id: int) -> list[dict]:
         c.id: c for c in session.scalars(select(Commit).where(
             Commit.id.in_([r.commit_id for r in rows])))
     }
+    # Kişi bilgisi SAKLANMAZ, burada türetilir: kimlik eşlemesi sonradan
+    # yapıldığında eski satırlar da doğru rozeti gösterir. Saklansaydı bağ
+    # kurulduğu andaki (çoğu zaman eksik) kimlik durumu donardı.
+    task = session.get(Task, task_id)
+    atananlar = task_developer_ids(task) if task is not None else set()
     out = []
     for r in rows:
         c = commits.get(r.commit_id)
         out.append({
+            # Commit'i yazan, kartın atananlarından biri mi? Sıralamaya
+            # GİRMEZ (bkz. PERSON_BONUS) — yalnız gösterilir.
+            "same_person": bool(c and c.author_id and c.author_id in atananlar),
             "commit_id": r.commit_id,
             "sha": (c.sha[:8] if c else None),
             "message": _head(c.message if c else None)[:120],

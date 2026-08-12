@@ -12,7 +12,12 @@ from datetime import datetime
 
 import httpx
 
-from app.adapters.base import NormalizedTask, NormalizedTeamMember, NormalizedTransition
+from app.adapters.base import (
+    NormalizedAssignee,
+    NormalizedTask,
+    NormalizedTeamMember,
+    NormalizedTransition,
+)
 from app.adapters.http_retry import get_with_backoff
 
 DONE_LIST_HINTS = ("done", "bitti", "tamamlan")
@@ -59,6 +64,37 @@ class TrelloProvider:
             timeout=30,
         )
 
+    def _member_records(
+        self,
+        client: httpx.Client,
+        board_id: str,
+        board_name: str | None,
+        warn: bool = True,
+    ) -> list[dict]:
+        """Board üyelerinin HAM kayıtları (id, username, fullName).
+
+        Ad ile kullanıcı adı ayrı ayrı gerekiyor: hesap eşleme ekranı adayı
+        ikisinden de çıkarır ("ayse" kullanıcı adı ↔ ayse@sirket.com). Tek bir
+        'görünen ad'a indirgemek o sinyali kaybettiriyordu.
+        """
+        try:
+            resp = client.get(f"/boards/{board_id}/members", params={"fields": "fullName,username"})
+        except httpx.HTTPError as e:
+            if warn:
+                self.warnings.append(
+                    f"Trello board '{board_name or board_id}': üye listesi alınamadı "
+                    f"({type(e).__name__}) — takım kadrosu güncellenemedi."
+                )
+            return []
+        if resp.status_code != 200:
+            if warn:
+                self.warnings.append(
+                    f"Trello board '{board_name or board_id}': üye listesi okunamadı "
+                    f"(HTTP {resp.status_code}) — takım kadrosu güncellenemedi."
+                )
+            return []
+        return [m for m in resp.json() if m.get("id")]
+
     def _members(
         self,
         client: httpx.Client,
@@ -75,27 +111,49 @@ class TrelloProvider:
         gösterirdi. Kadro çekerken (fetch_team_members) ürün ZATEN üye listesidir,
         orada sessiz kalmak gerçek bir kaybı gizler — bu yüzden warn=True.
         """
-        try:
-            resp = client.get(f"/boards/{board_id}/members", params={"fields": "fullName,username"})
-        except httpx.HTTPError as e:
-            if warn:
-                self.warnings.append(
-                    f"Trello board '{board_name or board_id}': üye listesi alınamadı "
-                    f"({type(e).__name__}) — takım kadrosu güncellenemedi."
-                )
-            return {}
-        if resp.status_code != 200:
-            if warn:
-                self.warnings.append(
-                    f"Trello board '{board_name or board_id}': üye listesi okunamadı "
-                    f"(HTTP {resp.status_code}) — takım kadrosu güncellenemedi."
-                )
-            return {}
         return {
             m["id"]: (m.get("fullName") or m.get("username") or m["id"])
-            for m in resp.json()
-            if m.get("id")
+            for m in self._member_records(client, board_id, board_name, warn)
         }
+
+    def fetch_member_directory(self) -> list[dict]:
+        """Hesap eşleme ekranının kaynağı: her board'un üyeleri, ham alanlarıyla.
+
+        `fetch_team_members`'tan farkı: orada ürün TAKIM KADROSUdur (tek görünen
+        ad yeter), burada ürün KİMLİK EŞLEMESİdir — kullanıcı adı ile tam ad
+        ayrı ayrı lazım. Okunamayan board `warnings`'e yazılır; sessiz atlama
+        "board'da kimse yok" gibi görünürdü.
+        """
+        out: list[dict] = []
+        self.warnings = []
+        if not self.boards:
+            self.warnings.append("Trello board listesi boş — okunacak üye yok.")
+            return out
+        if not self.key or not self.token:
+            self.warnings.append("Trello API key/token tanımsız — üye listesi okunamaz.")
+            return out
+        with self._client() as client:
+            for board_id in self.boards:
+                try:
+                    board_resp = client.get(f"/boards/{board_id}", params={"fields": "name"})
+                except httpx.HTTPError as e:
+                    self.warnings.append(
+                        f"Trello board '{board_id}': bağlanılamadı ({type(e).__name__})."
+                    )
+                    continue
+                if board_resp.status_code != 200:
+                    self.warnings.append(_board_error(board_id, board_resp.status_code))
+                    continue
+                board_name = board_resp.json().get("name")
+                for m in self._member_records(client, board_id, board_name):
+                    out.append({
+                        "board_id": board_id,
+                        "board_name": board_name,
+                        "member_id": m["id"],
+                        "username": m.get("username") or None,
+                        "full_name": m.get("fullName") or None,
+                    })
+        return out
 
     def fetch_team_members(self) -> list[NormalizedTeamMember]:
         """Board üyeleri = takım kadrosu. Board adı takım adıdır (fetch_tasks
@@ -275,7 +333,12 @@ class TrelloProvider:
         labels = [(lbl.get("name") or "").lower() for lbl in card.get("labels", [])]
         is_bug = any(h in lbl for lbl in labels for h in BUG_LABEL_HINTS)
         created = transitions[0].changed_at if transitions else None
-        assignee_key = (card.get("idMembers") or [None])[0]
+        # Kartın TÜM üyeleri. Eskiden yalnız `idMembers[0]` alınıyordu: iki
+        # kişiye atanmış kartta ikinci kişi hiçbir yerde görünmüyordu — o kişinin
+        # işi yokmuş gibi duruyor, kart↔commit eşleşmesinde kişi sinyali de
+        # yanlış tarafa çalışıyordu. Sıra kaynaktaki sıradır; ilki BİRİNCİL.
+        uyeler = [m for m in (card.get("idMembers") or []) if m]
+        assignee_key = uyeler[0] if uyeler else None
         short = card.get("idShort")
         return NormalizedTask(
             source="trello",
@@ -295,6 +358,10 @@ class TrelloProvider:
             # Ad board üye listesinden gelir (board başına tek istek). Bilinmiyorsa
             # None kalır: ingest o zaman ham id'yi görünen ad yapar, uydurmaz.
             assignee_name=(member_names or {}).get(assignee_key) if assignee_key else None,
+            assignees=[
+                NormalizedAssignee(key=m, name=(member_names or {}).get(m))
+                for m in uyeler
+            ],
             title=card.get("name"),
             type="bug" if is_bug else "task",
             status=list_names.get(card.get("idList", ""), None),

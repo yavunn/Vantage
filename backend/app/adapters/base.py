@@ -77,6 +77,14 @@ class NormalizedTeamMember:
 
 
 @dataclass
+class NormalizedAssignee:
+    """Karta atanmış BİR kişi. Trello kartı birden çok üyeye atanabilir."""
+
+    key: str                                # kaynak-içi kimlik (Trello üye id)
+    name: str | None = None                 # bilinmiyorsa None — uydurulmaz
+
+
+@dataclass
 class NormalizedTask:
     source: str                             # jira | trello | fixture
     external_id: str
@@ -87,8 +95,14 @@ class NormalizedTask:
     key: str | None = None
     url: str | None = None                  # kaydın kaynaktaki adresi (varsa)
     team_name: str | None = None
+    # BİRİNCİL atanan (kaynaktaki ilk üye). WIP ve kişi bazlı metrikler tek
+    # atanan varsayımı üzerine kurulu olduğu için bu alan korunur.
     assignee_key: str | None = None
     assignee_name: str | None = None
+    # TÜM atananlar (birincil dahil). Boş bırakılırsa ingest `assignee_key`'e
+    # düşer — tek atananlı kaynaklar (Jira, fixture) bunu doldurmak zorunda
+    # değildir. Trello'da bu liste olmadan ikinci kişi sessizce kayboluyordu.
+    assignees: list[NormalizedAssignee] = field(default_factory=list)
     title: str | None = None
     type: str | None = None                 # story | bug | task
     status: str | None = None

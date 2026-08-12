@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.base import (
     GitProvider,
+    NormalizedAssignee,
     NormalizedCommit,
     NormalizedPR,
     NormalizedTask,
@@ -28,10 +29,12 @@ from app.models import (
     PullRequest,
     Repo,
     Task,
+    TaskAssignee,
     TaskStatusTransition,
     Team,
     TeamMembership,
 )
+from app.services.identity import GIT_SOURCE, git_emails
 
 
 class Ingestor:
@@ -86,12 +89,19 @@ class Ingestor:
         cache_key = f"{source}:{key}"
         if cache_key in self._dev_cache:
             return self._dev_cache[cache_key]
+        # git kimliği bir e-posta KÜMESİdir (aynı insan kişisel adresi + GitHub
+        # noreply adresiyle commit atar), diğer kaynaklarda tek anahtar.
+        aranan = key.strip().lower() if source == GIT_SOURCE else key
         # JSON external_ids içinde arama: az geliştirici olduğundan tam tarama makul
         for dev in self.session.scalars(select(Developer)):
-            if dev.external_ids.get(source) == key:
+            if source == GIT_SOURCE:
+                eslesti = aranan in git_emails(dev.external_ids)
+            else:
+                eslesti = (dev.external_ids or {}).get(source) == key
+            if eslesti:
                 self._dev_cache[cache_key] = dev
                 return dev
-        dev = Developer(external_ids={source: key}, display_name=name or key)
+        dev = Developer(external_ids={source: aranan}, display_name=name or key)
         self.session.add(dev)
         self.session.flush()
         self._dev_cache[cache_key] = dev
@@ -190,6 +200,32 @@ class Ingestor:
         self.session.flush()
         return count
 
+    def _write_assignees(self, row: Task, t: NormalizedTask) -> None:
+        """Kartın TÜM atananlarını yazar (kaynak gerçeği esastır: yeniden yazılır).
+
+        `assignees` boşsa tek atananlı kaynaktır (Jira, fixture) ve
+        `assignee_key`'e düşülür — böylece "kartın atananları" sorusu her
+        kaynakta aynı yerden cevaplanır, çağıran taraf kaynağı bilmek zorunda
+        kalmaz.
+        """
+        girdiler = list(t.assignees)
+        if not girdiler and t.assignee_key:
+            girdiler = [NormalizedAssignee(key=t.assignee_key, name=t.assignee_name)]
+
+        for old in list(row.assignees):
+            self.session.delete(old)
+        self.session.flush()
+
+        yazilan: set[int] = set()
+        for sira, a in enumerate(girdiler):
+            dev = self._developer(t.source, a.key, a.name)
+            if dev is None or dev.id in yazilan:
+                continue  # aynı üye iki kez listelenmişse tek satır
+            yazilan.add(dev.id)
+            self.session.add(
+                TaskAssignee(task_id=row.id, developer_id=dev.id, is_primary=(sira == 0))
+            )
+
     def ingest_tasks(self, tasks: list[NormalizedTask]) -> int:
         count = 0
         now = datetime.now(timezone.utc)
@@ -218,6 +254,7 @@ class Ingestor:
             row.estimate_hours = t.estimate_hours
             row.due_date = t.due_date
             row.story_points = t.story_points
+            self._write_assignees(row, t)
             for old in list(row.transitions):
                 self.session.delete(old)
             self.session.flush()
@@ -363,22 +400,31 @@ def duplicate_identity_pairs(session: Session) -> list[tuple[Developer, Develope
     adaylar: list[tuple[Developer, Developer, str]] = []
     for i, a in enumerate(devs):
         for b in devs[i + 1:]:
-            a_git = (a.external_ids or {}).get("git", "") or ""
-            b_git = (b.external_ids or {}).get("git", "") or ""
-            if not a_git or not b_git or a_git.lower() == b_git.lower():
+            # Kişi başına e-posta KÜMESİ: aynı insanın birden çok git adresi
+            # tek kayıtta durabilir, karşılaştırma her ikili için yapılır.
+            a_gitler, b_gitler = git_emails(a.external_ids), git_emails(b.external_ids)
+            if not a_gitler or not b_gitler or set(a_gitler) & set(b_gitler):
                 continue
-            a_kul, b_kul = _github_noreply_yerel(a_git), _github_noreply_yerel(b_git)
             # 1) GitHub noreply ↔ kişisel e-posta: kullanıcı adı, diğerinin
             #    e-posta yerel kısmıyla ya da görünen adıyla eşleşiyor mu?
-            for kul, oteki_git, oteki_ad in ((a_kul, b_git, b.display_name),
-                                             (b_kul, a_git, a.display_name)):
-                if not kul:
-                    continue
-                yerel = oteki_git.split("@", 1)[0].lower()
-                ad = (oteki_ad or "").strip().lower().replace(" ", "")
-                if kul == yerel or (ad and kul == ad):
-                    adaylar.append((a, b, f"GitHub noreply e-postası '{kul}' ile eşleşiyor"))
+            noreply_eslesme = None
+            for kaynak, oteki_gitler, oteki_ad in ((a_gitler, b_gitler, b.display_name),
+                                                   (b_gitler, a_gitler, a.display_name)):
+                for kul in filter(None, (_github_noreply_yerel(e) for e in kaynak)):
+                    ad = (oteki_ad or "").strip().lower().replace(" ", "")
+                    for oteki_git in oteki_gitler:
+                        yerel = oteki_git.split("@", 1)[0].lower()
+                        if kul == yerel or (ad and kul == ad):
+                            noreply_eslesme = kul
+                            break
+                    if noreply_eslesme:
+                        break
+                if noreply_eslesme:
                     break
+            if noreply_eslesme:
+                adaylar.append(
+                    (a, b, f"GitHub noreply e-postası '{noreply_eslesme}' ile eşleşiyor")
+                )
             else:
                 # 2) Aynı görünen ad + farklı git kimliği.
                 ad_a = (a.display_name or "").strip().lower()
@@ -423,7 +469,7 @@ def _unlinked_identity_warnings(session: Session) -> list[str]:
     unlinked = [
         dev.display_name
         for dev in session.scalars(select(Developer))
-        if (ids := dev.external_ids or {}) and not ids.get("git") and (ids.keys() - {"git"})
+        if (ids := dev.external_ids or {}) and not git_emails(ids) and (ids.keys() - {GIT_SOURCE})
     ]
     if not unlinked:
         return []

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getSources,
   listIdentities,
+  listTrelloMembers,
   mergeDevelopers,
   setTaskIdentity,
   testSources,
@@ -211,6 +212,158 @@ function IdentitySection({ nonce }) {
         </ul>
       </details>
 
+      {msg && <div className="admin-ok">{msg}</div>}
+      {error && <div className="login-error">{error}</div>}
+    </section>
+  );
+}
+
+// Trello board üyeleri ↔ giriş hesapları.
+//
+// NEDEN AYRI BİR BÖLÜM: Trello üye id'si opak bir hash'tir. Kimlik eşleme
+// bölümü yalnız DB'de zaten açılmış kayıtları gösterir; board'da olup henüz
+// hiç kartı olmayan üye orada hiç görünmez. Bağ kurulmadan kart↔commit
+// eşleşmesi kişiyi tanımaz ve "görevlerim" ekranı boş kalır.
+function TrelloMembersSection({ enabled, onLinked }) {
+  const t = useT();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [secim, setSecim] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  function load() {
+    setError(null);
+    listTrelloMembers().then(setData).catch((e) => setError(e.message));
+  }
+  useEffect(() => {
+    if (enabled) load();
+  }, [enabled]);
+
+  async function bagla(uye) {
+    const devId = Number(secim[uye.member_id] ?? uye.suggestion?.developer_id);
+    if (!devId) return;
+    setBusy(uye.member_id);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await setTaskIdentity(devId, "trello", uye.member_id);
+      setMsg(
+        res.merged_developer_id
+          ? t("Bağlandı — kaynaktan gelen kopya kayıt birleştirildi (görevler taşındı).")
+          : t("Bağlandı.")
+      );
+      load();
+      onLinked?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function kaldir(uye) {
+    if (!uye.developer_id) return;
+    setBusy(uye.member_id);
+    setError(null);
+    setMsg(null);
+    try {
+      await setTaskIdentity(uye.developer_id, "trello", "");
+      setMsg(t("Bağ kaldırıldı."));
+      load();
+      onLinked?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!enabled) return null;
+  if (error && !data) return <div className="login-error">{error}</div>;
+  if (!data) return <p className="desc">{t("Yükleniyor…")}</p>;
+
+  const bagsiz = data.members.filter((m) => !m.linked);
+
+  return (
+    <section className="section">
+      <h2>{t("Trello üyeleri")}</h2>
+      <p className="desc">
+        {t("Board'daki her üyeyi bir giriş hesabına bağlayın. Bağ kurulmadan kişinin kartları ile commit'leri eşleşemez — sistem ikisini ayrı insan sayar.")}
+      </p>
+
+      <WarnBox items={data.warnings} title={t("Trello uyarıları")} />
+
+      {data.members.length === 0 ? (
+        <p className="desc">{t("Board'dan üye okunamadı. Board id'leri ve API anahtarları doğru mu?")}</p>
+      ) : (
+        <ul className="team-list">
+          {data.members.map((m) => (
+            <li key={m.member_id}>
+              <span>
+                {m.full_name || m.username || m.member_id}
+                {m.username && m.full_name && <span className="desc"> @{m.username}</span>}
+                <span className="desc"> · {m.boards.join(", ")}</span>
+              </span>
+              <span>
+                {m.linked ? (
+                  <>
+                    <span className="role-tag">
+                      {m.user_email
+                        ? t("{name} ({email})", { name: m.developer_name, email: m.user_email })
+                        : t("{name} — giriş hesabı yok", { name: m.developer_name })}
+                    </span>
+                    <button
+                      className="mini"
+                      onClick={() => kaldir(m)}
+                      disabled={busy === m.member_id}
+                    >
+                      {t("Bağı kaldır")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {m.suggestion && (
+                      <span className="desc" title={m.suggestion.reason}>
+                        {t("muhtemelen {name}", { name: m.suggestion.display_name })} ·{" "}
+                      </span>
+                    )}
+                    <select
+                      value={secim[m.member_id] ?? m.suggestion?.developer_id ?? ""}
+                      onChange={(e) =>
+                        setSecim((s) => ({ ...s, [m.member_id]: e.target.value }))
+                      }
+                    >
+                      <option value="">{t("Hesap seç…")}</option>
+                      {data.accounts.map((a) => (
+                        <option key={a.developer_id} value={a.developer_id}>
+                          {a.display_name} ({a.user_email})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="mini"
+                      onClick={() => bagla(m)}
+                      disabled={
+                        busy === m.member_id ||
+                        !(secim[m.member_id] || m.suggestion?.developer_id)
+                      }
+                    >
+                      {busy === m.member_id ? t("Bağlanıyor…") : t("Bağla")}
+                    </button>
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {bagsiz.length > 0 && (
+        <p className="desc">
+          {t("{n} üye henüz bir hesaba bağlı değil.", { n: bagsiz.length })}
+        </p>
+      )}
       {msg && <div className="admin-ok">{msg}</div>}
       {error && <div className="login-error">{error}</div>}
     </section>
@@ -684,6 +837,14 @@ export default function IntegrationPanel() {
         {msg && <div className="admin-ok">{msg}</div>}
         {error && <div className="login-error">{error}</div>}
       </section>
+
+      {/* Üye eşleme, kimlik eşlemeden ÖNCE: doğru sıra "board üyesini hesaba
+          bağla", sonra kalan artıkları birleştir. Ters sırada kullanıcı önce
+          kopya kayıtlarla uğraşıyor, kaynağı hiç görmüyordu. */}
+      <TrelloMembersSection
+        enabled={data?.tasks?.provider === "trello"}
+        onLinked={() => setIdentityNonce((n) => n + 1)}
+      />
 
       <IdentitySection nonce={identityNonce} />
     </div>

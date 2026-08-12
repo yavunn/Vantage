@@ -466,7 +466,12 @@ def code_analysis_overview_breakdown(session: Session = Depends(get_session), _:
 
 
 class GitEmailUpdate(BaseModel):
+    """Tek e-posta (eski istemciler) ya da liste (çoklu adres).
+
+    `git_emails` verildiyse o kazanır; ikisi de boşsa bağ kaldırılır."""
+
     git_email: str | None = None
+    git_emails: list[str] | None = None
 
 
 @router.patch("/developers/{dev_id}/git-email")
@@ -476,22 +481,34 @@ def set_developer_git_email(
     session: Session = Depends(get_session),
     _: User = Depends(require_admin),
 ):
-    """Kişinin git commit e-postasını bağlar (kişi-bazlı kod analizi için).
-    Elle SQL yerine panelden. Boş verilirse bağ kaldırılır."""
+    """Kişinin git commit e-posta(ları)nı bağlar (kişi-bazlı kod analizi için).
+    Elle SQL yerine panelden. Boş verilirse bağ kaldırılır.
+
+    Aynı e-posta başkasındaysa 409: kimliği sessizce el değiştirmek, o kişinin
+    commit'lerini bir sonraki senkronda başka birine atfederdi."""
     from app.models import Developer
+    from app.services.identity import (
+        IdentityConflict,
+        check_git_emails_free,
+        git_emails,
+        with_git_emails,
+    )
 
     dev = session.get(Developer, dev_id)
     if dev is None:
         raise HTTPException(404, tr_error("Kişi bulunamadı"))
-    ext = dict(dev.external_ids or {})
-    email = (body.git_email or "").strip().lower()
-    if email:
-        ext["git"] = email
-    else:
-        ext.pop("git", None)
+    yeni = body.git_emails if body.git_emails is not None else (
+        [body.git_email] if body.git_email else []
+    )
+    ext = with_git_emails(dev.external_ids, [e for e in yeni if e])
+    try:
+        check_git_emails_free(session, git_emails(ext), dev_id)
+    except IdentityConflict as e:
+        raise HTTPException(409, tr_error(str(e))) from e
     dev.external_ids = ext
     session.commit()
-    return {"ok": True, "git_email": ext.get("git")}
+    return {"ok": True, "git_email": git_emails(ext)[0] if git_emails(ext) else None,
+            "git_emails": git_emails(ext)}
 
 
 @router.get("/identities")
@@ -502,15 +519,20 @@ def identities(session: Session = Depends(get_session), _: User = Depends(requir
     eşleştiremez. Bu uç, eşlenmemiş kayıtları görünür kılar ki admin birleştirsin.
     """
     from app.models import Commit, Developer, Task, TeamMembership
+    from app.services.identity import git_emails
 
     out = []
     for dev in session.scalars(select(Developer).order_by(Developer.display_name)):
         ids = dict(dev.external_ids or {})
         task_sources = {k: v for k, v in ids.items() if k != "git"}
+        gitler = git_emails(ids)
         out.append({
             "id": dev.id,
             "display_name": dev.display_name,
-            "git_email": ids.get("git"),
+            # git_email = birincil (tek e-posta gösteren eski ekranlar için),
+            # git_emails = tamamı. İkincisi olmadan çoklu adres görünmezdi.
+            "git_email": gitler[0] if gitler else None,
+            "git_emails": gitler,
             "task_identities": task_sources,
             # Hangi kaydın "asıl" olduğunu ayırt etmek için: commit'ler bir
             # kayda, görevler diğerine düşmüş olabilir — birleştirmede hedef,
@@ -531,9 +553,118 @@ def identities(session: Session = Depends(get_session), _: User = Depends(requir
                 select(User.email).where(User.developer_id == dev.id)
             ),
             # Ne git ne hesap: büyük olasılıkla bir kaynak kaydının kopyası
-            "unlinked": not ids.get("git") and bool(task_sources),
+            "unlinked": not gitler and bool(task_sources),
         })
     return out
+
+
+def _hesap_listesi(session: Session) -> list[dict]:
+    """Kimlik bağlanabilecek kişiler: giriş HESABI olan Developer kayıtları.
+
+    Hesabı olmayan kayıt hedef olamaz — o zaten çoğu zaman kaynağın açtığı
+    kopyanın kendisidir; ona bağlamak kopyayı kalıcılaştırırdı."""
+    from app.models import Developer
+
+    out = []
+    for u in session.scalars(select(User).where(User.developer_id.isnot(None))):
+        dev = session.get(Developer, u.developer_id)
+        if dev is None:
+            continue
+        out.append({
+            "developer_id": dev.id,
+            "display_name": dev.display_name,
+            "user_email": u.email,
+            "external_ids": dict(dev.external_ids or {}),
+        })
+    out.sort(key=lambda a: (a["display_name"] or "").lower())
+    return out
+
+
+@router.get("/trello/members")
+def trello_members(session: Session = Depends(get_session), _: User = Depends(require_admin)):
+    """Board üyeleri + her birinin bağlı olduğu giriş hesabı (ya da 'bağsız').
+
+    Bu ekran olmadan Trello kimliği yalnız ham üye id'si (opak hash) elle
+    yazılarak bağlanabiliyordu; pratikte kimse yapmıyordu ve kart↔commit
+    eşleşmesi kişiyi hiç tanımıyordu.
+
+    Trello okunamazsa uyarı GÖVDEDE döner (hata değil): board erişimi bozukken
+    de bağlı üyeler listelenebilmeli, aksi hâlde ekran tamamen kararırdı.
+    """
+    from app.models import Developer
+    from app.services.identity import suggest_account
+
+    cfg = get_config()
+    saglayici = (cfg.sources.tasks.provider or "none").lower()
+    if saglayici != "trello":
+        raise HTTPException(400, tr_error(
+            f"Görev kaynağı 'trello' değil (şu an: {saglayici}). Kaynaklar bölümünden değiştirin."
+        ))
+
+    from app.adapters.trello import TrelloProvider
+
+    t = cfg.sources.tasks.trello
+    provider = TrelloProvider(t.key_env, t.token_env, t.boards)
+    kayitlar = provider.fetch_member_directory()
+
+    hesaplar = _hesap_listesi(session)
+    # Trello üye id'si → o kimliği taşıyan Developer (hesabı olmayanlar dahil:
+    # kaynağın açtığı kopya kayıtları da göstermek gerekir, "bağsız" damgası
+    # yanlış olurdu).
+    kimlige_gore: dict[str, Developer] = {}
+    for dev in session.scalars(select(Developer)):
+        anahtar = (dev.external_ids or {}).get("trello")
+        if anahtar:
+            kimlige_gore[str(anahtar)] = dev
+    hesabi_olan = {a["developer_id"]: a for a in hesaplar}
+
+    # Aynı üye birden çok board'da olabilir: tek satır, board listesiyle.
+    birlesik: dict[str, dict] = {}
+    for k in kayitlar:
+        satir = birlesik.setdefault(k["member_id"], {
+            "member_id": k["member_id"],
+            "username": k["username"],
+            "full_name": k["full_name"],
+            "boards": [],
+        })
+        ad = k["board_name"] or k["board_id"]
+        if ad not in satir["boards"]:
+            satir["boards"].append(ad)
+
+    uyeler = []
+    for satir in birlesik.values():
+        dev = kimlige_gore.get(satir["member_id"])
+        hesap = hesabi_olan.get(dev.id) if dev else None
+        oneri = None
+        if dev is None:
+            aday = suggest_account(satir["full_name"], satir["username"], hesaplar)
+            if aday:
+                oneri = {"developer_id": aday[0], "reason": aday[1],
+                         "display_name": hesabi_olan[aday[0]]["display_name"]}
+        uyeler.append({
+            **satir,
+            "linked": dev is not None,
+            "developer_id": dev.id if dev else None,
+            "developer_name": dev.display_name if dev else None,
+            # Bağlı ama giriş hesabı yok = kaynağın açtığı kopya kayıt. Ayrı
+            # gösterilmeli: "bağlı" demek burada işin bittiği anlamına gelmez.
+            "user_email": hesap["user_email"] if hesap else None,
+            "suggestion": oneri,
+        })
+    uyeler.sort(key=lambda m: (m["linked"], (m["full_name"] or m["username"] or "").lower()))
+
+    return {
+        "provider": saglayici,
+        "boards": list(t.boards),
+        "members": uyeler,
+        "accounts": [
+            {"developer_id": a["developer_id"], "display_name": a["display_name"],
+             "user_email": a["user_email"],
+             "trello": (a["external_ids"] or {}).get("trello")}
+            for a in hesaplar
+        ],
+        "warnings": list(provider.warnings),
+    }
 
 
 class TaskIdentityUpdate(BaseModel):
@@ -571,14 +702,16 @@ def set_developer_task_identity(
         return {"ok": True, "task_identities": {k: v for k, v in ext.items() if k != "git"},
                 "merged_developer_id": None}
 
+    from app.services.identity import IdentityConflict, task_identity_owner
+
     merged_id = None
-    duplicate = next(
-        (
-            d for d in session.scalars(select(Developer).where(Developer.id != dev.id))
-            if (d.external_ids or {}).get(source) == key
-        ),
-        None,
-    )
+    # Kimliği taşıyan başka kayıt varsa: giriş hesabı olan bir kayda çarparsak
+    # o bir "kopya" değil BAŞKA BİR İNSANDIR ve birleştirme iki çalışanın
+    # verisini tek kişide toplardı — servis bunu 409'a çevirir.
+    try:
+        duplicate = task_identity_owner(session, source, key, dev.id)
+    except IdentityConflict as e:
+        raise HTTPException(409, tr_error(str(e))) from e
     if duplicate is not None:
         # Birleştirme tek yerde: developers.id'ye bakan TÜM tablolar taşınmalı
         # (commit/PR/review/izin/analiz dahil), yoksa silme adımı FK hatası verir.
@@ -684,6 +817,7 @@ def onboarding_status(session: Session = Depends(get_session), _: User = Depends
     """Kurulum kontrol listesi: admin ne yapacağını görsün (yeni kurulumda
     kaybolmasın). Her adım tamam/eksik + kısa ipucu."""
     from app.models import Commit, Developer, MetricResult
+    from app.services.identity import git_emails
 
     cfg = get_config()
     real_source = cfg.sources.git.provider != "fixture"
@@ -693,11 +827,24 @@ def onboarding_status(session: Session = Depends(get_session), _: User = Depends
     linked = unlinked = 0
     for u in session.scalars(select(User).where(User.developer_id.isnot(None))):
         dev = session.get(Developer, u.developer_id)
-        if dev and (dev.external_ids or {}).get("git"):
+        if dev and git_emails(dev.external_ids):
             linked += 1
         else:
             unlinked += 1
     employees = session.scalar(select(func.count()).select_from(User)) or 0
+    # Görev kaynağı kimliği: kaç Developer'ın Trello/Jira üye anahtarı var.
+    # git bağı tek başına yetmez — kart↔commit eşleşmesinde kişi sinyali ve
+    # "görevlerim" görünümü bu bağ olmadan hiç çalışmaz, ama eksikliği hiçbir
+    # ekranda görünmüyordu.
+    task_source = (cfg.sources.tasks.provider or "none").lower()
+    task_linked = task_unlinked = 0
+    if task_source in ("trello", "jira"):
+        for u in session.scalars(select(User).where(User.developer_id.isnot(None))):
+            dev = session.get(Developer, u.developer_id)
+            if dev and (dev.external_ids or {}).get(task_source):
+                task_linked += 1
+            else:
+                task_unlinked += 1
 
     steps = [
         {"key": "source", "done": real_source,
@@ -716,7 +863,23 @@ def onboarding_status(session: Session = Depends(get_session), _: User = Depends
          "label": "AI kod analizini aç",
          "hint": "AI Kod Analizi sekmesi → Baş Yönetici sağlayıcıyı ve API anahtarını girer." if not _ai_ready(cfg) else "Açık."},
     ]
+    if task_source in ("trello", "jira"):
+        # git adımının HEMEN ARDINA: ikisi aynı işin iki yarısıdır (commit
+        # tarafı + görev tarafı). Biri eksikken kart↔commit eşleşmesi kişiyi
+        # tanımaz ve "görevlerim" ekranı boş kalır.
+        steps.insert(4, {
+            "key": "task_identity",
+            "done": task_unlinked == 0 and task_linked > 0,
+            "label": f"Giriş hesaplarını {task_source.capitalize()} üyeliğine bağla",
+            "hint": (
+                f"{task_unlinked} hesabın {task_source} üye kimliği yok — Entegrasyon → "
+                f"{task_source.capitalize()} üyeleri bölümünden bağla."
+                if task_unlinked else f"{task_linked} hesap bağlı."
+            ),
+        })
     return {"steps": steps, "linked": linked, "unlinked": unlinked,
+            "task_source": task_source,
+            "task_linked": task_linked, "task_unlinked": task_unlinked,
             "complete": all(s["done"] for s in steps)}
 
 
@@ -730,9 +893,11 @@ def code_analysis_developers(
     from app.models import CodeAnalysis, Developer
     from app.services.code_health import _latest_per_file
 
+    from app.services.identity import primary_git_email
+
     out = []
     for dev in session.scalars(select(Developer)):
-        git_email = (dev.external_ids or {}).get("git")
+        git_email = primary_git_email(dev.external_ids)
         files = _latest_per_file(list(session.scalars(
             select(CodeAnalysis).where(CodeAnalysis.developer_id == dev.id))))
         composite = round(sum(f.composite for f in files) / len(files), 1) if files else None

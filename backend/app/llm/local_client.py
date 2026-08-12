@@ -37,8 +37,28 @@ from app.core.config import LLMLocal
 # boşta kalır), az tahmin ise düzeltilen hatayı geri getirir.
 CHARS_PER_TOKEN = 2.0
 
-# Uç, tahminin bu oranından azını gördüyse prompt kesilmiş demektir.
-TRUNCATION_ALARM_RATIO = 0.8
+# Kesilme ALARMI için AYRI bir sabit — ve bilerek daha iyimser.
+#
+# NEDEN AYRI: yukarıdaki 2,0 kod-ağırlıklı bir diff prompt'unda ölçüldü ve
+# bütçeleme için bilerek karamsardır (fazla tahmin güvenlidir). Ama aynı sayı
+# ALARM eşiğinde kullanılınca düz Türkçe metinde YANLIŞ ALARM veriyordu:
+# iş↔commit analizi prompt'u (Türkçe cümleler + commit başlıkları) ~3 karakter/
+# token paketleniyor; 3.110 karakterlik bir prompt "1.555 token" tahmin edilip
+# uçtan 1.048 geldiğinde oran 0,67'ye düşüyor ve kod "prompt kesildi" diye
+# ContextOverflowError atıyordu. Oysa num_ctx 16.384 iken 1.000 token'lık bir
+# prompt'un kesilmesi FİZİKSEL OLARAK MÜMKÜN DEĞİL — özellik hiç çalışmıyordu.
+#
+# Doğru kıyas noktası bir TAHMİN değil, ALT SINIR: hiçbir gerçek tokenizer
+# metni token başına 4 karakterden fazla paketlemez (İngilizce ~4, Türkçe daha
+# düşük, kod ~2). Uç bu alt sınırdan AZ token gördüyse içerik gerçekten
+# düşmüştür. Ölçülen olay bu eşikle hâlâ yakalanır: 30.768 karakter → alt sınır
+# 7.692 token, uç 2.050 saymıştı.
+MAX_CHARS_PER_TOKEN = 4.0
+
+
+def token_lower_bound(text: str) -> int:
+    """Metnin olabilecek EN AZ token sayısı. Kesilme alarmının kıyas noktası."""
+    return int(len(text or "") / MAX_CHARS_PER_TOKEN)
 
 
 class ContextOverflowError(RuntimeError):
@@ -126,15 +146,19 @@ def local_chat(
         text = data["choices"][0]["message"]["content"]
         prompt_tokens = (data.get("usage") or {}).get("prompt_tokens")
 
-    # Uç bildirdiği token sayısı tahminin belirgin altındaysa prompt kesilmiştir.
-    if prompt_tokens is not None and gonderilen > 0:
-        if prompt_tokens < gonderilen * TRUNCATION_ALARM_RATIO:
-            raise ContextOverflowError(
-                f"uç prompt'un yalnız {prompt_tokens} token'ını gördü "
-                f"(gönderilen ~{gonderilen}); bağlam penceresi küçük olabilir — "
-                f"llm.local.context_tokens ({local.context_tokens}) ve sunucunun "
-                "kendi sınırını (Ollama: OLLAMA_CONTEXT_LENGTH) kontrol edin"
-            )
+    # Uç, metnin olabilecek EN AZ token sayısından bile azını gördüyse içerik
+    # gerçekten düşmüştür. Kıyas TAHMİNLE değil ALT SINIRLA yapılır: tahmin
+    # kod için ayarlı olduğundan düz Türkçe metinde yanlış alarm veriyordu
+    # (bkz. MAX_CHARS_PER_TOKEN).
+    alt_sinir = token_lower_bound((system or "") + (user or ""))
+    if prompt_tokens is not None and alt_sinir > 0 and prompt_tokens < alt_sinir:
+        raise ContextOverflowError(
+            f"uç prompt'un yalnız {prompt_tokens} token'ını gördü "
+            f"(en az {alt_sinir} olmalıydı, gönderilen ~{gonderilen} tahmini); "
+            f"bağlam penceresi küçük olabilir — llm.local.context_tokens "
+            f"({local.context_tokens}) ve sunucunun kendi sınırını "
+            "(Ollama: OLLAMA_CONTEXT_LENGTH) kontrol edin"
+        )
 
     return LocalChatResult(
         text=text,

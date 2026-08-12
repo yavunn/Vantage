@@ -539,7 +539,10 @@ class LocalAnalyzer:
             system,
             build_user_prompt(file_path, diff_text, commit_message),
             api_key=self._api_key,
-            timeout=180,
+            # Zaman aşımı config'ten (llm.local.timeout_seconds): doğru değer
+            # donanıma bağlı ve sabit kaldığında yavaş bir CPU'da özellik hiç
+            # çalışmıyordu. Kod analizi prompt'u iş analizinden daha uzun.
+            timeout=float(self.local.timeout_seconds),
         )
         data = parse_local_analysis(sonuc.text)
         return AnalyzerResult(
@@ -749,15 +752,19 @@ def iter_git_file_diffs(repo_path: str, max_commits: int = 40):
 
 def _resolve_developer_id(session: Session, dev_cache: dict, email: str | None) -> int | None:
     """git e-postasından developer çözer (ingest ile aynı mantık: external_ids['git']).
-    Eşleşme yoksa None — sahte 'unknown' kişi üretilmez."""
+    Eşleşme yoksa None — sahte 'unknown' kişi üretilmez.
+
+    Kişinin birden çok git e-postası olabilir (kişisel + GitHub noreply);
+    hepsi aynı kişiye çözülür, yoksa aynı insanın kodu iki ayrı kayda atfedilir."""
     from app.models import Developer
+    from app.services.identity import git_emails
 
     if not email:
         return None
     if email in dev_cache:
         return dev_cache[email]
     for dev in session.scalars(select(Developer)):
-        if (dev.external_ids or {}).get("git", "").lower() == email:
+        if email in git_emails(dev.external_ids):
             dev_cache[email] = dev.id
             return dev.id
     dev_cache[email] = None
@@ -766,12 +773,12 @@ def _resolve_developer_id(session: Session, dev_cache: dict, email: str | None) 
 
 def _developer_git_emails(session: Session, developer_id: int) -> set[str]:
     from app.models import Developer
+    from app.services.identity import git_emails
 
     dev = session.get(Developer, developer_id)
     if dev is None:
         return set()
-    g = (dev.external_ids or {}).get("git")
-    return {g.lower()} if g else set()
+    return set(git_emails(dev.external_ids))
 
 
 def _diff_iterator(cfg: Config, repo_cfg: dict, warnings: list[str]):

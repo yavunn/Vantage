@@ -53,6 +53,29 @@ def _is_manager_of(session: Session, manager: Developer, dev: Developer) -> bool
     )
 
 
+def _individual_access(session: Session, user: User, dev_id: int, cfg: Config) -> Developer:
+    """Bireysel görünüm kapısı — TEK yerde (İlke E).
+
+    Kural: anonimleştirme modunda ya da özellik kapalıysa tamamen devre dışı;
+    açıkken yalnızca kişinin KENDİSİ, yöneticisi ya da admin. Her yeni bireysel
+    uç bu kapıdan geçer; kopyalanan bir yetki bloğu er ya da geç birinde eksik
+    kalır ve kişi verisi sızar.
+    """
+    if not cfg.app.individual_view_enabled or cfg.app.anonymize_individuals:
+        raise HTTPException(403, tr_error("Bireysel görünüm bu kurulumda kapalı (takım-agregat mod)"))
+    dev = session.get(Developer, dev_id)
+    if dev is None:
+        raise HTTPException(404, tr_error("Kişi bulunamadı"))
+    # Yetki YALNIZ JWT kimliğiyle: admin herkesi görebilir; aksi halde kişinin
+    # KENDİSİ (user.developer_id) ya da yöneticisi. Yetki hatası 403 (401 DEĞİL:
+    # istemcide oturumu düşürmesin). Kimliksiz istek router seviyesinde 401 olur.
+    if user.role != "admin":
+        requester = session.get(Developer, user.developer_id) if user.developer_id else None
+        if requester is None or (requester.id != dev.id and not _is_manager_of(session, requester, dev)):
+            raise HTTPException(403, tr_error("Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir"))
+    return dev
+
+
 def _mask_name(dev: Developer, cfg: Config) -> str:
     """İlke E: kimlik bir katman arkasında. Anonim modda ya da kişi bazlı
     maskelemede gerçek isim hiçbir uçtan sızmaz."""
@@ -450,6 +473,185 @@ def directory(session: Session = Depends(get_session)):
     return out
 
 
+# --- kendi kimliklerim (self-service) ----------------------------------------
+#
+# NEDEN KULLANICIYA AÇIK: git e-postasını ve Trello üyeliğini yalnız admin
+# bağlayabiliyordu ve pratikte kimse bağlamıyordu. Sonuç sessizdi — kişinin
+# commit'leri kimseye atfedilmiyor, kartları "görevlerim"de görünmüyor, kart↔commit
+# eşleşmesinde kişi sinyali hiç oluşmuyordu. Kendi kimliğini bilen tek kişi zaten
+# sahibidir.
+#
+# SINIR: kullanıcı YALNIZ kendi Developer kaydını değiştirir ve BAŞKASINDA olan
+# bir kimliği alamaz (409). Değişiklik denetim kaydına yazılır.
+
+def _my_developer(session: Session, user: User) -> Developer:
+    dev = session.get(Developer, user.developer_id) if user.developer_id else None
+    if dev is None:
+        raise HTTPException(400, tr_error(
+            "Hesabınız bir kişi kaydına bağlı değil — kimlik bağlamak için yöneticinize başvurun."
+        ))
+    return dev
+
+
+def _task_source(cfg: Config) -> str:
+    return (cfg.sources.tasks.provider or "none").lower()
+
+
+@router.get("/me/identities")
+def my_identities(
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Kendi kaynak kimliklerim + bağlanabilecek görev kaynağı üyeleri.
+
+    Üye listesi board'un kadrosudur (kişi zaten board'da görüyor); KİMİN hangi
+    hesaba bağlı olduğu burada DÖNMEZ — o yönetici bilgisidir. Yalnız "boşta mı"
+    denir, ki kullanıcı zaten alınmış bir kimliği seçip 409 yemesin."""
+    from app.services.identity import git_emails
+
+    cfg = get_config()
+    dev = _my_developer(session, user)
+    kaynak = _task_source(cfg)
+    ext = dict(dev.external_ids or {})
+
+    uyeler: list[dict] = []
+    warnings: list[str] = []
+    if kaynak == "trello":
+        from app.adapters.trello import TrelloProvider
+
+        t = cfg.sources.tasks.trello
+        provider = TrelloProvider(t.key_env, t.token_env, t.boards)
+        kayitlar = provider.fetch_member_directory()
+        warnings = list(provider.warnings)
+        alinmis = {
+            str((d.external_ids or {}).get(kaynak))
+            for d in session.scalars(select(Developer))
+            if (d.external_ids or {}).get(kaynak) and d.id != dev.id
+        }
+        gorulen: set[str] = set()
+        for k in kayitlar:
+            if k["member_id"] in gorulen:
+                continue
+            gorulen.add(k["member_id"])
+            uyeler.append({
+                "member_id": k["member_id"],
+                "full_name": k["full_name"],
+                "username": k["username"],
+                "board_name": k["board_name"],
+                "available": k["member_id"] not in alinmis,
+            })
+
+    return {
+        "developer_id": dev.id,
+        "display_name": dev.display_name,
+        "git_emails": git_emails(ext),
+        "task_source": kaynak,
+        "task_identity": ext.get(kaynak) if kaynak in ("trello", "jira") else None,
+        "members": uyeler,
+        "warnings": warnings,
+    }
+
+
+class MyIdentitiesUpdate(BaseModel):
+    """Verilmeyen alan DEĞİŞMEZ. `task_identity: ""` bağı kaldırır."""
+
+    git_emails: list[str] | None = None
+    task_identity: str | None = None
+
+
+@router.patch("/me/identities")
+def update_my_identities(
+    body: MyIdentitiesUpdate,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Kendi git e-postalarımı / görev kaynağı üyeliğimi bağlar.
+
+    Kimlik başkasındaysa 409 — sessizce el değiştirmesi, o kişinin commit'lerini
+    ve kartlarını bir sonraki senkronda başkasına atfederdi."""
+    from app.services.audit import record_audit
+    from app.services.identity import (
+        IdentityConflict,
+        check_git_emails_free,
+        git_emails,
+        merge_developers,
+        suggest_account,
+        with_git_emails,
+    )
+
+    cfg = get_config()
+    dev = _my_developer(session, user)
+    kaynak = _task_source(cfg)
+    degisiklik: dict = {}
+
+    if body.git_emails is not None:
+        ext = with_git_emails(dev.external_ids, body.git_emails)
+        try:
+            check_git_emails_free(session, git_emails(ext), dev.id)
+        except IdentityConflict as e:
+            raise HTTPException(409, tr_error(str(e))) from e
+        dev.external_ids = ext
+        degisiklik["git_emails"] = git_emails(ext)
+
+    merged_id = None
+    if body.task_identity is not None:
+        if kaynak not in ("trello", "jira"):
+            raise HTTPException(400, tr_error("Bu kurulumda bağlanacak bir görev kaynağı yok."))
+        key = body.task_identity.strip()
+        ext = dict(dev.external_ids or {})
+        if not key:
+            ext.pop(kaynak, None)
+            dev.external_ids = ext
+            degisiklik["task_identity"] = None
+        else:
+            from app.services.identity import task_identity_owner
+
+            try:
+                kopya = task_identity_owner(session, kaynak, key, dev.id)
+            except IdentityConflict as e:
+                raise HTTPException(409, tr_error(str(e))) from e
+            # Kimlik boşta ama BAŞKASINA benziyorsa kendi kendine bağlanmaz.
+            # Aksi hâlde bir çalışan meslektaşının kaynak kaydını üstlenip
+            # (birleştirme yoluyla) onun kartlarını kendine taşıyabilirdi.
+            hesaplar = [
+                {"developer_id": u.developer_id, "display_name": d.display_name,
+                 "user_email": u.email}
+                for u in session.scalars(select(User).where(User.developer_id.isnot(None)))
+                if (d := session.get(Developer, u.developer_id)) is not None
+            ]
+            kaynak_adi = kopya.display_name if kopya else None
+            aday = suggest_account(kaynak_adi, None, hesaplar)
+            if aday and aday[0] != dev.id:
+                raise HTTPException(409, tr_error(
+                    f"'{kaynak_adi}' kaydı başka bir hesapla eşleşiyor gibi görünüyor — "
+                    "bu bağı yönetici kurmalı."
+                ))
+            if kopya is not None:
+                # Kopyanın kartları/commit'leri hedefe taşınır, kopya silinir:
+                # bırakılırsa kadro şişer ve kişi başı WIP olduğundan iyi görünür.
+                merged_id = kopya.id
+                merge_developers(session, dev.id, kopya.id)
+                session.refresh(dev)
+                ext = dict(dev.external_ids or {})
+            ext[kaynak] = key
+            dev.external_ids = ext
+            degisiklik["task_identity"] = key
+
+    if not degisiklik:
+        raise HTTPException(400, tr_error("Değiştirilecek alan verilmedi."))
+
+    record_audit(session, user, "self_identity_update",
+                 target_user_id=user.id, target_email=user.email,
+                 detail={**degisiklik, "merged_developer_id": merged_id})
+    session.commit()
+    return {
+        "ok": True,
+        "git_emails": git_emails(dev.external_ids),
+        "task_identity": (dev.external_ids or {}).get(kaynak) if kaynak in ("trello", "jira") else None,
+        "merged_developer_id": merged_id,
+    }
+
+
 @router.get("/developers/{dev_id}/summary")
 def developer_summary(
     dev_id: int,
@@ -462,18 +664,7 @@ def developer_summary(
     - yalnızca kişinin kendisi, yöneticisi ya da admin erişebilir;
     - kıyas yalnızca kişinin KENDİ geçmişiyle yapılır, asla başkasıyla."""
     cfg = get_config()
-    if not cfg.app.individual_view_enabled or cfg.app.anonymize_individuals:
-        raise HTTPException(403, tr_error("Bireysel görünüm bu kurulumda kapalı (takım-agregat mod)"))
-    dev = session.get(Developer, dev_id)
-    if dev is None:
-        raise HTTPException(404, tr_error("Kişi bulunamadı"))
-    # Yetki YALNIZ JWT kimliğiyle: admin herkesi görebilir; aksi halde kişinin
-    # KENDİSİ (user.developer_id) ya da yöneticisi. Yetki hatası 403 (401 DEĞİL:
-    # istemcide oturumu düşürmesin). Kimliksiz istek router seviyesinde 401 olur.
-    if user.role != "admin":
-        requester = session.get(Developer, user.developer_id) if user.developer_id else None
-        if requester is None or (requester.id != dev.id and not _is_manager_of(session, requester, dev)):
-            raise HTTPException(403, tr_error("Bireysel görünümü yalnızca kişinin kendisi, yöneticisi ya da admin görebilir"))
+    dev = _individual_access(session, user, dev_id, cfg)
 
     now = datetime.now(timezone.utc)
     window = timedelta(days=cfg.app.window_days)
@@ -520,6 +711,64 @@ def developer_summary(
         "metrics": metrics,
         "note": "Bu görünüm yalnızca sizin (ve yöneticinizin) erişimine açıktır; "
                 "kıyas yalnızca kendi geçmişinizle yapılır.",
+    }
+
+
+@router.get("/developers/{dev_id}/task-links")
+def developer_task_links(
+    dev_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Kişinin görevleri + o görevlere bağlanmış commit'ler.
+
+    NE DEĞİLDİR: üretkenlik ölçümü. Burada hiçbir sayaç, skor toplamı ya da
+    sıralama YOKTUR ve tek çağrıda tek kişi döner — birden çok kişiyi yan yana
+    döndüren bir uç leaderboard'un ta kendisi olurdu (bkz. test_api_ethics).
+    Ekranın işi tek: "hangi kartım hangi commit'e bağlanmış" sorusunu
+    cevaplamak, ki kişi yanlış bağı görüp düzeltebilsin.
+
+    Yetki bireysel özetle AYNI kapıdan geçer (_individual_access).
+    """
+    from app.models import TaskAssignee
+    from app.services.task_link import list_links
+
+    cfg = get_config()
+    dev = _individual_access(session, user, dev_id, cfg)
+
+    # Kartın atananı iki yerde olabilir: birincil alan ve çoklu atama tablosu.
+    # Yalnız birincisine bakmak, iki kişiye atanmış kartı ikinci kişiye hiç
+    # göstermezdi (Trello'da bu yaygın).
+    task_ids = {
+        t.id for t in session.scalars(select(Task).where(Task.assignee_id == dev.id))
+    } | set(session.scalars(
+        select(TaskAssignee.task_id).where(TaskAssignee.developer_id == dev.id)
+    ))
+
+    gorevler = []
+    for task in session.scalars(select(Task).where(Task.id.in_(task_ids))) if task_ids else []:
+        if task.missing_since is not None:
+            continue  # kaynakta yok: metriklerden düşmüş kayıt, ekranı kirletmesin
+        gorevler.append({
+            "task_id": task.id,
+            "title": task.title,
+            "status": task.status,
+            # Kart numarası görünmeli: konvansiyonu kullanabilmek için kişinin
+            # commit'e YAZACAĞI değeri bilmesi gerekir ([#42]).
+            "task_key": task.task_key,
+            "task_url": task.task_url,
+            "archived": bool(task.archived),
+            "links": list_links(session, task.id),
+        })
+    # Bağı olan işler üstte: ekranda karar verilecek/incelenecek olan onlar.
+    gorevler.sort(key=lambda g: (not g["links"], (g["title"] or "").lower()))
+    return {
+        "developer": {"id": dev.id, "display_name": dev.display_name},
+        "task_source": _task_source(cfg),
+        "tasks": gorevler,
+        "note": "Bağlar tahmindir; 'kesin' olanlar commit mesajında kart numarası "
+                "geçtiği için kuruldu. Bu görünüm yalnızca sizin (ve yöneticinizin) "
+                "erişimine açıktır.",
     }
 
 

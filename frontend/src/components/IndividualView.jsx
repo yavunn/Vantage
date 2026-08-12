@@ -2,7 +2,7 @@
 // (sunucu tarafında zorlanır). Kıyas SADECE kişinin kendi geçmişiyle yapılır —
 // başka kişiyle kıyas eden hiçbir öğe bu ekranda yoktur ve API'de de yoktur.
 import { useEffect, useState } from "react";
-import { api, oneOnOne } from "../api.js";
+import { api, getDeveloperTaskLinks, oneOnOne } from "../api.js";
 import MetricCard from "./MetricCard.jsx";
 import Modal from "./Modal.jsx";
 import { useT } from "../i18n.jsx";
@@ -92,6 +92,74 @@ function CommitAlignment({ data }) {
   );
 }
 
+// Kişinin kartları ve o kartlara bağlanmış commit'ler.
+//
+// Bu bir üretkenlik tablosu DEĞİLDİR: sayaç, skor toplamı ya da sıralama yok.
+// Amaç tek — kişi "hangi kartım hangi commit'e bağlanmış" sorusunu görebilsin
+// ve yanlış bağı fark edebilsin. Bağın KAYNAĞI gösterilir: konvansiyon
+// (commit mesajında kart numarası) kesindir, anlamsal olan tahmindir.
+function TaskLinks({ devId }) {
+  const t = useT();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+    getDeveloperTaskLinks(devId).then(setData).catch((e) => setError(e));
+  }, [devId]);
+
+  if (error) return null;   // özet zaten görünüyor; bu bölüm ek bilgi
+  if (!data) return null;
+  if (!data.tasks.length) return null;
+
+  return (
+    <div className="task-links-block">
+      <h3>{t("Görevlerim ve commit'lerim")}</h3>
+      <p className="desc">
+        {t("Commit mesajınıza kartın numarasını yazarsanız ([#42] gibi) bağ tahmin edilmez, kesinleşir.")}
+      </p>
+      <ul className="task-link-list">
+        {data.tasks.map((g) => (
+          <li key={g.task_id}>
+            <div className="task-link-head">
+              {g.task_key && <span className="role-tag">#{g.task_key}</span>}
+              <span className="task-link-title">
+                {g.task_url ? (
+                  <a href={g.task_url} target="_blank" rel="noreferrer">{g.title}</a>
+                ) : (
+                  g.title
+                )}
+              </span>
+              {g.status && <span className="desc"> · {g.status}</span>}
+            </div>
+            {g.links.length === 0 ? (
+              <div className="desc">{t("bağlı commit yok")}</div>
+            ) : (
+              <ul className="commit-link-list">
+                {g.links.map((l) => (
+                  <li key={l.commit_id}>
+                    <code>{l.sha}</code> {l.message}
+                    <span className="desc">
+                      {" · "}
+                      {l.matched_by === "convention"
+                        ? t("kesin (kart numarası yazılmış)")
+                        : l.status === "confirmed"
+                          ? t("onaylandı")
+                          : t("öneri")}
+                      {l.same_person && ` · ${t("aynı kişi")}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function IndividualView({ devId }) {
   const t = useT();
   const [data, setData] = useState(null);
@@ -131,6 +199,7 @@ export default function IndividualView({ devId }) {
           <MetricCard key={m.key} metric={m} previous={m.previous_value} />
         ))}
       </div>
+      <TaskLinks devId={devId} />
       <div className="note">{data.note}</div>
 
       {prep && (

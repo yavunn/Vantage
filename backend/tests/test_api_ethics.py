@@ -117,6 +117,62 @@ def test_anonimlestirme_modu(client, session, app_env):
     assert resp.status_code == 403
 
 
+def test_gorev_commit_gorunumu_leaderboard_uretmez(client, session):
+    """Kişi bazlı görev↔commit ucu bir EŞLEŞTİRME görünümüdür.
+
+    Tek kişi döner, sayaç/skor toplamı/sıralama üretmez. Aksi hâlde uç,
+    'kim kaç iş bitirdi' tablosuna dönüşür — sistemin kurulduğu ilkeye aykırı.
+    """
+    from app.models import Task
+
+    team, repo, devs, mgr = make_team(session)
+    session.add(Task(source="trello", external_id="c1", team_id=team.id,
+                     assignee_id=devs[0].id, title="kart", status="DONE"))
+    session.commit()
+    _mk_user(session, devs[0], "u0@x.com")
+    t0 = _token(client, "u0@x.com")
+
+    body = client.get(f"/api/developers/{devs[0].id}/task-links",
+                      headers=_auth(t0)).json()
+
+    # Tek kişi: başka kimsenin verisi bu gövdede yer alamaz.
+    assert body["developer"]["id"] == devs[0].id
+    assert "developers" not in body
+    # Üretkenlik sayacı yok: toplam/skor/sıralama alanı üretilmez.
+    yasak = {"count", "total", "score", "rank", "commit_count", "task_count"}
+    assert not (yasak & set(body)), body.keys()
+    for gorev in body["tasks"]:
+        assert not (yasak & set(gorev)), gorev.keys()
+
+
+def test_gorev_commit_gorunumu_baskasina_kapali(client, session):
+    """Yetki bireysel özetle AYNI kapıdan geçmeli — kopyalanmış bir yetki
+    bloğu er ya da geç birinde eksik kalır ve kişi verisi sızar."""
+    team, repo, devs, mgr = make_team(session)
+    _mk_user(session, devs[0], "u0@x.com")
+    t0 = _token(client, "u0@x.com")
+
+    r = client.get(f"/api/developers/{devs[1].id}/task-links", headers=_auth(t0))
+    assert r.status_code == 403
+
+
+def test_gorev_commit_gorunumu_anonim_modda_kapali(client, session, app_env):
+    from app.core.config import reset_config_cache
+
+    team, repo, devs, mgr = make_team(session)
+    _mk_user(session, devs[0], "u0@x.com")
+    t0 = _token(client, "u0@x.com")
+    app_env.write_text(
+        app_env.read_text(encoding="utf-8").replace(
+            "anonymize_individuals: false", "anonymize_individuals: true"),
+        encoding="utf-8",
+    )
+    reset_config_cache()
+
+    r = client.get(f"/api/developers/{devs[0].id}/task-links", headers=_auth(t0))
+    assert r.status_code == 403
+
+
 def test_llm_varsayilan_kapali(client, session):
     """On-prem kısıtı: dışarı veri gönderen katman bilinçli açılmadıkça 503."""
     team, repo, devs, mgr = make_team(session)

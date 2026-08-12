@@ -291,6 +291,22 @@ export const EN = {
   "Oturum": "Session",
   "Oturumu kapat": "Sign out",
 
+  // Kendi kaynak kimliklerim (git e-postaları + Trello üyeliği)
+  "Kaynak kimliklerim": "My source identities",
+  "Commit'lerinizin ve Trello kartlarınızın size ait olduğu buradan anlaşılır. Bağlamazsanız sistem ikisini ayrı kişi sayar; kartlarınız 'görevlerim'de görünmez.":
+    "This is how the system knows which commits and Trello cards are yours. Without it they are counted as two different people and your cards won't show up under \"my tasks\".",
+  "Git commit e-postalarım (her satıra bir tane)": "My git commit emails (one per line)",
+  "GitHub gizlilik adresi kullanıyorsanız onu da ekleyin — aynı kişi olarak sayılır.":
+    "If you use GitHub's privacy address, add it too — it will count as the same person.",
+  "E-postaları kaydet": "Save emails",
+  "Kimlik güncellendi.": "Identity updated.",
+  "Trello üyeliğim": "My Trello membership",
+  "(bağlı değil)": "(not linked)",
+  " — başka hesapta": " — on another account",
+  "Trello üyeliğini kaydet": "Save Trello membership",
+  "Board üyeleri okunamadı — yöneticinize başvurun.":
+    "Board members could not be read — please contact your administrator.",
+
   // --- App kabuğu ----------------------------------------------------------
   "Takım listesi yenilenemedi: {msg}": "Could not refresh the team list: {msg}",
   "Tema: Oto": "Theme: Auto",
@@ -448,6 +464,27 @@ Object.assign(EN, {
   "görev kimliği yok": "no task identity",
   "Bu kaydı şuna birleştir…": "Merge this record into…",
   "{name} ({n} commit)": "{name} ({n} commits)",
+
+  // Trello üyeleri ↔ giriş hesapları (bağ kurulmadan kart↔commit eşleşmesi
+  // kişiyi tanımaz; bu bölüm o bağın kurulduğu yer).
+  "Trello üyeleri": "Trello members",
+  "Board'daki her üyeyi bir giriş hesabına bağlayın. Bağ kurulmadan kişinin kartları ile commit'leri eşleşemez — sistem ikisini ayrı insan sayar.":
+    "Link every board member to a login account. Without the link a person's cards and commits can't be matched — the system counts them as two different people.",
+  "Trello uyarıları": "Trello warnings",
+  "Board'dan üye okunamadı. Board id'leri ve API anahtarları doğru mu?":
+    "No members could be read from the board. Are the board ids and API keys correct?",
+  "{name} ({email})": "{name} ({email})",
+  "{name} — giriş hesabı yok": "{name} — no login account",
+  "Bağı kaldır": "Unlink",
+  "muhtemelen {name}": "probably {name}",
+  "Hesap seç…": "Pick an account…",
+  "Bağla": "Link",
+  "Bağlanıyor…": "Linking…",
+  "{n} üye henüz bir hesaba bağlı değil.": "{n} member(s) are not linked to an account yet.",
+  "Bağlandı — kaynaktan gelen kopya kayıt birleştirildi (görevler taşındı).":
+    "Linked — the duplicate record from the source was merged (tasks moved).",
+  "Bağlandı.": "Linked.",
+  "Bağ kaldırıldı.": "Unlinked.",
 
   "grup/proje  ya da  https://gitlab.sirket.local/grup/proje": "group/project  or  https://gitlab.company.local/group/project",
   "owner/repo  ya da  https://github.com/owner/repo": "owner/repo  or  https://github.com/owner/repo",
@@ -1012,6 +1049,14 @@ Object.assign(EN, {
   "Erişim yok: {msg}": "No access: {msg}",
   "1:1 hazırlık özeti": "1:1 prep summary",
   "1:1 hazırlık — {name}": "1:1 prep — {name}",
+
+  // Görevlerim ve commit'lerim — eşleştirme görünümü, üretkenlik ölçümü DEĞİL.
+  "Görevlerim ve commit'lerim": "My tasks and commits",
+  "Commit mesajınıza kartın numarasını yazarsanız ([#42] gibi) bağ tahmin edilmez, kesinleşir.":
+    "If you put the card number in your commit message (like [#42]) the link isn't guessed — it becomes exact.",
+  "bağlı commit yok": "no linked commits",
+  "kesin (kart numarası yazılmış)": "exact (card number written)",
+  "aynı kişi": "same person",
 });
 
 // --- Sinyaller / trend grafiği / metrik detay ---------------------------------

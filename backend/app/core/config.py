@@ -211,6 +211,15 @@ class LLMLocal(BaseModel):
     context_tokens: int = 16384
     # Yanıta ayrılan pay: bütçenin tamamı prompt'a verilirse cevap yeri kalmaz.
     reserve_output_tokens: int = 1024
+    # İstek zaman aşımı (saniye). 120 sn SABİTTİ ve yetmiyordu: 14B model CPU'da
+    # ölçüldüğünde soğuk başlatma (~9 GB'ın diskten yüklenmesi) tek başına ~23 sn,
+    # gerçek bir iş analizi çağrısı ise 30-38 sn sürüyor — ikisi üst üste gelince
+    # ilk istek zaman aşımına düşüyor ve kullanıcı "LLM çağrısı başarısız
+    # (ReadTimeout)" görüyordu. Değer config'ten yönetilir çünkü doğrusu donanıma
+    # bağlıdır: GPU'da 30 sn fazlasıyla yeter, yavaş bir CPU'da 300 sn bile az
+    # gelebilir. Zaman aşımını büyütmek modeli hızlandırmaz — çok beklemek
+    # istemiyorsanız doğru hamle daha küçük bir model ya da llm.enabled: false.
+    timeout_seconds: float = 300.0
 
 
 class LLMClaude(BaseModel):
