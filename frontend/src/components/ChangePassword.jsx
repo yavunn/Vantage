@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, changePassword } from "../api.js";
 import Modal from "./Modal.jsx";
+import PasswordField from "./PasswordField.jsx";
 import { useT } from "../i18n.jsx";
 
 // Çalışanın kendi parolasını değiştirmesi.
@@ -40,18 +41,21 @@ export default function ChangePassword({ onClose }) {
         </>
       ) : (
         <form onSubmit={submit}>
-          <label>
-            {t("Mevcut parola")}
-            <input type="password" value={cur} onChange={(e) => setCur(e.target.value)} required />
-          </label>
-          <label>
-            {t("Yeni parola")}
-            <input type="password" value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required />
-          </label>
-          <label>
-            {t("Yeni parola (tekrar)")}
-            <input type="password" value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required />
-          </label>
+          <PasswordField
+            label={t("Mevcut parola")}
+            autoComplete="current-password"
+            value={cur} onChange={(e) => setCur(e.target.value)} required
+          />
+          <PasswordField
+            label={t("Yeni parola")}
+            autoComplete="new-password"
+            value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required
+          />
+          <PasswordField
+            label={t("Yeni parola (tekrar)")}
+            autoComplete="new-password"
+            value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} required
+          />
           {error && <div className="login-error">{error}</div>}
           <div className="modal-actions">
             <button type="button" className="mini ghost" onClick={onClose}>{t("Vazgeç")}</button>

@@ -3,6 +3,7 @@ import { login } from "../api.js";
 import { LANGS, useLang } from "../i18n.jsx";
 import { toast } from "../toast.js";
 import ForgotPassword from "./ForgotPassword.jsx";
+import PasswordField from "./PasswordField.jsx";
 
 // Giriş ekranı. Marka: "Vantage" — sürece tek bir bakış noktasından bakar;
 // gözetim değil, ekibin iyiliği için. Çerçeve (İlke E) burada da görünür.
@@ -113,17 +114,14 @@ export default function Login({ onSuccess }) {
               />
             </label>
 
-            <label>
-              {t("login.password")}
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </label>
+            <PasswordField
+              label={t("login.password")}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
 
             {error && <div className="login-error">{error}</div>}
 

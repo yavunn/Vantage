@@ -6,6 +6,7 @@ import {
   verifyResetCode,
 } from "../api.js";
 import { useT } from "../i18n.jsx";
+import PasswordField from "./PasswordField.jsx";
 
 // "Şifremi unuttum" — tek sayfa, 3 adımlı durum makinesi:
 //   email → code → password
@@ -123,7 +124,6 @@ export default function ForgotPassword({ onBack, onDone }) {
   const [resetToken, setResetToken] = useState(null);
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   // Kodun kalan ömrü ve "tekrar gönder" bekleme sayacı (saniye).
@@ -273,33 +273,23 @@ export default function ForgotPassword({ onBack, onDone }) {
       <h2>{t("forgot.pwTitle")}</h2>
       <p className="login-sub">{t("forgot.pwLede", { n: MIN_PASSWORD_LENGTH })}</p>
 
-      <label>
-        {t("forgot.newPassword")}
-        <input
-          type={showPw ? "text" : "password"}
-          autoComplete="new-password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          minLength={MIN_PASSWORD_LENGTH}
-          required
-          autoFocus
-        />
-      </label>
-      <label>
-        {t("forgot.newPasswordAgain")}
-        <input
-          type={showPw ? "text" : "password"}
-          autoComplete="new-password"
-          value={pw2}
-          onChange={(e) => setPw2(e.target.value)}
-          minLength={MIN_PASSWORD_LENGTH}
-          required
-        />
-      </label>
-      <label className="pw-show">
-        <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} />
-        {" "}{t("Parolaları göster")}
-      </label>
+      <PasswordField
+        label={t("forgot.newPassword")}
+        autoComplete="new-password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        minLength={MIN_PASSWORD_LENGTH}
+        required
+        autoFocus
+      />
+      <PasswordField
+        label={t("forgot.newPasswordAgain")}
+        autoComplete="new-password"
+        value={pw2}
+        onChange={(e) => setPw2(e.target.value)}
+        minLength={MIN_PASSWORD_LENGTH}
+        required
+      />
 
       {/* Eşleşme/uzunluk uyarısı anlık — kullanıcı gönder'e basana kadar
           beklemesin. */}

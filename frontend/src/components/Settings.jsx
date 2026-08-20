@@ -8,6 +8,7 @@ import {
 } from "../api.js";
 import { toast } from "../toast.js";
 import { useLang, useT } from "../i18n.jsx";
+import PasswordField from "./PasswordField.jsx";
 
 // Yaygın uygulama zaman dilimleri (kısa liste; kurum içi yeterli).
 const TIMEZONES = [
@@ -200,7 +201,6 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
   const [cur, setCur] = useState("");
   const [nw, setNw] = useState("");
   const [nw2, setNw2] = useState("");
-  const [showPw, setShowPw] = useState(false);
   const [pwError, setPwError] = useState(null);
   const [pwOk, setPwOk] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -285,24 +285,18 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
       <section className="section">
         <h2>{t("Parola değiştir")}</h2>
         <form className="settings-form" onSubmit={submitPw}>
-          <label>{t("Mevcut parola")}
-            <input type={showPw ? "text" : "password"} value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" required />
-          </label>
-          <label>{t("Yeni parola")}
-            <input type={showPw ? "text" : "password"} value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
-          </label>
+          <PasswordField label={t("Mevcut parola")}
+            value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" required />
+          <PasswordField label={t("Yeni parola")}
+            value={nw} onChange={(e) => setNw(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           {nw && (
             <div className={`pw-strength s${strength.score}`}>
               <div className="pw-bar"><span style={{ width: `${(strength.score / 4) * 100}%` }} /></div>
               <span className="pw-label">{strength.label}</span>
             </div>
           )}
-          <label>{t("Yeni parola (tekrar)")}
-            <input type={showPw ? "text" : "password"} value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
-          </label>
-          <label className="pw-show">
-            <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> {t("Parolaları göster")}
-          </label>
+          <PasswordField label={t("Yeni parola (tekrar)")}
+            value={nw2} onChange={(e) => setNw2(e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
           {pwError && <div className="login-error">{pwError}</div>}
           {pwOk && <div className="admin-ok">{t("Parola güncellendi.")}</div>}
           <button type="submit" className="login-btn" disabled={busy}>

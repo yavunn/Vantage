@@ -61,6 +61,8 @@ const STRINGS = {
     "login.busy": "Giriş yapılıyor…",
     "login.failed": "Giriş başarısız",
     "login.forgot": "Şifremi unuttum",
+    "pw.show": "Parolayı göster",
+    "pw.hide": "Parolayı gizle",
     "login.backToLogin": "← Girişe dön",
 
     // --- şifremi unuttum (3 adım) ---
@@ -139,6 +141,8 @@ const STRINGS = {
     "login.busy": "Signing in…",
     "login.failed": "Sign-in failed",
     "login.forgot": "Forgot your password?",
+    "pw.show": "Show password",
+    "pw.hide": "Hide password",
     "login.backToLogin": "← Back to sign in",
 
     // --- forgot password (3 steps) ---

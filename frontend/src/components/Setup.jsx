@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, setup } from "../api.js";
 import { useT } from "../i18n.jsx";
+import PasswordField from "./PasswordField.jsx";
 
 // İlk kurulum: sistemde hiç aktif yönetici yoksa gösterilir. İlk admin
 // hesabını oluşturur ve doğrudan oturum açar (CLI gerektirmez).
@@ -70,14 +71,16 @@ export default function Setup({ onSuccess }) {
             {t("E-posta")}
             <input type="email" value={form.email} onChange={(e) => upd("email", e.target.value)} placeholder="ad@corp.local" required />
           </label>
-          <label>
-            {t("Parola")}
-            <input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
-          </label>
-          <label>
-            {t("Parola (tekrar)")}
-            <input type="password" value={form.password2} onChange={(e) => upd("password2", e.target.value)} minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required />
-          </label>
+          <PasswordField
+            label={t("Parola")}
+            value={form.password} onChange={(e) => upd("password", e.target.value)}
+            minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required
+          />
+          <PasswordField
+            label={t("Parola (tekrar)")}
+            value={form.password2} onChange={(e) => upd("password2", e.target.value)}
+            minLength={MIN_PASSWORD_LENGTH} autoComplete="new-password" required
+          />
           {error && <div className="login-error">{error}</div>}
           <button type="submit" className="login-btn" disabled={busy}>
             {busy ? t("Oluşturuluyor…") : t("Yöneticiyi oluştur ve başla")}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MIN_PASSWORD_LENGTH, changePassword } from "../api.js";
 import { useT } from "../i18n.jsx";
+import PasswordField from "./PasswordField.jsx";
 
 // İlk giriş / admin sıfırlaması sonrası zorunlu parola değiştirme.
 // Kapatılamaz — kullanıcı yeni parola belirlemeden panoya geçemez.
@@ -61,39 +62,30 @@ export default function ForceChangePassword({ onDone, onLogout }) {
         <form className="login-card" onSubmit={submit}>
           <h2>{t("Yeni parola belirle")}</h2>
           <p className="login-sub">{t("Bu adım zorunludur.")}</p>
-          <label>
-            {t("Geçici (mevcut) parola")}
-            <input
-              type="password"
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-              autoComplete="current-password"
-              required
-              autoFocus
-            />
-          </label>
-          <label>
-            {t("Yeni parola")}
-            <input
-              type="password"
-              value={nw}
-              onChange={(e) => setNw(e.target.value)}
-              minLength={MIN_PASSWORD_LENGTH}
-              autoComplete="new-password"
-              required
-            />
-          </label>
-          <label>
-            {t("Yeni parola (tekrar)")}
-            <input
-              type="password"
-              value={nw2}
-              onChange={(e) => setNw2(e.target.value)}
-              minLength={MIN_PASSWORD_LENGTH}
-              autoComplete="new-password"
-              required
-            />
-          </label>
+          <PasswordField
+            label={t("Geçici (mevcut) parola")}
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+            required
+            autoFocus
+          />
+          <PasswordField
+            label={t("Yeni parola")}
+            value={nw}
+            onChange={(e) => setNw(e.target.value)}
+            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="new-password"
+            required
+          />
+          <PasswordField
+            label={t("Yeni parola (tekrar)")}
+            value={nw2}
+            onChange={(e) => setNw2(e.target.value)}
+            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="new-password"
+            required
+          />
           {error && <div className="login-error">{error}</div>}
           <button type="submit" className="login-btn" disabled={busy}>
             {busy ? t("Kaydediliyor…") : t("Parolayı belirle ve devam et")}

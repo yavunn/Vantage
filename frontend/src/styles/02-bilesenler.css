@@ -284,8 +284,24 @@ table.quality tfoot .sum-row td {
 .pw-strength.s3 .pw-bar span { background: var(--series-1); }
 .pw-strength.s4 .pw-bar span { background: var(--status-good); }
 .pw-label { font-size: 12px; color: var(--muted); min-width: 60px; }
-.pw-show { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 13px; }
-.pw-show input { width: auto; }
+/* Parola alanı + "göster/gizle" düğmesi. Düğme alanın İÇİNE bindirilir; ayrı
+   bir satır kartın dikey ritmini bozardı. Sağdaki dolgu, uzun parolanın metni
+   simgenin ALTINA kaymasını önler. */
+.pw-field { position: relative; display: flex; }
+/* Seçici bilerek çift sınıflı: `.settings-form input` gibi DAHA SONRA gelen
+   kurallar `padding` kısayoluyla sağ dolguyu sıfırlıyor ve metin göz
+   simgesinin altına kayıyordu. */
+.pw-field input.pw-input { flex: 1; min-width: 0; padding-right: 42px; }
+.pw-toggle {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  background: none; border: none; border-radius: 7px;
+  color: var(--text-secondary); cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.pw-toggle:hover { color: var(--text-primary); background: var(--brand-soft); }
+.pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* ---- 1:1 hazırlık ---- */
 .indiv-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
