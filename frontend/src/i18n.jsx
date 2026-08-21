@@ -63,6 +63,13 @@ const STRINGS = {
     "login.forgot": "Şifremi unuttum",
     "pw.show": "Parolayı göster",
     "pw.hide": "Parolayı gizle",
+
+    // --- AI kod analizi: sunucu durum kodlarının kullanıcıya dönük karşılığı.
+    // Sunucunun `note` alanı geliştirici içindir; arayüzde bu metinler çıkar.
+    "code.noIdentity": "Git commit e-postanız hesabınıza bağlı değil, bu yüzden hangi kodun size ait olduğu bilinemiyor. Ayarlar → Kaynak kimliklerim bölümünden ekleyebilirsiniz.",
+    "code.disabled": "AI kod analizi bu kurulumda kapalı — yöneticinize başvurun.",
+    "code.noSource": "Analiz edilebilecek bir kod deposu tanımlı değil — yöneticinize başvurun.",
+    "code.failed": "Analiz tamamlanamadı.",
     "login.backToLogin": "← Girişe dön",
 
     // --- şifremi unuttum (3 adım) ---
@@ -143,6 +150,12 @@ const STRINGS = {
     "login.forgot": "Forgot your password?",
     "pw.show": "Show password",
     "pw.hide": "Hide password",
+
+    // --- AI code analysis status codes ---
+    "code.noIdentity": "Your git commit email is not linked to your account, so we cannot tell which code is yours. You can add it under Settings → My source identities.",
+    "code.disabled": "AI code analysis is turned off in this installation — contact your administrator.",
+    "code.noSource": "No code repository is configured for analysis — contact your administrator.",
+    "code.failed": "The analysis could not be completed.",
     "login.backToLogin": "← Back to sign in",
 
     // --- forgot password (3 steps) ---

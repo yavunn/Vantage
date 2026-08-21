@@ -1,6 +1,6 @@
 app:
   individual_view_enabled: true
-  anonymize_individuals: true
+  anonymize_individuals: false
   window_days: 30
   bucket_days: 7
 database:

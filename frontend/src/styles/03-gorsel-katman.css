@@ -166,12 +166,13 @@ input[type="checkbox"] { accent-color: var(--brand); width: 16px; height: 16px; 
   border-radius: 50%; border: 2px dashed var(--border);
   background: radial-gradient(circle at 50% 50%, var(--brand-soft) 0 40%, transparent 41%);
 }
-.error-inline, .ok-inline {
+.error-inline, .ok-inline, .warn-inline {
   display: block; padding: var(--space-2) var(--space-3); border-radius: 0 var(--radius-md) var(--radius-md) 0;
   border-left: 3px solid currentColor; margin: var(--space-2) 0;
 }
 .error-inline { background: color-mix(in srgb, var(--status-critical) 9%, transparent); }
 .ok-inline { background: color-mix(in srgb, var(--status-good) 10%, transparent); }
+.warn-inline { background: color-mix(in srgb, var(--status-warning) 12%, transparent); }
 .sk-line { background-size: 300% 100%; }
 
 /* ---- G9: Katmanlar — modal, popover, komut paleti ---- */

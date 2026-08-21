@@ -164,6 +164,9 @@ button.tab.active { border-color: var(--series-1); color: var(--series-1); font-
 .admin-table th, .admin-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .error-inline { color: var(--status-critical); font-size: 13px; }
 .ok-inline { color: var(--status-good); font-size: 13px; }
+/* "İşlem yapılamadı, sebebi şu" durumu: hata DEĞİL, başarı da değil. Bu
+   ayrım olmadan "veri eksik" notları yeşil başarı kutusunda çıkıyordu. */
+.warn-inline { color: var(--status-warning); font-size: 13px; }
 
 /* Kod sağlığı drill-down */
 .ch-file { padding: 10px 0; border-bottom: 1px solid var(--border); }

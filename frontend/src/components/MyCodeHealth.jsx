@@ -7,6 +7,38 @@ import { useT } from "../i18n.jsx";
 
 // Kullanıcının KENDİ kodunun AI sağlığı. Kıyas yok — kendi kodunun geri
 // bildirimi. "Kodumu analiz et" ile isteğe bağlı çalıştırır.
+
+const SINIF = { ok: "ok-inline", warn: "warn-inline", error: "error-inline" };
+
+/** Sunucunun DURUM KODUNU kullanıcıya dönük mesaja çevirir.
+ *
+ * Ham `note` alanı geliştiriciye bakar ("developer.external_ids['git']",
+ * "sources.git.repos altında yerel 'path'…") ve arayüzde gösterilmez: kullanıcı
+ * ne olduğunu ve ne yapacağını okumalı, veritabanı alan adını değil.
+ *
+ * `error` istisna: `classify_error` orada zaten kullanıcıya dönük NET bir sebep
+ * üretiyor (bakiye yetersiz, anahtar geçersiz, hız limiti) — onu göstermek en
+ * yararlısı ve durumu istemcide tahmin etmek mümkün değil.
+ *
+ * Tanınmayan durumda mesaj GENEL kalır; eskiden `JSON.stringify(r)` ile ham
+ * yanıt ekrana dökülüyordu. */
+function durumMesaji(t, r) {
+  switch (r.status) {
+    case "ok":
+      return { sev: "ok", text: t("Analiz tamam: {n} yeni, {c} önbellek.", { n: r.analyzed, c: r.cached }) };
+    case "no_identity":
+      return { sev: "warn", text: t("code.noIdentity") };
+    case "disabled":
+      return { sev: "warn", text: t("code.disabled") };
+    case "no_source":
+      return { sev: "warn", text: t("code.noSource") };
+    case "error":
+      return { sev: "error", text: r.note || t("code.failed") };
+    default:
+      return { sev: "warn", text: t("code.failed") };
+  }
+}
+
 export default function MyCodeHealth({ user }) {
   const t = useT();
   const [health, setHealth] = useState(null);
@@ -28,11 +60,10 @@ export default function MyCodeHealth({ user }) {
     toast(t("Kodun analiz ediliyor…"), "info");
     try {
       const r = await apiPost("/api/me/code-analysis/run", {});
-      const m = r.status === "ok"
-        ? t("Analiz tamam: {n} yeni, {c} önbellek.", { n: r.analyzed, c: r.cached })
-        : r.note || JSON.stringify(r);
-      const sev = r.status === "ok" ? "ok" : (r.status === "error" ? "error" : "info");
-      setMsg(m); toast(m, sev);
+      const { sev, text } = durumMesaji(t, r);
+      setMsg({ sev, text });
+      // Toast yalnız ok | error | info bilir; "warn" orada bilgi tonuna düşer.
+      toast(text, sev === "warn" ? "info" : sev);
       load();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
@@ -53,7 +84,7 @@ export default function MyCodeHealth({ user }) {
         {t("Yalnızca sizin kodunuz (git yazarı = siz). Kıyaslama yok; kendi kodunuzun yapıcı geri bildirimi. Sonuçlar yalnızca size (ve yöneticinize) açıktır.")}
       </p>
       {error && <p className="error-inline">{error.message}</p>}
-      {msg && <p className="ok-inline">{msg}</p>}
+      {msg && <p className={SINIF[msg.sev]}>{msg.text}</p>}
       <div className="cards" style={{ maxWidth: 320 }}>
         <CodeHealthCard health={health} onClick={() => setDrill(true)} />
       </div>
