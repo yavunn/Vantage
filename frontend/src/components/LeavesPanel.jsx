@@ -37,6 +37,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   const t = useT();
   const { lang } = useLang();
   const [cursor, setCursor] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
+  const [area, setArea] = useState("calendar");
   const [leaves, setLeaves] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [summary, setSummary] = useState([]);
@@ -210,106 +211,183 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
     [uniqueLeaves, personFilter, typeFilter, onlyMine]
   );
 
+  // Sayfa altı bölümü aynı anda gösteriyordu ve çoğu boştu; üstelik dört farklı
+  // rolün işi (takvimi görmek, izin istemek, onaylamak, tatil işaretlemek,
+  // İK ay özeti) tek sütunda akıyordu. Yönetici panelindeki kenar çubuğu
+  // kalıbına geçiyor: solda alanlar, sağda yalnızca seçili olan.
+  // Yetki koşulları aynen korundu — yalnızca nereye yerleştikleri değişti.
+  const AREAS = [
+    { key: "calendar", label: t("Takvim") },
+    { key: "mine", label: t("İsteklerim") },
+    ...(canManage
+      ? [
+          { key: "approvals", label: t("Onaylar") },
+          { key: "marks", label: t("İşaretler") },
+          { key: "summary", label: t("Ay özeti") },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="leaves-panel">
-      <section className="section">
-        <div className="section-head">
-          <h2>{t("İzin takvimi")}</h2>
-          <div className="cal-nav">
-            <button className="mini" onClick={() => setCursor(new Date(year, mon - 1, 1))}>‹</button>
-            <span className="cal-month">{monthName}</span>
-            <button className="mini" onClick={() => setCursor(new Date(year, mon + 1, 1))}>›</button>
-          </div>
-        </div>
-
-        <div className="legend">
-          <span className="lg annual">{t("Yıllık")}</span>
-          <span className="lg sick">{t("Rapor")}</span>
-          <span className="lg other">{t("Diğer")}</span>
-        </div>
-
-        <div className="calendar">
-          {WEEKDAYS.map((w) => <div key={w} className="cal-head">{t(w)}</div>)}
-          {grid.map((d, i) => (
-            <div key={i} className={`cal-cell ${d ? "" : "empty"}`}>
-              {d && (
-                <>
-                  <div className="cal-day">{d.getDate()}</div>
-                  {annotsOnDay(d).map((a) => (
-                    <div
-                      key={"annot-" + a.id}
-                      className={`annot-chip ${a.kind}`}
-                      title={`${t(ANNOT_LABEL[a.kind]) || a.kind}: ${a.label}${a.team_id == null ? ` (${t("tüm takımlar")})` : ""}`}
-                    >
-                      <span aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span> {a.label}
-                    </div>
-                  ))}
-                  <div className="cal-leaves">
-                    {leavesOnDay(d).map((lv) => (
-                      <button
-                        key={lv.id + "-" + ymd(d)}
-                        className={`leave-chip ${lv.leave_type} ${lv.status === "pending" ? "is-pending" : ""}`}
-                        title={`${lv.person} · ${t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}${lv.status === "pending" ? ` · ${t("beklemede")}` : ""}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? ` (${t("silmek için tıkla")})` : ""}`}
-                        onClick={() => lv.can_delete && remove(lv)}
-                      >
-                        {lv.status === "pending" ? "⏳ " : ""}{lv.person}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+    <div className="leaves-panel side-panel">
+      <div className="subtabs">
+        {AREAS.map((a) => (
+          <button
+            key={a.key}
+            className={`tab ${area === a.key ? "active" : ""}`}
+            onClick={() => setArea(a.key)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <div className="side-body">
+      {area === "calendar" && (
+  <section className="section">
+          <div className="section-head">
+            <h2>{t("İzin takvimi")}</h2>
+            <div className="cal-nav">
+              <button className="mini" onClick={() => setCursor(new Date(year, mon - 1, 1))}>‹</button>
+              <span className="cal-month">{monthName}</span>
+              <button className="mini" onClick={() => setCursor(new Date(year, mon + 1, 1))}>›</button>
             </div>
-          ))}
-        </div>
-        {error && <div className="login-error">{error}</div>}
-        {msg && <div className="admin-ok">{msg}</div>}
-      </section>
+          </div>
+
+          <div className="legend">
+            <span className="lg annual">{t("Yıllık")}</span>
+            <span className="lg sick">{t("Rapor")}</span>
+            <span className="lg other">{t("Diğer")}</span>
+          </div>
+
+          <div className="calendar">
+            {WEEKDAYS.map((w) => <div key={w} className="cal-head">{t(w)}</div>)}
+            {grid.map((d, i) => (
+              <div key={i} className={`cal-cell ${d ? "" : "empty"}`}>
+                {d && (
+                  <>
+                    <div className="cal-day">{d.getDate()}</div>
+                    {annotsOnDay(d).map((a) => (
+                      <div
+                        key={"annot-" + a.id}
+                        className={`annot-chip ${a.kind}`}
+                        title={`${t(ANNOT_LABEL[a.kind]) || a.kind}: ${a.label}${a.team_id == null ? ` (${t("tüm takımlar")})` : ""}`}
+                      >
+                        <span aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span> {a.label}
+                      </div>
+                    ))}
+                    <div className="cal-leaves">
+                      {leavesOnDay(d).map((lv) => (
+                        <button
+                          key={lv.id + "-" + ymd(d)}
+                          className={`leave-chip ${lv.leave_type} ${lv.status === "pending" ? "is-pending" : ""}`}
+                          title={`${lv.person} · ${t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}${lv.status === "pending" ? ` · ${t("beklemede")}` : ""}${lv.description ? " · " + lv.description : ""}${lv.can_delete ? ` (${t("silmek için tıkla")})` : ""}`}
+                          onClick={() => lv.can_delete && remove(lv)}
+                        >
+                          {lv.status === "pending" ? "⏳ " : ""}{lv.person}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          {error && <div className="login-error">{error}</div>}
+          {msg && <div className="admin-ok">{msg}</div>}
+        </section>
+      )}
 
       {/* Takvim işaretleri: resmi tatil/incident/sürüm. Takvimde zaten burada
           görünüyorlar, yönetimleri de burada — ayrı bir sekmede değil. Aynı
           işaretler trend grafiklerinde de bağlam olarak çıkar; metrik verisini
           DEĞİŞTİRMEZLER. Yazma yetkisi admin + İK (backend de öyle zorlar). */}
-      {canManage && (
-        <section className="section">
-          <h2>{t("Takvim işaretleri ({n})", { n: monthAnnots.length })}</h2>
-          <p className="desc">
-            {t("Resmi tatil, incident ya da sürüm gibi günleri işaretle. Takvimde ve trend grafiklerinde bağlam olarak görünür — bir tepe/çukur yanlış okunmasın diye. İzin hakkından düşmez, metrik verisini değiştirmez.")}
-          </p>
-          <form className="inline-form" onSubmit={addAnnotation}>
-            <input type="date" value={annotForm.date}
-                   onChange={(e) => updAnnot("date", e.target.value)} required />
-            <input value={annotForm.label} onChange={(e) => updAnnot("label", e.target.value)}
-                   placeholder={t("Etiket (ör. Ramazan Bayramı)")} required />
-            <select value={annotForm.kind} onChange={(e) => updAnnot("kind", e.target.value)} aria-label={t("Tür")}>
-              {ANNOT_KINDS.map((k) => <option key={k.v} value={k.v}>{t(k.t)}</option>)}
-            </select>
-            <select value={annotForm.team_id} onChange={(e) => updAnnot("team_id", e.target.value)} aria-label={t("Kapsam")}>
-              <option value="">{t("Tüm takımlar")}</option>
-              {teams.map((tm) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
-            </select>
-            <button type="submit" className="mini">{t("Ekle")}</button>
-          </form>
+      {canManage && area === "marks" && (
+  <section className="section">
+            <h2>{t("Takvim işaretleri ({n})", { n: monthAnnots.length })}</h2>
+            <p className="desc">
+              {t("Resmi tatil, incident ya da sürüm gibi günleri işaretle. Takvimde ve trend grafiklerinde bağlam olarak görünür — bir tepe/çukur yanlış okunmasın diye. İzin hakkından düşmez, metrik verisini değiştirmez.")}
+            </p>
+            <form className="inline-form" onSubmit={addAnnotation}>
+              <input type="date" value={annotForm.date}
+                     onChange={(e) => updAnnot("date", e.target.value)} required />
+              <input value={annotForm.label} onChange={(e) => updAnnot("label", e.target.value)}
+                     placeholder={t("Etiket (ör. Ramazan Bayramı)")} required />
+              <select value={annotForm.kind} onChange={(e) => updAnnot("kind", e.target.value)} aria-label={t("Tür")}>
+                {ANNOT_KINDS.map((k) => <option key={k.v} value={k.v}>{t(k.t)}</option>)}
+              </select>
+              <select value={annotForm.team_id} onChange={(e) => updAnnot("team_id", e.target.value)} aria-label={t("Kapsam")}>
+                <option value="">{t("Tüm takımlar")}</option>
+                {teams.map((tm) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+              </select>
+              <button type="submit" className="mini">{t("Ekle")}</button>
+            </form>
 
-          {monthAnnots.length === 0 ? (
-            <p className="desc">{t("{month} ayında işaret yok.", { month: monthName })}</p>
+            {monthAnnots.length === 0 ? (
+              <p className="desc">{t("{month} ayında işaret yok.", { month: monthName })}</p>
+            ) : (
+              <ul className="leave-list">
+                {monthAnnots.map((a) => (
+                  <li key={a.id} className="leave-list-item">
+                    <span className="annot-icon" aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span>
+                    <div className="leave-list-main">
+                      <div className="leave-list-top">
+                        <strong>{a.label}</strong>
+                        <span className="leave-badge">{t(ANNOT_LABEL[a.kind]) || a.kind}</span>
+                      </div>
+                      <div className="leave-list-dates">
+                        {a.date} · {a.team_id == null ? t("Tüm takımlar") : (teamName[a.team_id] || t("Takım"))}
+                      </div>
+                    </div>
+                    <button className="mini danger leave-del" title={t("İşareti sil")}
+                            onClick={() => removeAnnotation(a)}>
+                      {t("Sil")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+      )}
+
+      {/* İzin isteklerim: her çalışan kendi isteklerinin durumunu + red gerekçesini görür. */}
+      {area === "mine" && (
+  <section className="section">
+          <h2>{t("İzin isteklerim ({n})", { n: mine.length })}</h2>
+          {mine.length === 0 ? (
+            <p className="desc">{t("Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.")}</p>
           ) : (
             <ul className="leave-list">
-              {monthAnnots.map((a) => (
-                <li key={a.id} className="leave-list-item">
-                  <span className="annot-icon" aria-hidden="true">{ANNOT_ICON[a.kind] || "📌"}</span>
+              {mine.map((lv) => (
+                <li key={lv.id} className="leave-list-item">
+                  <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
                   <div className="leave-list-main">
                     <div className="leave-list-top">
-                      <strong>{a.label}</strong>
-                      <span className="leave-badge">{t(ANNOT_LABEL[a.kind]) || a.kind}</span>
+                      <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
+                      <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
+                      {/* İzin-evrak senkronu: kanıt Evraklar sekmesinden zaten yüklendiyse
+                          ikinci kez sorulmasın diye görünür kılınır. */}
+                      {lv.has_document && (
+                        <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
+                          📎 {t("belge var")}
+                        </span>
+                      )}
                     </div>
                     <div className="leave-list-dates">
-                      {a.date} · {a.team_id == null ? t("Tüm takımlar") : (teamName[a.team_id] || t("Takım"))}
+                      {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
+                      {lv.description ? ` · ${lv.description}` : ""}
                     </div>
+                    {lv.status === "rejected" && lv.decision_note && (
+                      <div className="leave-reject-note">
+                        <strong>{t("Red gerekçesi:")}</strong> {lv.decision_note}
+                      </div>
+                    )}
                   </div>
-                  <button className="mini danger leave-del" title={t("İşareti sil")}
-                          onClick={() => removeAnnotation(a)}>
-                    {t("Sil")}
-                  </button>
+                  {lv.can_cancel && (
+                    <button className="mini ghost leave-del" title={t("İsteği geri çek")}
+                      onClick={() => remove({ id: lv.id, person: t("İsteğin"), start_date: lv.start_date })}>
+                      {t("İptal")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -317,68 +395,130 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
         </section>
       )}
 
-      {/* İzin isteklerim: her çalışan kendi isteklerinin durumunu + red gerekçesini görür. */}
-      <section className="section">
-        <h2>{t("İzin isteklerim ({n})", { n: mine.length })}</h2>
-        {mine.length === 0 ? (
-          <p className="desc">{t("Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.")}</p>
-        ) : (
-          <ul className="leave-list">
-            {mine.map((lv) => (
-              <li key={lv.id} className="leave-list-item">
-                <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
-                <div className="leave-list-main">
-                  <div className="leave-list-top">
-                    <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
-                    <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
-                    {/* İzin-evrak senkronu: kanıt Evraklar sekmesinden zaten yüklendiyse
-                        ikinci kez sorulmasın diye görünür kılınır. */}
-                    {lv.has_document && (
-                      <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
-                        📎 {t("belge var")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="leave-list-dates">
-                    {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
-                    {lv.description ? ` · ${lv.description}` : ""}
-                  </div>
-                  {lv.status === "rejected" && lv.decision_note && (
-                    <div className="leave-reject-note">
-                      <strong>{t("Red gerekçesi:")}</strong> {lv.decision_note}
-                    </div>
-                  )}
-                </div>
-                {lv.can_cancel && (
-                  <button className="mini ghost leave-del" title={t("İsteği geri çek")}
-                    onClick={() => remove({ id: lv.id, person: t("İsteğin"), start_date: lv.start_date })}>
-                    {t("İptal")}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
       {/* Onay kuyruğu: çalışanların bekleyen izin istekleri. */}
-      {canManage && (
-        <section className="section">
-          <h2>{t("Bekleyen izin onayları ({n})", { n: pending.length })}</h2>
-          {pending.length === 0 ? (
-            <p className="desc">{t("Onay bekleyen izin isteği yok.")}</p>
+      {canManage && area === "approvals" && (
+  <section className="section">
+            <h2>{t("Bekleyen izin onayları ({n})", { n: pending.length })}</h2>
+            {pending.length === 0 ? (
+              <p className="desc">{t("Onay bekleyen izin isteği yok.")}</p>
+            ) : (
+              <ul className="leave-list">
+                {pending.map((lv) => (
+                  <li key={lv.id} className="leave-list-item">
+                    <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
+                    <div className="leave-list-main">
+                      <div className="leave-list-top">
+                        <strong>{lv.person}</strong>
+                        <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
+                        <span className="leave-status pending">{t(STATUS_LABEL.pending)}</span>
+                        {lv.has_document && (
+                          <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi — Evraklar sekmesinden de onaylanabilir")}>
+                            📎 {t("belge var")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="leave-list-dates">
+                        {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
+                        {lv.description ? ` · ${lv.description}` : ""}
+                      </div>
+                    </div>
+                    <span className="leave-decide">
+                      <button className="mini" onClick={() => approve(lv)}>{t("Onayla")}</button>
+                      <button className="mini danger" onClick={() => { setRejectFor(lv); setRejectNote(""); setError(null); }}>{t("Reddet")}</button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+      )}
+
+      {/* İK için en değerli tablo: takvimin hemen ardında, dipte değil. */}
+      {canManage && area === "summary" && (
+  <section className="section">
+            <h2>{t("Ay özeti (İK)")}</h2>
+            {summary.length === 0 ? (
+              <p className="desc">{t("Bu ay izin kaydı yok.")}</p>
+            ) : (
+              <table className="quality">
+                <thead>
+                  <tr>
+                    <th>{t("Kişi")}</th><th className="num">{t("Yıllık")}</th><th className="num">{t("Rapor")}</th>
+                    <th className="num">{t("Diğer")}</th><th className="num">{t("Toplam")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.map((r) => (
+                    <tr key={r.person}>
+                      <td>{r.person}</td>
+                      <td className="num">{r.annual ?? 0}</td>
+                      <td className="num">{r.sick ?? 0}</td>
+                      <td className="num">{r.other ?? 0}</td>
+                      <td className="num"><strong>{r.days}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="sum-row">
+                    <td>{t("Toplam ({n} kişi)", { n: summary.length })}</td>
+                    <td className="num">{summary.reduce((a, r) => a + (r.annual ?? 0), 0)}</td>
+                    <td className="num">{summary.reduce((a, r) => a + (r.sick ?? 0), 0)}</td>
+                    <td className="num">{summary.reduce((a, r) => a + (r.other ?? 0), 0)}</td>
+                    <td className="num"><strong>{summary.reduce((a, r) => a + r.days, 0)}</strong></td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </section>
+      )}
+
+      {area === "calendar" && (
+  <section className="section">
+          <div className="section-head">
+            <h2>{t("Bu ayki izinler ({n}{total})", { n: visibleLeaves.length, total: visibleLeaves.length !== uniqueLeaves.length ? ` / ${uniqueLeaves.length}` : "" })}</h2>
+          </div>
+          {uniqueLeaves.length > 0 && (
+            <div className="leave-filters">
+              <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label={t("Kişiye göre filtrele")}>
+                <option value="">{t("Tüm kişiler")}</option>
+                {people.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t("Türe göre filtrele")}>
+                <option value="">{t("Tüm türler")}</option>
+                <option value="annual">{t("Yıllık")}</option>
+                <option value="sick">{t("Rapor")}</option>
+                <option value="other">{t("Diğer")}</option>
+              </select>
+              <button
+                className={`mini${onlyMine ? " active" : " ghost"}`}
+                onClick={() => setOnlyMine((v) => !v)}
+                title={t("Yalnızca silebildiğin (kendi/yetkili olduğun) kayıtlar")}
+              >
+                {t("Sadece benimkiler")}
+              </button>
+              {(personFilter || typeFilter || onlyMine) && (
+                <button className="mini ghost" onClick={() => { setPersonFilter(""); setTypeFilter(""); setOnlyMine(false); }}>
+                  {t("Filtreyi temizle")}
+                </button>
+              )}
+            </div>
+          )}
+          {visibleLeaves.length === 0 ? (
+            <p className="desc">{uniqueLeaves.length === 0 ? t("Bu ay izin kaydı yok.") : t("Filtreye uyan kayıt yok.")}</p>
           ) : (
             <ul className="leave-list">
-              {pending.map((lv) => (
+              {visibleLeaves.map((lv) => (
                 <li key={lv.id} className="leave-list-item">
                   <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
                   <div className="leave-list-main">
                     <div className="leave-list-top">
                       <strong>{lv.person}</strong>
                       <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
-                      <span className="leave-status pending">{t(STATUS_LABEL.pending)}</span>
+                      {lv.status && lv.status !== "approved" && (
+                        <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
+                      )}
                       {lv.has_document && (
-                        <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi — Evraklar sekmesinden de onaylanabilir")}>
+                        <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
                           📎 {t("belge var")}
                         </span>
                       )}
@@ -388,10 +528,11 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
                       {lv.description ? ` · ${lv.description}` : ""}
                     </div>
                   </div>
-                  <span className="leave-decide">
-                    <button className="mini" onClick={() => approve(lv)}>{t("Onayla")}</button>
-                    <button className="mini danger" onClick={() => { setRejectFor(lv); setRejectNote(""); setError(null); }}>{t("Reddet")}</button>
-                  </span>
+                  {lv.can_delete && (
+                    <button className="mini danger leave-del" title={t("İzni sil")} onClick={() => remove(lv)}>
+                      {t("Sil")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -399,149 +540,48 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
         </section>
       )}
 
-      {/* İK için en değerli tablo: takvimin hemen ardında, dipte değil. */}
-      {canManage && (
-        <section className="section">
-          <h2>{t("Ay özeti (İK)")}</h2>
-          {summary.length === 0 ? (
-            <p className="desc">{t("Bu ay izin kaydı yok.")}</p>
-          ) : (
-            <table className="quality">
-              <thead>
-                <tr>
-                  <th>{t("Kişi")}</th><th className="num">{t("Yıllık")}</th><th className="num">{t("Rapor")}</th>
-                  <th className="num">{t("Diğer")}</th><th className="num">{t("Toplam")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.map((r) => (
-                  <tr key={r.person}>
-                    <td>{r.person}</td>
-                    <td className="num">{r.annual ?? 0}</td>
-                    <td className="num">{r.sick ?? 0}</td>
-                    <td className="num">{r.other ?? 0}</td>
-                    <td className="num"><strong>{r.days}</strong></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="sum-row">
-                  <td>{t("Toplam ({n} kişi)", { n: summary.length })}</td>
-                  <td className="num">{summary.reduce((a, r) => a + (r.annual ?? 0), 0)}</td>
-                  <td className="num">{summary.reduce((a, r) => a + (r.sick ?? 0), 0)}</td>
-                  <td className="num">{summary.reduce((a, r) => a + (r.other ?? 0), 0)}</td>
-                  <td className="num"><strong>{summary.reduce((a, r) => a + r.days, 0)}</strong></td>
-                </tr>
-              </tfoot>
-            </table>
+      {area === "mine" && (
+  <section className="section">
+          <h2>{canManage ? t("İzin ekle") : t("İzin iste")}</h2>
+          {!canManage && (
+            <p className="desc">
+              {t("İzni doğrudan alamazsın — gün(leri) seç, istek gönder. Yönetici onaylayınca takvime işlenir. İstersen açıklama ekle.")}
+            </p>
           )}
+          <form className="admin-form" onSubmit={add}>
+            {canManage && (
+              <label>{t("Kişi")}
+                <select value={form.target_user_id} onChange={(e) => upd("target_user_id", e.target.value)}>
+                  <option value="">{t("Kendim ({name})", { name: user.display_name })}</option>
+                  <option value="all">🏢 {t("Herkes (tüm aktif çalışanlar)")}</option>
+                  {employees.filter((u) => u.developer_id != null).map((u) => (
+                    <option key={u.id} value={u.id}>{u.display_name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>{t("Başlangıç")}
+              <input type="date" value={form.start_date} onChange={(e) => upd("start_date", e.target.value)} required />
+            </label>
+            <label>{t("Bitiş")}
+              <input type="date" value={form.end_date} onChange={(e) => upd("end_date", e.target.value)} required />
+            </label>
+            <label>{t("Tür")}
+              <select value={form.leave_type} onChange={(e) => upd("leave_type", e.target.value)}>
+                <option value="annual">{t("Yıllık izin")}</option>
+                <option value="sick">{t("Rapor (hastalık)")}</option>
+                <option value="other">{t("Diğer")}</option>
+              </select>
+            </label>
+            <label>{t("Açıklama (opsiyonel)")}
+              <input value={form.description} onChange={(e) => upd("description", e.target.value)} />
+            </label>
+            <button type="submit" className="login-btn">{canManage ? t("İzin ekle") : t("İstek gönder")}</button>
+          </form>
         </section>
       )}
 
-      <section className="section">
-        <div className="section-head">
-          <h2>{t("Bu ayki izinler ({n}{total})", { n: visibleLeaves.length, total: visibleLeaves.length !== uniqueLeaves.length ? ` / ${uniqueLeaves.length}` : "" })}</h2>
-        </div>
-        {uniqueLeaves.length > 0 && (
-          <div className="leave-filters">
-            <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label={t("Kişiye göre filtrele")}>
-              <option value="">{t("Tüm kişiler")}</option>
-              {people.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t("Türe göre filtrele")}>
-              <option value="">{t("Tüm türler")}</option>
-              <option value="annual">{t("Yıllık")}</option>
-              <option value="sick">{t("Rapor")}</option>
-              <option value="other">{t("Diğer")}</option>
-            </select>
-            <button
-              className={`mini${onlyMine ? " active" : " ghost"}`}
-              onClick={() => setOnlyMine((v) => !v)}
-              title={t("Yalnızca silebildiğin (kendi/yetkili olduğun) kayıtlar")}
-            >
-              {t("Sadece benimkiler")}
-            </button>
-            {(personFilter || typeFilter || onlyMine) && (
-              <button className="mini ghost" onClick={() => { setPersonFilter(""); setTypeFilter(""); setOnlyMine(false); }}>
-                {t("Filtreyi temizle")}
-              </button>
-            )}
-          </div>
-        )}
-        {visibleLeaves.length === 0 ? (
-          <p className="desc">{uniqueLeaves.length === 0 ? t("Bu ay izin kaydı yok.") : t("Filtreye uyan kayıt yok.")}</p>
-        ) : (
-          <ul className="leave-list">
-            {visibleLeaves.map((lv) => (
-              <li key={lv.id} className="leave-list-item">
-                <span className={`leave-dot ${lv.leave_type}`} aria-hidden="true" />
-                <div className="leave-list-main">
-                  <div className="leave-list-top">
-                    <strong>{lv.person}</strong>
-                    <span className="leave-badge">{t(TYPE_LABEL[lv.leave_type]) || lv.leave_type}</span>
-                    {lv.status && lv.status !== "approved" && (
-                      <span className={`leave-status ${lv.status}`}>{t(STATUS_LABEL[lv.status]) || lv.status}</span>
-                    )}
-                    {lv.has_document && (
-                      <span className="leave-badge doc" title={t("Bu izne bağlı bir belge yüklendi")}>
-                        📎 {t("belge var")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="leave-list-dates">
-                    {lv.start_date === lv.end_date ? lv.start_date : `${lv.start_date} → ${lv.end_date}`}
-                    {lv.description ? ` · ${lv.description}` : ""}
-                  </div>
-                </div>
-                {lv.can_delete && (
-                  <button className="mini danger leave-del" title={t("İzni sil")} onClick={() => remove(lv)}>
-                    {t("Sil")}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="section">
-        <h2>{canManage ? t("İzin ekle") : t("İzin iste")}</h2>
-        {!canManage && (
-          <p className="desc">
-            {t("İzni doğrudan alamazsın — gün(leri) seç, istek gönder. Yönetici onaylayınca takvime işlenir. İstersen açıklama ekle.")}
-          </p>
-        )}
-        <form className="admin-form" onSubmit={add}>
-          {canManage && (
-            <label>{t("Kişi")}
-              <select value={form.target_user_id} onChange={(e) => upd("target_user_id", e.target.value)}>
-                <option value="">{t("Kendim ({name})", { name: user.display_name })}</option>
-                <option value="all">🏢 {t("Herkes (tüm aktif çalışanlar)")}</option>
-                {employees.filter((u) => u.developer_id != null).map((u) => (
-                  <option key={u.id} value={u.id}>{u.display_name}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>{t("Başlangıç")}
-            <input type="date" value={form.start_date} onChange={(e) => upd("start_date", e.target.value)} required />
-          </label>
-          <label>{t("Bitiş")}
-            <input type="date" value={form.end_date} onChange={(e) => upd("end_date", e.target.value)} required />
-          </label>
-          <label>{t("Tür")}
-            <select value={form.leave_type} onChange={(e) => upd("leave_type", e.target.value)}>
-              <option value="annual">{t("Yıllık izin")}</option>
-              <option value="sick">{t("Rapor (hastalık)")}</option>
-              <option value="other">{t("Diğer")}</option>
-            </select>
-          </label>
-          <label>{t("Açıklama (opsiyonel)")}
-            <input value={form.description} onChange={(e) => upd("description", e.target.value)} />
-          </label>
-          <button type="submit" className="login-btn">{canManage ? t("İzin ekle") : t("İstek gönder")}</button>
-        </form>
-      </section>
+      </div>{/* /side-body */}
 
       {/* Red gerekçesi modalı: yönetici reddederken zorunlu gerekçe girer. */}
       {rejectFor && (

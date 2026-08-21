@@ -9,7 +9,7 @@
  * İkinci risk: git e-postası tek alan olarak sunulursa aynı insanın GitHub
  * noreply adresi hiç girilemez ve commit'leri ikiye bölünür.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,8 +41,11 @@ const KIMLIKLER = {
   warnings: [],
 };
 
+// Ayarlar artık kenar çubuğu kalıbını kullanıyor: bölümler yan yana değil,
+// solda seçilen alan sağda tek başına açılıyor. Kimlikler bölümü bu yüzden bir
+// tık uzakta — testlerin İDDİALARI değişmedi, yalnızca oraya gidiliyor.
 function renderSettings() {
-  return render(
+  const utils = render(
     <Settings
       user={USER}
       onCycleTheme={() => {}}
@@ -51,6 +54,8 @@ function renderSettings() {
       onProfileUpdated={() => {}}
     />
   );
+  fireEvent.click(screen.getByRole("button", { name: "Kaynak kimliklerim" }));
+  return utils;
 }
 
 describe("Kaynak kimliklerim", () => {

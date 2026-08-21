@@ -309,6 +309,7 @@ export default function DocumentsPanel({ user, canManage }) {
   const [period, setPeriod] = useState(() => monthKey(new Date()));
   const [filterUser, setFilterUser] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [area, setArea] = useState("upload");
   const [error, setError] = useState(null);
 
   // Katalog rol/veri değişiminden bağımsız — bir kez çekilir.
@@ -331,6 +332,17 @@ export default function DocumentsPanel({ user, canManage }) {
 
   const pendingCount = useMemo(() => docs.filter((d) => d.status === "pending").length, [docs]);
 
+  const AREAS = [
+    { key: "upload", label: t("Belge yükle") },
+    ...(canManage
+      ? [
+          { key: "period", label: t("Dönem özeti") },
+          { key: "gaps", label: t("Özlük dosyası eksikleri") },
+        ]
+      : []),
+    { key: "list", label: canManage ? t("Tüm belgeler") : t("Belgelerim") },
+  ];
+
   return (
     <div className="doc-panel">
       <div className="hr-toolbar">
@@ -350,10 +362,33 @@ export default function DocumentsPanel({ user, canManage }) {
       {mine && mine.missing.length > 0 && (
         <div className="hr-warn">
           ⚠ {t("Özlük dosyanda {n} zorunlu belge eksik:", { n: mine.missing.length })}{" "}
-          {mine.missing.map((m) => m.label).join(", ")}
+          {/* Liste aynı sayfada aşağıdaki tabloda da geçiyordu; burada
+              katlanır. Sayı zaten cümlede — isimler istendiğinde açılır. */}
+          <details className="inline-details">
+            <summary>{t("hangileri?")}</summary>
+            <span>{mine.missing.map((m) => m.label).join(", ")}</span>
+          </details>
         </div>
       )}
 
+      {/* Dört bölüm aynı anda ekrandaydı. Yönetici panelindeki kenar çubuğu
+          kalıbına geçiyor; İK bölümleri yalnızca yetkisi olanda listelenir
+          (koşullar aynen korundu). */}
+      <div className="side-panel">
+      <div className="subtabs">
+        {AREAS.map((a) => (
+          <button
+            key={a.key}
+            className={`tab ${area === a.key ? "active" : ""}`}
+            onClick={() => setArea(a.key)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <div className="side-body">
+
+      {area === "upload" && (
       <section className="section">
         <h3>{t("Belge yükle")}</h3>
         <UploadForm
@@ -365,8 +400,10 @@ export default function DocumentsPanel({ user, canManage }) {
         />
       </section>
 
+      )}
+
       {/* İK: dönem özeti — bordro kapatılmadan önce ne bekliyor. */}
-      {canManage && (
+      {canManage && area === "period" && (
         <section className="section">
           <div className="hr-toolbar">
             <h3>{t("Dönem özeti")}</h3>
@@ -413,7 +450,7 @@ export default function DocumentsPanel({ user, canManage }) {
       )}
 
       {/* İK: kimde ne eksik. */}
-      {canManage && checklist && (
+      {canManage && area === "gaps" && checklist && (
         <section className="section">
           <h3>{t("Özlük dosyası eksikleri")}</h3>
           <p className="desc">
@@ -433,9 +470,16 @@ export default function DocumentsPanel({ user, canManage }) {
                 <tr key={r.user_id} className={r.missing.length > 0 ? "row-warn" : ""}>
                   <td>{r.person}</td>
                   <td className="num">{r.approved_count}/{r.required_total}</td>
+                  {/* Kadronun çoğu hiçbir belge vermemiş olduğunda bu sütun
+                      aynı 12 ismi her satırda tekrar ediyordu (9 satır × 12 =
+                      ekranda 108 etiket). "Hepsi eksik" hâli artık tek cümle;
+                      kısmi eksikte liste hâlâ görünür — asıl işe yarayan bilgi
+                      odur. */}
                   <td className="doc-missing">
                     {r.missing.length === 0
                       ? t("Eksik yok ✓")
+                      : r.missing.length === r.required_total
+                      ? t("Hiçbir belge verilmemiş")
                       : r.missing.map((m) => m.label).join(", ")}
                     {r.pending.length > 0 && (
                       <span className="hr-muted"> · {t("incelemede")}: {r.pending.map((p) => p.label).join(", ")}</span>
@@ -448,6 +492,7 @@ export default function DocumentsPanel({ user, canManage }) {
         </section>
       )}
 
+      {area === "list" && (
       <section className="section">
         <div className="hr-toolbar">
           <h3>{canManage ? t("Tüm belgeler") : t("Belgelerim")}</h3>
@@ -475,6 +520,10 @@ export default function DocumentsPanel({ user, canManage }) {
           </ul>
         )}
       </section>
+      )}
+
+      </div>{/* /side-body */}
+      </div>{/* /side-panel */}
     </div>
   );
 }

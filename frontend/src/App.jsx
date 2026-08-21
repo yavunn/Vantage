@@ -38,6 +38,21 @@ function LazyFallback() {
   return <div className="app">{t("Yükleniyor…")}</div>;
 }
 
+// Kart sırası: dikkat isteyen üstte, veri yok en altta. Yalnızca GÖSTERİM
+// sırasıdır — hangi metriğin hesaplandığını ya da neyin döndüğünü değiştirmez.
+// Panoda ilk okunan şey "neye bakmalıyım" olsun diye var.
+const STATUS_ORDER = { red: 0, yellow: 1, green: 2, insufficient_data: 3 };
+function bySeverity(a, b) {
+  return (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
+}
+
+// Trend grafiği yalnızca çizilecek noktası varsa anlamlıdır. Boş grafik, kartın
+// zaten söylediği "veri yetersiz"i ikinci kez ve daha büyük yer kaplayarak
+// tekrar ediyordu. (Aynı kontrol kod sağlığı serisinde de uygulanıyor.)
+function hasPoints(s) {
+  return s && s.points && s.points.some((p) => p.value != null);
+}
+
 
 
 
@@ -64,6 +79,9 @@ export default function App() {
   const [viewDevId, setViewDevId] = useState(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tab, setTab] = useState(() => readNav().tab);
+  // Açılışta sekme kullanıcıdan mı geldi? (bkz. nav.js/readNav)
+  const [tabWasExplicit] = useState(() => readNav().tabExplicit);
+  const [landed, setLanded] = useState(false);
   const [survey, setSurvey] = useState(null);
   const [surveyDismissed, setSurveyDismissed] = useState(false);
   const [error, setError] = useState(null);
@@ -123,6 +141,20 @@ export default function App() {
     }
     if (!allowed.has(tab)) setTab(fallback);
   }, [user, uiConfig, tab]);
+
+  // Rol bazlı açılış ekranı: geliştirici kendi görünümüne düşer, takım
+  // panosuna değil. Bir kez, ilk oturum kurulduğunda çalışır; kullanıcının
+  // kendi seçtiği sekme (yer imi ya da son kaldığı yer) varsa dokunmaz.
+  // Yönetici takım panosunda, İK kendi panosunda kalır — onların ilk sorusu
+  // zaten oradadır.
+  useEffect(() => {
+    if (landed || !user || !uiConfig) return;
+    setLanded(true);
+    if (tabWasExplicit) return;
+    if (user.role === "user" && uiConfig.individual_view_enabled && user.developer_id != null) {
+      setTab("me");
+    }
+  }, [user, uiConfig, landed, tabWasExplicit]);
 
   // Açılış: önce kurulum gerekli mi, sonra token doğrula.
   //
@@ -462,20 +494,67 @@ export default function App() {
             );
           })()}
 
-          <div className="cards">
-            {summary.metrics.map((m) => (
-              <MetricCard
-                key={m.key}
-                metric={m}
-                previous={m.previous_value}
-                series={series.find((s) => s.metric === m.key)}
-                onClick={() => setDrill({ key: m.key, name: m.name })}
-              />
-            ))}
-            {codeHealth && (
-              <CodeHealthCard health={codeHealth} onClick={() => setCodeDrill(true)} />
-            )}
-          </div>
+          {/* Kart ızgarası iki parçaya ayrılır: ölçülebilmiş metrikler önem
+              sırasıyla kart olarak, ölçülememiş olanlar altta tek satırlık bir
+              şerit olarak. Hiçbir metrik kaybolmaz — yalnızca veri olmayan
+              için tam boy kart ayırmayı bırakırız. Kod sağlığı da sıraya
+              katılır; daha önce durumu ne olursa olsun en sona düşüyordu. */}
+          {(() => {
+            const items = [...summary.metrics].map((m) => ({ status: m.status, metric: m }));
+            if (codeHealth) items.push({ status: codeHealth.status, health: codeHealth });
+            items.sort(bySeverity);
+            const measured = items.filter((i) => i.status !== "insufficient_data");
+            const unmeasured = items.filter((i) => i.status === "insufficient_data");
+            return (
+              <>
+                <div className="cards">
+                  {measured.map((i) =>
+                    i.health ? (
+                      <CodeHealthCard key="__code" health={i.health} onClick={() => setCodeDrill(true)} />
+                    ) : (
+                      <MetricCard
+                        key={i.metric.key}
+                        metric={i.metric}
+                        previous={i.metric.previous_value}
+                        series={series.find((s) => s.metric === i.metric.key)}
+                        onClick={() => setDrill({ key: i.metric.key, name: i.metric.name })}
+                      />
+                    )
+                  )}
+                </div>
+                {unmeasured.length > 0 && (
+                  <div className="no-data-strip">
+                    <span className="nds-label">
+                      {t("{n} metrik için henüz veri yok", { n: unmeasured.length })}
+                    </span>
+                    <span className="nds-items">
+                      {unmeasured.map((i) =>
+                        i.health ? (
+                          <button
+                            key="__code"
+                            className="nds-chip"
+                            title={i.health.description}
+                            onClick={() => setCodeDrill(true)}
+                          >
+                            {i.health.name}
+                          </button>
+                        ) : (
+                          <button
+                            key={i.metric.key}
+                            className="nds-chip"
+                            title={i.metric.description}
+                            onClick={() => setDrill({ key: i.metric.key, name: i.metric.name })}
+                          >
+                            {i.metric.name}
+                          </button>
+                        )
+                      )}
+                    </span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {summary.metrics.length > 0 && summary.metrics.every((m) => m.status === "insufficient_data") && (
             <div className="empty-guide">
@@ -507,10 +586,11 @@ export default function App() {
             </section>
           )}
 
+          {(series.some(hasPoints) || hasPoints(codeHealthSeries)) && (
           <section className="section">
             <h2>{t("Trend ({n} gün)", { n: range })}</h2>
             <div className="charts">
-              {series.map((s) => (
+              {series.filter(hasPoints).map((s) => (
                 <TrendChart
                   key={s.metric}
                   series={s}
@@ -518,11 +598,12 @@ export default function App() {
                   annotations={annotations}
                 />
               ))}
-              {codeHealthSeries && codeHealthSeries.points?.some((p) => p.value != null) && (
+              {hasPoints(codeHealthSeries) && (
                 <TrendChart series={codeHealthSeries} annotations={annotations} />
               )}
             </div>
           </section>
+          )}
         </>
       )}
 

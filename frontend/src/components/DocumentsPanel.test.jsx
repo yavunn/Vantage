@@ -9,7 +9,7 @@
  *     yükleme) düz çalışana ÇİZİLMEMELİ. Sunucu da 403 verir; ikisi birbirinin
  *     yedeğidir, ikisi de test edilmeli.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -91,10 +91,14 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-async function ciz(props = {}) {
+// Evraklar kenar çubuğu kalıbına geçti: bölümler yan yana değil, solda seçilen
+// alan sağda tek başına açılıyor. `alan` verilirse render sonrası oraya geçilir
+// — testlerin İDDİALARI değişmedi, yalnızca oraya gidiliyor.
+async function ciz(props = {}, alan = null) {
   render(<DocumentsPanel user={USER} canManage={false} {...props} />);
   // Katalog yüklenene kadar bekle (tür seçici dolmadan form anlamsız).
   await waitFor(() => expect(screen.getByLabelText(/Belge türü/)).toBeInTheDocument());
+  if (alan) fireEvent.click(screen.getByRole("button", { name: alan }));
 }
 
 describe("yükleme formu türe göre şekilleniyor", () => {
@@ -212,9 +216,15 @@ describe("rol sınırı", () => {
     expect(screen.getByText("Dönem özeti")).toBeInTheDocument();
     expect(screen.getByText("Özlük dosyası eksikleri")).toBeInTheDocument();
     expect(screen.getByText("Tüm belgeler")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dönem özeti" }));
     expect(screen.getByText(/Bordroyu etkileyen 2 belge hâlâ incelenmedi/)).toBeInTheDocument();
     // İsim de tür adı da seçicilerde geçiyor — eksik TABLOSUNDA aranmalı.
-    const eksikBolum = screen.getByText("Özlük dosyası eksikleri").closest("section");
+    // Kenar çubuğunda aynı metin bir düğme olarak da var; bölüm BAŞLIĞINDAN
+    // gidilir, yoksa closest("section") düğmede null döner.
+    fireEvent.click(screen.getByRole("button", { name: "Özlük dosyası eksikleri" }));
+    const eksikBolum = screen
+      .getByRole("heading", { name: "Özlük dosyası eksikleri" })
+      .closest("section");
     const eksikSatiri = within(eksikBolum).getByText("Ayşe Yılmaz").closest("tr");
     expect(within(eksikSatiri).getByText(/İş sözleşmesi/)).toBeInTheDocument();
     expect(within(eksikSatiri).getByText("1/3")).toBeInTheDocument();
@@ -236,7 +246,7 @@ describe("belge listesi", () => {
 
   it("bekleyen belge durumu ve bordro rozetiyle listelenir", async () => {
     setupApi({ docs: [DOC] });
-    await ciz();
+    await ciz({}, "Belgelerim");
     // "İncelemede" durum filtresinde de bir seçenek — LİSTE satırında aranmalı.
     const satir = await screen.findByRole("listitem");
     expect(within(satir).getByText("İncelemede")).toBeInTheDocument();
@@ -249,7 +259,7 @@ describe("belge listesi", () => {
     const user = userEvent.setup();
     setupApi({ docs: [{ ...DOC, own: false, can_decide: true, can_delete: true }] });
     vi.spyOn(window, "prompt").mockReturnValue("");
-    await ciz({ canManage: true });
+    await ciz({ canManage: true }, "Tüm belgeler");
     await waitFor(() => expect(screen.getByText("Kabul etme")).toBeInTheDocument());
     await user.click(screen.getByText("Kabul etme"));
     expect(apiMod.decideDocument).not.toHaveBeenCalled();
@@ -260,7 +270,7 @@ describe("belge listesi", () => {
     setupApi({ docs: [{ ...DOC, own: false, can_decide: true, can_delete: true }] });
     vi.spyOn(window, "prompt").mockReturnValue("Okunmuyor");
     apiMod.decideDocument.mockResolvedValue({ ok: true });
-    await ciz({ canManage: true });
+    await ciz({ canManage: true }, "Tüm belgeler");
     await waitFor(() => expect(screen.getByText("Kabul etme")).toBeInTheDocument());
     await user.click(screen.getByText("Kabul etme"));
     expect(apiMod.decideDocument).toHaveBeenCalledWith(5, "rejected", "Okunmuyor");
@@ -270,7 +280,7 @@ describe("belge listesi", () => {
     const user = userEvent.setup();
     setupApi({ docs: [DOC] });
     vi.spyOn(window, "confirm").mockReturnValue(false);
-    await ciz();
+    await ciz({}, "Belgelerim");
     await waitFor(() => expect(screen.getByText("Sil")).toBeInTheDocument());
     await user.click(screen.getByText("Sil"));
     expect(apiMod.deleteDocument).not.toHaveBeenCalled();

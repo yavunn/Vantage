@@ -20,17 +20,27 @@ export default function SignalsBlock({ signals }) {
     return `%${Math.round(sig.value * 100)}`;
   }
   return (
-    <section className="section">
+    <section className="section signals-section">
       <h2>{t("Sağlık sinyalleri")}</h2>
       <p className="desc" style={{ marginTop: -6, marginBottom: 12 }}>
         {t("Süreç metriği değil, takım sağlığına dair yumuşak sinyaller. Kırmızı \"zorlanıyor, yardım gerekebilir\" demektir; kişi ismi gösterilmez.")}
       </p>
-      <div className="cards">
+      {/* signal-cards: metrik kartlarıyla aynı ızgarayı kullanır ama görsel
+          olarak daha hafiftir — bunlar ölçüm değil yumuşak sinyaldir ve
+          ekranda o ağırlıkta durmalıdır. */}
+      <div className="cards signal-cards">
         {signals.map((sig) => {
           const insufficient = sig.status === "insufficient_data";
           const color = STATUS_COLOR[sig.status];
           return (
-            <div key={sig.key} className={`card${insufficient ? " insufficient" : ""}`}>
+            // data-status: metrik kartındaki ile aynı kanca. Sol durum
+            // çizgisini CSS bu değerden boyar (renk tek kanal değil — nokta ve
+            // durum etiketi zaten kartın içinde).
+            <div
+              key={sig.key}
+              className={`card${insufficient ? " insufficient" : ""}`}
+              data-status={sig.status}
+            >
               <div className="metric-head">
                 <span className="dot" style={{ background: color }} aria-hidden="true" />
                 <h3>{sig.name}</h3>

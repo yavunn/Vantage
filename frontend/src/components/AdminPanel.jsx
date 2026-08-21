@@ -232,6 +232,8 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
         <div className="subtabs">
           <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>{t("Başlangıç")}</button>
           <button className={`tab ${subtab === "accounts" ? "active" : ""}`} onClick={() => setSubtab("accounts")}>{t("Hesaplar")}</button>
+          <button className={`tab ${subtab === "teams" ? "active" : ""}`} onClick={() => setSubtab("teams")}>{t("Takımlar")}</button>
+          <button className={`tab ${subtab === "visibility" ? "active" : ""}`} onClick={() => setSubtab("visibility")}>{t("Görünürlük")}</button>
           <button className={`tab ${subtab === "integration" ? "active" : ""}`} onClick={() => setSubtab("integration")}>{t("Entegrasyon")}</button>
           <button className={`tab ${subtab === "tasklinks" ? "active" : ""}`} onClick={() => setSubtab("tasklinks")}>{t("İş ↔ Commit")}</button>
           <button className={`tab ${subtab === "code" ? "active" : ""}`} onClick={() => setSubtab("code")}>{t("AI Kod Analizi")}</button>
@@ -239,6 +241,11 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
           <button className={`tab ${subtab === "audit" ? "active" : ""}`} onClick={() => setSubtab("audit")}>{t("Denetim")}</button>
         </div>
       )}
+
+      {/* Panel gövdesi: kenar çubuğunun yanına oturan tek sütun. Sarmalayıcı
+          olmadan alt sekme listesi ve içerik kardeş kalıyordu; ikisini yan yana
+          dizmek mümkün değildi. İçerik ve koşullar aynen korundu. */}
+      <div className="admin-body">
 
       {!hrMode && subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
@@ -380,7 +387,16 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                           {u.is_active ? t("Aktif") : t("Pasif")}
                         </button>
                       </td>
-                      <td>
+                      {/* Satır eylemleri taşma menüsünde. Üç düğme alt alta
+                          durunca satır ~106px oluyordu (9 satırda 27 düğme).
+                          <details> seçildi: açılır davranışı ve klavye erişimi
+                          tarayıcıdan gelir, yeni state gerekmez. Parola
+                          sıfırlama satır içi form açtığı için o sırada menü
+                          açık tutulur. */}
+                      <td className="row-actions-cell">
+                        <details className="row-actions" open={resetFor === u.id || undefined}>
+                          <summary title={t("Satır eylemleri")} aria-label={t("Satır eylemleri")}>⋯</summary>
+                          <div className="row-actions-menu">
                         <button className="mini ghost" title={t("İşe giriş tarihi + yıllık izin hakkı")} onClick={() => openEmployment(u)}>{t("İzin hakkı")}</button>
                         {resetFor === u.id ? (
                           <span className="reset-row">
@@ -395,6 +411,8 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                         {!hrMode && (
                           <button className="mini danger" disabled={isSelf || isOwner} title={isOwner ? t("Baş yönetici hesabı silinemez") : isSelf ? t("Kendi hesabını silemezsin") : t("Hesabı sil")} onClick={() => doDelete(u)}>{t("Sil")}</button>
                         )}
+                          </div>
+                        </details>
                       </td>
                     </tr>
                   );
@@ -411,14 +429,18 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
             )}
           </section>
 
-          {/* Takımlar ve görünürlük hesapların alt başlıkları: ikisi de
-              "kim, hangi takımda, adı görünsün mü" sorusunun parçası.
-              İK'ya gösterilmez — bu uçlar admin ister (403 alırdı). */}
-          {!hrMode && <TeamsPanel onChanged={onTeamsChanged} />}
-
-          {!hrMode && <VisibilitySettings />}
         </>
       )}
+
+      {/* Takımlar ve görünürlük artık Hesaplar sayfasının altına gömülü değil,
+          kendi kenar çubuğu maddeleri. Hesaplar sayfası dört ayrı işi tek
+          ekranda topluyordu (2393px) ve görünürlük ayarının kaydet düğmesi
+          en dipte kalıyordu. İK'ya gösterilmez — bu uçlar admin ister. */}
+      {!hrMode && subtab === "teams" && <TeamsPanel onChanged={onTeamsChanged} />}
+
+      {!hrMode && subtab === "visibility" && <VisibilitySettings />}
+
+      </div>{/* /admin-body */}
 
       {cred && (
         <Modal title={cred.title} onClose={() => setCred(null)}>

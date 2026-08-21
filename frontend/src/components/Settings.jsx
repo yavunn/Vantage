@@ -163,6 +163,7 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
     timezone: user.timezone || "",
     bio: user.bio || "",
   });
+  const [area, setArea] = useState("profile");
   const [profBusy, setProfBusy] = useState(false);
   const dirty = useMemo(
     () =>
@@ -226,8 +227,32 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
     }
   }
 
+  // Beş bölüm aynı anda ekrandaydı; yönetici panelindeki kenar çubuğu kalıbına
+  // geçiyor: solda alanlar, sağda yalnızca seçili olan. "Oturumu kapat"
+  // kendi bölümü olmaktan çıkıp Görünüm'ün altına iniyor — tek düğme için
+  // ayrı bir alan gerekmiyor.
+  const AREAS = [
+    { key: "profile", label: t("Profil") },
+    { key: "password", label: t("Parola değiştir") },
+    { key: "identities", label: t("Kaynak kimliklerim") },
+    { key: "appearance", label: t("Görünüm") },
+  ];
+
   return (
-    <div className="settings-page">
+    <div className="settings-page side-panel">
+      <div className="subtabs">
+        {AREAS.map((a) => (
+          <button
+            key={a.key}
+            className={`tab ${area === a.key ? "active" : ""}`}
+            onClick={() => setArea(a.key)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <div className="side-body">
+      {area === "profile" && (
       <section className="section">
         <h2>{t("Profil")}</h2>
         <div className="profile-card">
@@ -276,12 +301,19 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
           <label>{t("Hakkında")}
             <textarea value={profile.bio} onChange={(e) => updP("bio", e.target.value)} rows={3} maxLength={2000} placeholder={t("Kısa bir not (opsiyonel)")} />
           </label>
+          {/* Düğme etiketi eylemi söyler, sonucu değil. "Kaydedildi" bir durum
+              mesajıydı ve düğmeyi durum göstergesine çeviriyordu; başarı zaten
+              toast ile bildiriliyor ("Profil güncellendi"). Kaydedilecek bir
+              şey yoksa düğme pasif — bu da aynı bilgiyi veriyor. */}
           <button type="submit" className="login-btn" disabled={profBusy || !dirty}>
-            {profBusy ? t("Kaydediliyor…") : dirty ? t("Profili kaydet") : t("Kaydedildi")}
+            {profBusy ? t("Kaydediliyor…") : t("Profili kaydet")}
           </button>
         </form>
       </section>
 
+      )}
+
+      {area === "password" && (
       <section className="section">
         <h2>{t("Parola değiştir")}</h2>
         <form className="settings-form" onSubmit={submitPw}>
@@ -304,19 +336,20 @@ export default function Settings({ user, onCycleTheme, themeLabel, onLogout, onP
           </button>
         </form>
       </section>
+      )}
 
-      <IdentitiesSection />
+      {area === "identities" && <IdentitiesSection />}
 
+      {area === "appearance" && (
       <section className="section">
         <h2>{t("Görünüm")}</h2>
         <p className="desc">{t("Tema tercihi cihazında saklanır.")}</p>
         <button className="mini" onClick={onCycleTheme}>{themeLabel}</button>
-      </section>
-
-      <section className="section">
-        <h2>{t("Oturum")}</h2>
+        <h3 className="settings-subhead">{t("Oturum")}</h3>
         <button className="mini danger" onClick={onLogout}>{t("Oturumu kapat")}</button>
       </section>
+      )}
+      </div>
     </div>
   );
 }

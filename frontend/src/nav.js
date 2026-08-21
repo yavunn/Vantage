@@ -26,8 +26,13 @@ export function readNav() {
   const ls = (k) => localStorage.getItem(k) || undefined;
   const rangeRaw = h.get("range") || ls(RANGE_KEY);
   const teamRaw = h.get("team") || ls(TEAM_KEY);
+  const tabRaw = h.get("tab") || ls(TAB_KEY);
   return {
-    tab: h.get("tab") || ls(TAB_KEY) || "team",
+    tab: tabRaw || "team",
+    // Sekmeyi kullanıcı mı belirledi (yer imi / son kaldığı yer), yoksa
+    // varsayılana mı düşüldü? Rol bazlı açılış ekranı yalnızca ikinci
+    // durumda devreye girer — kimsenin seçimi ezilmez.
+    tabExplicit: tabRaw != null,
     range: RANGE_OPTIONS.includes(Number(rangeRaw)) ? Number(rangeRaw) : 30,
     team: teamRaw != null ? Number(teamRaw) : null,
   };

@@ -6,6 +6,10 @@ import {
 import { useLang, useT } from "../i18n.jsx";
 
 // İK Panosu — kapasite + izin + rehber. Performans/metrik YOK (etik sınır).
+
+// Profil eksikliği listesinde varsayılan olarak gösterilen kişi sayısı.
+const PROFILE_PREVIEW = 3;
+
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 
 
@@ -123,6 +127,22 @@ export default function HrDashboard() {
     [balances]
   );
 
+  // İzin bakiyesi tablosunda satırların çoğu "hak 14 / kullanılan 0 / kalan 14"
+  // olarak birebir aynı olabiliyor; kadro büyüdükçe tablo okunmaz hale geliyor.
+  // Varsayılan görünüm yalnızca HAREKETLİ satırlar: izin kullanmış, onay
+  // bekleyen ya da bakiyesi bitmiş kişiler. Kalanlar tek düğmeyle açılır —
+  // veri gizlenmiyor, öne çıkan şey değişiyor.
+  const [allBalances, setAllBalances] = useState(false);
+  const [allProfiles, setAllProfiles] = useState(false);
+  const activeBalances = useMemo(
+    () => balances.filter((b) => b.used > 0 || b.pending > 0 || b.remaining <= 0),
+    [balances]
+  );
+  const untouchedCount = balances.length - activeBalances.length;
+  // Herkes hareketsizse tabloyu tamamen boşaltmak yerine hepsini göster.
+  const shownBalances =
+    allBalances || activeBalances.length === 0 ? balances : activeBalances;
+
   function exportCsv() {
     const rows = [[t("Kişi"), t("Yıllık"), t("Rapor"), t("Diğer"), t("Toplam")]];
     summary.forEach((r) => rows.push([r.person, r.annual ?? 0, r.sick ?? 0, r.other ?? 0, r.days]));
@@ -229,16 +249,29 @@ export default function HrDashboard() {
           {incompleteProfiles.length === 0 ? (
             <p className="desc">{t("Tüm aktif profiller tam (ünvan + telefon).")}</p>
           ) : (
-            <ul className="hr-list">
-              {incompleteProfiles.map((u) => (
-                <li key={u.id}>
-                  <strong>{u.display_name}</strong>
-                  <span className="hr-muted">
-                    {!u.title && t("ünvan yok")}{!u.title && !u.phone && " · "}{!u.phone && t("telefon yok")}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            /* Liste satırlarının çoğu birebir aynı ("ünvan yok · telefon yok")
+               ve kadro büyüdükçe okunmaz oluyor. Varsayılan görünüm ilk birkaç
+               kişi; kalanı tek düğmeyle açılır — izin bakiyesi tablosuyla aynı
+               kalıp. Veri gizlenmiyor, sayfa uzamıyor. */
+            <>
+              <ul className="hr-list">
+                {(allProfiles ? incompleteProfiles : incompleteProfiles.slice(0, PROFILE_PREVIEW)).map((u) => (
+                  <li key={u.id}>
+                    <strong>{u.display_name}</strong>
+                    <span className="hr-muted">
+                      {!u.title && t("ünvan yok")}{!u.title && !u.phone && " · "}{!u.phone && t("telefon yok")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {incompleteProfiles.length > PROFILE_PREVIEW && (
+                <button className="mini ghost" onClick={() => setAllProfiles((v) => !v)}>
+                  {allProfiles
+                    ? t("Daha az göster")
+                    : t("{n} kişi daha — tümünü göster", { n: incompleteProfiles.length - PROFILE_PREVIEW })}
+                </button>
+              )}
+            </>
           )}
         </section>
 
@@ -277,9 +310,12 @@ export default function HrDashboard() {
           {heat.map((c, i) => (
             <div
               key={i}
-              className="hr-heat-cell"
+              // İzinsiz gün marka rengiyle boyanınca ay boyunca hiç izin
+              // olmasa bile ekran "dolu" görünüyordu. Sıfır günler artık
+              // nötr; renk yalnızca gerçek izni gösterir.
+              className={`hr-heat-cell${c === 0 ? " is-zero" : ""}`}
               title={t("{day}. gün · {n} kişi izinli", { day: i + 1, n: c })}
-              style={{ opacity: c === 0 ? 0.12 : 0.25 + 0.75 * (c / heatMax) }}
+              style={c === 0 ? undefined : { opacity: 0.25 + 0.75 * (c / heatMax) }}
             >
               <span className="hr-heat-day">{i + 1}</span>
               {c > 0 && <span className="hr-heat-count">{c}</span>}
@@ -299,25 +335,34 @@ export default function HrDashboard() {
         {balances.length === 0 ? (
           <p className="desc">{t("Kayıt yok.")}</p>
         ) : (
-          <table className="quality">
-            <thead>
-              <tr>
-                <th>{t("Kişi")}</th><th className="num">{t("Hak")}</th><th className="num">{t("Kullanılan")}</th>
-                <th className="num">{t("Beklemede")}</th><th className="num">{t("Kalan")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {balances.map((b) => (
-                <tr key={b.user_id} className={b.remaining <= 0 ? "row-warn" : ""}>
-                  <td>{b.person}</td>
-                  <td className="num">{b.allowance}</td>
-                  <td className="num">{b.used}</td>
-                  <td className="num">{b.pending > 0 ? b.pending : "—"}</td>
-                  <td className="num"><strong>{b.remaining}</strong></td>
+          <>
+            <table className="quality">
+              <thead>
+                <tr>
+                  <th>{t("Kişi")}</th><th className="num">{t("Hak")}</th><th className="num">{t("Kullanılan")}</th>
+                  <th className="num">{t("Beklemede")}</th><th className="num">{t("Kalan")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {shownBalances.map((b) => (
+                  <tr key={b.user_id} className={b.remaining <= 0 ? "row-warn" : ""}>
+                    <td>{b.person}</td>
+                    <td className="num">{b.allowance}</td>
+                    <td className="num">{b.used}</td>
+                    <td className="num">{b.pending > 0 ? b.pending : "—"}</td>
+                    <td className="num"><strong>{b.remaining}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {untouchedCount > 0 && activeBalances.length > 0 && (
+              <button className="mini ghost" onClick={() => setAllBalances((v) => !v)}>
+                {allBalances
+                  ? t("Hareketsiz satırları gizle")
+                  : t("{n} kişi hiç izin kullanmadı — tümünü göster", { n: untouchedCount })}
+              </button>
+            )}
+          </>
         )}
       </section>
 

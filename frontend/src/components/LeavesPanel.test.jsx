@@ -7,7 +7,7 @@
  *  2) "Takvim işaretleri" bölümü yalnız yönetici/İK'ya görünmeli — düz çalışan
  *     şirket geneli tatil ekleyememeli (backend de 403 verir, UI de göstermez).
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -114,7 +114,9 @@ describe("yetkiye göre görünürlük", () => {
     // Onay kuyruğu ve İK ay özeti de kapalı olmalı.
     expect(screen.queryByText(/Bekleyen izin onayları/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Ay özeti/)).not.toBeInTheDocument();
-    // Çalışan izni doğrudan alamaz, ister.
+    // Çalışan izni doğrudan alamaz, ister. (İzin formu artık "İsteklerim"
+    // alanında — kenar çubuğu düzeni; iddia aynı, oraya geçiliyor.)
+    fireEvent.click(screen.getByRole("button", { name: "İsteklerim" }));
     expect(screen.getByRole("button", { name: "İstek gönder" })).toBeInTheDocument();
   });
 
@@ -122,6 +124,7 @@ describe("yetkiye göre görünürlük", () => {
     setupApi();
     render(<LeavesPanel user={USER} canManage teams={TEAMS} />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "İşaretler" }));
     await screen.findByText(/Takvim işaretleri/);
     const kapsam = screen.getByLabelText("Kapsam");
     expect(within(kapsam).getByRole("option", { name: "Tüm takımlar" })).toBeInTheDocument();
@@ -133,7 +136,9 @@ describe("yetkiye göre görünürlük", () => {
 describe("takvim işareti ekleme", () => {
   // "Tür" etiketi ve işaret adı sayfada birden çok yerde geçiyor (izin formu,
   // takvim çipi). Sorguları işaret bölümüne daraltıyoruz.
+  // İşaret yönetimi kenar çubuğunda kendi alanı oldu; yardımcı önce oraya geçer.
   async function isaretBolumu() {
+    fireEvent.click(await screen.findByRole("button", { name: "İşaretler" }));
     const baslik = await screen.findByText(/Takvim işaretleri/);
     return baslik.closest("section");
   }
@@ -183,8 +188,8 @@ describe("takvim işareti ekleme", () => {
     render(<LeavesPanel user={USER} canManage teams={TEAMS} />);
 
     // Başlıktaki sayaç yalnız Nisan'ı saymalı.
-    expect(await screen.findByText("Takvim işaretleri (1)")).toBeInTheDocument();
     const bolum = await isaretBolumu();
+    expect(screen.getByText("Takvim işaretleri (1)")).toBeInTheDocument();
     expect(within(bolum).getByText("Nisan işareti")).toBeInTheDocument();
     // Mayıs işareti ne listede ne takvimde görünmeli (görünen ay Nisan).
     expect(screen.queryByText("Mayıs işareti")).not.toBeInTheDocument();

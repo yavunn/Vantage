@@ -13,3 +13,5 @@
 @import "./styles/02-bilesenler.css";
 @import "./styles/03-gorsel-katman.css";
 @import "./styles/04-aurora.css";
+/* Sadeleştirme katmanı — en son biner (bkz. dosya başlığı). */
+@import "./styles/05-yeniden-tasarim.css";

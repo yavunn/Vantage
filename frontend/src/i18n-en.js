@@ -1201,6 +1201,17 @@ Object.assign(EN, {
   "⚠ yalnızca {n} kayıt — az örneklem, dikkatli yorumla":
     "⚠ only {n} records — small sample, interpret with care",
   "{n} kayıt üzerinden": "based on {n} records",
+  "{n} metrik için henüz veri yok": "No data yet for {n} metrics",
+  "{n} kişi hiç izin kullanmadı — tümünü göster": "{n} people took no leave — show all",
+  "Hareketsiz satırları gizle": "Hide inactive rows",
+  "{n} kişi daha — tümünü göster": "{n} more — show all",
+  "Daha az göster": "Show less",
+  "Hiçbir belge verilmemiş": "No documents submitted",
+  "hangileri?": "which ones?",
+  "İsteklerim": "My requests",
+  "Onaylar": "Approvals",
+  "İşaretler": "Markers",
+  "Ay özeti": "Monthly summary",
 });
 
 // --- bordro / özlük evrakı ---------------------------------------------------
