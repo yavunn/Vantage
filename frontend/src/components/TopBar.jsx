@@ -4,9 +4,11 @@ import { LANGS, useLang } from "../i18n.jsx";
 // Kabuk: kimlik satırı + gezinme. App.jsx'ten çıkarıldı — orada 100 satırlık
 // JSX, veri yükleme mantığının ortasında duruyordu.
 //
-// ETİK SINIR BURADA GÖRÜNÜR: İK'nın sekme kümesi ayrıdır. İK'ya takım/bireysel
-// performans sekmeleri GÖSTERİLMEZ (backend de bu uçlara 403 verir; ikisi
-// birbirinin yedeği). Bu yüzden iki küme bilerek ayrı yazıldı, tek bir listeyi
+// ETİK SINIR BURADA GÖRÜNÜR: İK'nın sekme kümesi ayrıdır. Takım panosu İK'ya
+// AÇIKTIR — orada yalnız takım agregatı vardır (kişi kırılımı, leaderboard yok),
+// süreç nerede tıkanıyor sorusu İK'nın da sorusudur. Kapalı kalan BİREYSEL
+// görünüm ve yönetici uçlarıdır (backend de onlara 403 verir; ikisi birbirinin
+// yedeği). Bu yüzden iki küme bilerek ayrı yazıldı, tek bir listeyi
 // filtrelemekle değil — sekme eklerken hangi rolü etkilediği görünsün.
 function BrandMark() {
   return (
@@ -107,6 +109,7 @@ export default function TopBar({
           {isHr ? (
             <>
               <Tab id="hr">{t("nav.hr")}</Tab>
+              <Tab id="team">{t("nav.team")}</Tab>
               <Tab id="leaves">{t("nav.leaves")}</Tab>
               <Tab id="documents">{t("nav.documents")}</Tab>
               <Tab id="accounts">{t("nav.accounts")}</Tab>

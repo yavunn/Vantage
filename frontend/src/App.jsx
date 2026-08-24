@@ -112,7 +112,7 @@ export default function App() {
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
       if (typing || !e.altKey) return;
       const order = user && user.role === "hr"
-        ? ["hr", "leaves", "documents", "accounts", "survey", "settings"]
+        ? ["hr", "team", "leaves", "documents", "accounts", "survey", "settings"]
         : ["team", "me", "projects", "leaves", "documents", "survey", "admin", "settings"];
       const idx = Number(e.key) - 1;
       if (Number.isInteger(idx) && idx >= 0 && idx < order.length) {
@@ -125,13 +125,14 @@ export default function App() {
   }, [user]);
 
   // Geçerli olmayan sekmeyi (ör. saklanmış 'admin' ama kullanıcı admin değil) düzelt.
-  // HR ayrı bir gezinme kümesi kullanır (performans sekmeleri kapalı — etik sınır).
+  // HR ayrı bir gezinme kümesi kullanır: TAKIM panosu açıktır (agregat süreç
+  // sağlığı — İK'nın işi de bu), BİREYSEL görünüm kapalıdır (etik sınır).
   useEffect(() => {
     if (!user || !uiConfig) return;
     let allowed;
     let fallback;
     if (user.role === "hr") {
-      allowed = new Set(["hr", "leaves", "documents", "accounts", "survey", "settings"]);
+      allowed = new Set(["hr", "team", "leaves", "documents", "accounts", "survey", "settings"]);
       fallback = "hr";
     } else {
       allowed = new Set(["team", "projects", "leaves", "documents", "survey", "settings"]);
@@ -665,6 +666,7 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
         tabs={isHr ? [
           { key: "hr", label: t("nav.hr") },
+          { key: "team", label: t("nav.team") },
           { key: "leaves", label: t("nav.leaves") },
           { key: "documents", label: t("nav.documents") },
           { key: "accounts", label: t("nav.accounts") },
@@ -680,7 +682,7 @@ export default function App() {
           ...(isAdmin ? [{ key: "admin", label: t("nav.admin") }] : []),
           { key: "settings", label: t("nav.settings") },
         ]}
-        teams={isHr ? [] : teams}
+        teams={teams}
         people={!isHr && individualAvailable ? directory : []}
         onGoTab={setTab}
         onGoTeam={(id) => { setTeamId(id); setTab("team"); }}

@@ -81,6 +81,27 @@ def test_hr_izinleri_hepsini_gorur(client, actors):
     assert r.status_code == 200
 
 
+def test_hr_takim_panosunu_gorur(client, actors, session):
+    """Takım panosu İK'ya AÇIK: içeriği takım agregatıdır (kişi kırılımı yok),
+    'süreç nerede tıkanıyor' sorusu İK'nın da sorusudur. Arayüzdeki İK sekmesi
+    bu uca dayanır — uç kapanırsa sekme boş ekran gösterirdi."""
+    from tests.conftest import make_team
+
+    team, _repo, _devs, _mgr = make_team(session)
+    r = client.get(f"/api/teams/{team.id}/report?days=30", headers=_auth(actors["hr_t"]))
+    assert r.status_code == 200
+    # Agregat: kişi bazlı kırılım taşımaz (leaderboard yasağı).
+    assert "metrics" in r.json()
+
+
+def test_hr_bireysel_kod_sagligi_403(client, actors):
+    """Takımın açılması bireyseli AÇMAZ: kişi görünümü yalnız kişinin kendisi
+    ve admin içindir."""
+    dev_id = actors["emp"].developer_id
+    r = client.get(f"/api/developers/{dev_id}/code-health", headers=_auth(actors["hr_t"]))
+    assert r.status_code == 403
+
+
 # --- HR erişmez: admin-özel = 403 -------------------------------------------
 
 def test_hr_entegrasyon_ayarlari_403(client, actors):

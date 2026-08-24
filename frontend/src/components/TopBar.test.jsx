@@ -45,14 +45,13 @@ function sekmeAdlari() {
 }
 
 describe("rol bazlı sekme kümesi", () => {
-  it("İK'ya performans sekmeleri gösterilmez", () => {
+  it("İK takım agregatını görür, bireysel/yönetici sekmelerini görmez", () => {
     ciz({ isHr: true });
     const sekmeler = sekmeAdlari();
     expect(sekmeler).toEqual([
-      "İK Panosu", "İzinler", "Evraklar", "Hesaplar", "Anket", "Ayarlar",
+      "İK Panosu", "Takım görünümü", "İzinler", "Evraklar", "Hesaplar", "Anket", "Ayarlar",
     ]);
-    // Etik sınır: bunların HİÇBİRİ görünmemeli.
-    expect(sekmeler).not.toContain("Takım görünümü");
+    // Etik sınır: takım AGREGATI açıktır, kişiye inen görünümler değil.
     expect(sekmeler).not.toContain("Bireysel görünüm");
     expect(sekmeler).not.toContain("Yönetici paneli");
   });
