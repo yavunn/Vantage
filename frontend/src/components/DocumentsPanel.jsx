@@ -513,7 +513,7 @@ export default function DocumentsPanel({ user, canManage }) {
           </select>
         </div>
         {docs.length === 0 ? (
-          <p className="desc">{t("Henüz belge yok.")}</p>
+          <p className="empty-note">{t("Henüz belge yok.")}</p>
         ) : (
           <ul className="doc-list">
             {docs.map((d) => <DocumentRow key={d.id} doc={d} onChanged={load} />)}

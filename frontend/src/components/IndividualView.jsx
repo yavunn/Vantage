@@ -66,7 +66,7 @@ function CommitAlignment({ data }) {
   return (
     <div className="alignment-card">
       <div className="alignment-head">
-        <h3>{t("Commit mesajı — kod eşleşmesi")}</h3>
+        <h2>{t("Commit mesajı — kod eşleşmesi")}</h2>
         <span className={`badge status-${has ? scoreTone(data.score / 10) : "insufficient_data"}`}>
           {has ? `${data.score}/100` : t("veri yetersiz")}
         </span>
@@ -115,7 +115,7 @@ function TaskLinks({ devId }) {
 
   return (
     <div className="task-links-block">
-      <h3>{t("Görevlerim ve commit'lerim")}</h3>
+      <h2>{t("Görevlerim ve commit'lerim")}</h2>
       <p className="desc">
         {t("Commit mesajınıza kartın numarasını yazarsanız ([#42] gibi) bağ tahmin edilmez, kesinleşir.")}
       </p>
@@ -177,13 +177,32 @@ export default function IndividualView({ devId }) {
 
   if (error)
     return (
-      <div className="error-box">
+      <div className="error-box" role="alert">
         {error.status === 403 || error.status === 401
-          ? t("Erişim yok: {msg}", { msg: error.message })
-          : t("Hata: {msg}", { msg: error.message })}
+          ? t("Bu görünüm size kapalı: yalnızca kişinin kendisi ve yöneticisi görebilir.")
+          : t("Bu görünüm yüklenemedi: {msg}", { msg: error.message })}
       </div>
     );
-  if (!data) return <p className="desc">{t("Yükleniyor…")}</p>;
+  if (!data) {
+    return (
+      <div className="indiv-skeleton" aria-busy="true" aria-label={t("Yükleniyor…")}>
+        <div className="overall-score skeleton-block">
+          <div className="sk-line sk-value" />
+          <div className="sk-line" />
+          <div className="sk-line short" />
+        </div>
+        <div className="cards">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card skeleton">
+              <div className="sk-line sk-title" />
+              <div className="sk-line sk-value" />
+              <div className="sk-line short" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

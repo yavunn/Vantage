@@ -892,7 +892,6 @@ def code_analysis_developers(
     git_email tanımsızsa atıf yapılamaz (analiz edilebilir=false)."""
     from app.models import CodeAnalysis, Developer
     from app.services.code_health import _latest_per_file
-
     from app.services.identity import primary_git_email
 
     out = []

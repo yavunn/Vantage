@@ -1,17 +1,20 @@
 /* Vantage — stil giriş noktası.
  *
- * Tek 1.685 satırlık dosya, en sık değişen ve en çok çakışan dosyaydı.
- * Dört katmana bölündü. SIRA ÖNEMLİDİR: CSS kaskadında sonra gelen kazanır,
- * özellikle görsel katman ve aurora bilerek daha önceki kuralların üzerine
- * biner (ör. .login-btn G6'da tanımlanır, G16'da gradyanla yeniden yazılır).
- * Bu yüzden import sırası dosyaların orijinal sırasıyla birebir aynıdır ve
- * DEĞİŞTİRİLMEMELİDİR.
+ * ÜÇ DOSYA, tek yön: değer → temel → bileşen.
  *
- * Doğrulama: bölme sonrası üretilen CSS çıktısı bayt bayt aynı (SHA-256).
+ *   00-belirtecler.css  Renk, tipografi, boşluk, biçim, hareket. TEK değer
+ *                       kaynağı; 01 ve 02 buradan okur, kendi değerini üretmez.
+ *   01-temel.css        Sıfırlama, kabuk (üst çubuk/gezinme/sayfa başlığı),
+ *                       takım panosu, tablolar, durum blokları, toast.
+ *   02-bilesenler.css   Ekrana özel bileşenler: kimlik ekranları, izinler,
+ *                       evraklar, İK panosu, yönetici/ayarlar, bireysel görünüm.
+ *
+ * ÖNCEKİ HÂLİ beş katmandı ve aynı seçici beş yerde tanımlı olabiliyordu
+ * (`.topbar` tam da öyleydi): bir rengi değiştirmek "hangi katman kazanıyor?"
+ * sorusunu çözmeyi gerektiriyordu. Ekranlar elden geçtikçe kurallar sahibinin
+ * yanına taşındı; görsel katman, atmosfer ve sadeleştirme katmanları kalan
+ * içerikleriyle birlikte bileşen dosyasına katlandı.
  */
+@import "./styles/00-belirtecler.css";
 @import "./styles/01-temel.css";
 @import "./styles/02-bilesenler.css";
-@import "./styles/03-gorsel-katman.css";
-@import "./styles/04-aurora.css";
-/* Sadeleştirme katmanı — en son biner (bkz. dosya başlığı). */
-@import "./styles/05-yeniden-tasarim.css";

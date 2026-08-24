@@ -5,13 +5,22 @@ hata mesajları API'den geliyor. Arayüzü tek başına çevirmek panoyu yarı
 Türkçe bırakırdı — "Cycle Time · Zorlanıyor — yardım gerekebilir" gibi ya da
 İngilizce arayüzde aniden Türkçe bir 422 mesajı çıkması gibi.
 
-KAPSAM SINIRI (bilinçli): burada ÇEVRİLEN şey — metrik adları, açıklamalar,
-durum etiketleri, boyut adları VE `HTTPException` hata mesajları (bkz.
-`tr_error`, gettext deseni — frontend i18n.jsx/i18n-en.js ile AYNI kural: TR
-kaynak metin ANAHTARDIR, eksik çeviri TR'ye düşer, ham anahtar asla dönmez).
-Kural motorunun ürettiği uzun öneri metinleri, senkron uyarıları ve AI çıktısı
-hâlâ Türkçedir; onlar üretilmiş DÜZYAZIDIR (sabit anahtar değil) ve ayrı bir iş
-kalemidir. Yarım çevrilmiş bir cümle, çevrilmemiş cümleden kötüdür.
+ÇEVRİLEN: metrik adları, açıklamalar, durum etiketleri, boyut adları,
+`HTTPException` hata mesajları (`tr_error` → errors_en.py) ve API'nin içerik
+olarak döndürdüğü metinler — genel skor etiketi/notu, commit-kod eşleşmesi
+özeti, 1:1 hazırlık başlıkları, kural motorunun süreç önerileri
+(`tr_text` → texts_en.py). Hepsi AYNI gettext kuralı: TR kaynak metin
+ANAHTARDIR, eksik çeviri TR'ye düşer, ham anahtar asla dönmez.
+
+Kural motorunun önerileri ŞABLON + PARAMETRE olarak saklanır
+(`Recommendation.message` + `.params`) ve çeviri OKUMA anında yapılır; sayı
+içeren cümleler de bu sayede çevrilebilir. Params'ı olmayan eski satırlar TR
+metniyle gösterilir — bir sonraki senkronda yenilenirler.
+
+KAPSAM SINIRI (bilinçli): senkron uyarıları ve LLM çıktısı (kod analizi
+özetleri, asistan cevapları) çevrilmez — onlar sabit anahtar değil, çalışma
+anında ÜRETİLMİŞ düzyazıdır. Yarım çevrilmiş bir cümle, çevrilmemiş cümleden
+kötüdür.
 
 Dil AKIŞI (iki yol, aynı sonuca çıkar):
   1. `lang_from_request` — bir uç `request: Request` alıyorsa doğrudan okur.
@@ -89,6 +98,23 @@ def tr_error(message: str, **params: object) -> str:
     from app.core.errors_en import ERRORS_EN  # döngüsel import'tan kaçın
 
     text = ERRORS_EN.get(message, message) if current_lang() == "en" else message
+    return text.format(**params) if params else text
+
+
+def tr_text(message: str, **params: object) -> str:
+    """API'nin İÇERİK olarak döndürdüğü metinlerin çevirisi.
+
+    `tr_error` ile aynı gettext deseni, farklı sözlük: hata mesajı bir arıza
+    anlatır, buradakiler ürünün normal çıktısıdır (genel skor etiketi, 1:1
+    başlıkları, süreç önerileri). Ayrımı korumak, "bu metin nerede görünür"
+    sorusunu sözlüğe bakınca cevaplanabilir kılıyor.
+
+    Dili ContextVar'dan okur (LanguageMiddleware): çağıran fonksiyonun
+    `request`/`lang` parametresi almasına gerek yok.
+    """
+    from app.core.texts_en import TEXTS_EN  # döngüsel import'tan kaçın
+
+    text = TEXTS_EN.get(message, message) if current_lang() == "en" else message
     return text.format(**params) if params else text
 
 

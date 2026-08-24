@@ -17,6 +17,7 @@ Yöntem:
 from __future__ import annotations
 
 from app.core.config import Config
+from app.core.i18n import tr_text
 from app.services.health import METRIC_THRESHOLD_MAP
 
 # Metriğin genel skordaki temel ağırlığı (veri tamlığıyla çarpılır).
@@ -71,10 +72,12 @@ def metric_score(metric_key: str, value: float | None, status: str, cfg: Config)
 
 
 def score_label(score: float) -> str:
+    """Etiket isteğin diline göre döner (tr_text → ContextVar). Ham TR metin
+    döndürülseydi İngilizce panoda skorun yanında Türkçe bir etiket kalırdı."""
     for cutoff, label in SCORE_LABELS:
         if score >= cutoff:
-            return label
-    return SCORE_LABELS[-1][1]
+            return tr_text(label)
+    return tr_text(SCORE_LABELS[-1][1])
 
 
 def overall_score(metrics: list[dict], cfg: Config) -> dict:
@@ -104,11 +107,11 @@ def overall_score(metrics: list[dict], cfg: Config) -> dict:
     if total_w <= 0:
         return {
             "score": None,
-            "label": "Veri yetersiz",
+            "label": tr_text("Veri yetersiz"),
             "covered": 0,
             "total": len(metrics),
             "breakdown": breakdown,
-            "note": "Skor üretmek için yeterli veri yok — eksik veri uydurulmaz.",
+            "note": tr_text("Skor üretmek için yeterli veri yok — eksik veri uydurulmaz."),
         }
     score = round(acc / total_w, 1)
     return {
@@ -117,6 +120,6 @@ def overall_score(metrics: list[dict], cfg: Config) -> dict:
         "covered": covered,
         "total": len(metrics),
         "breakdown": breakdown,
-        "note": "Bu skor bir performans notu değil, kendi akışınızın özetidir; "
-                "kişiler arası kıyasta kullanılmaz.",
+        "note": tr_text("Bu skor bir performans notu değil, kendi akışınızın özetidir; "
+                        "kişiler arası kıyasta kullanılmaz."),
     }

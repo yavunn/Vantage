@@ -1,0 +1,299 @@
+/* 00-belirtecler.css — TASARIM BELİRTEÇLERİ. Tek gerçek kaynak.
+ *
+ * NEDEN TEK DOSYA: belirteçler daha önce dört dosyaya dağılmıştı (01 renk +
+ * ölçek, 02 marka, 04 marka rampası + efekt) ve `--brand` iki yerde farklı
+ * biçimde tanımlıydı. Bir rengi değiştirmek "hangi katman kazanıyor?" sorusunu
+ * çözmeyi gerektiriyordu. Artık renk/ölçek/biçim kararı YALNIZ burada verilir;
+ * 01–05 yalnızca kural yazar, değer üretmez.
+ *
+ * İKİ KATMANLI YAPI:
+ *   1. HAM PALET (--n-*, --blue-*, --green-*…) — sadece burada geçen hex'ler.
+ *      Hiçbir kural bunları doğrudan kullanmaz.
+ *   2. ANLAMSAL BELİRTEÇ (--surface-1, --brand, --status-good-ink…) — bileşenler
+ *      yalnız bunları kullanır. Tema değiştiğinde değişen şey bu eşlemedir.
+ *   Bu ayrım olmadan koyu tema, aynı hex'i dört blokta tekrar yazmak demekti.
+ *
+ * TEMA: sistem tercihi + kullanıcı seçimi (`data-theme`). Koyu blok
+ * `:root:not([data-theme="light"])` ile korunur; böylece "sistem koyu ama
+ * kullanıcı açık seçti" durumu için AYRI bir açık blok yazmaya gerek kalmaz —
+ * temel değerler zaten açık temadır.
+ */
+
+/* =============================================================================
+   1. HAM PALET — tek yerde duran hex'ler
+   ========================================================================== */
+:root {
+  /* Nötrler — açık tema (kırık beyaz zemin, sıcak gri metin) */
+  --n-0:   #ffffff;
+  --n-25:  #fcfcfb;   /* kart yüzeyi */
+  --n-50:  #f9f9f7;   /* sayfa zemini */
+  --n-200: #e1e0d9;   /* ızgara / ayraç */
+  --n-500: #6c6a65;   /* ikincil-soluk metin — AA geçer (5.26:1) */
+  --n-600: #52514e;   /* ikincil metin */
+  --n-900: #0b0b0b;   /* birincil metin */
+
+  /* Nötrler — koyu tema */
+  --nd-900: #0d0d0d;  /* sayfa zemini */
+  --nd-800: #1a1a19;  /* kart yüzeyi */
+  --nd-700: #2c2c2a;  /* ızgara / ayraç */
+  --nd-300: #a3a19a;  /* soluk metin — AA geçer (6.74:1) */
+  --nd-200: #c3c2b7;  /* ikincil metin */
+  --ink-deep: #08080b; /* kimlik ekranı zemini + modal perdesi */
+
+  /* Marka — sakin lacivert. Veri mavisinden (--series-1) bilerek daha koyu ve
+     daha az doygun: kabuk aksanı grafikteki bir seri sanılmamalı. */
+  --blue-900: #12294a;
+  --blue-800: #1b3b6f;   /* açık temada aksan + birincil buton dolgusu */
+  --blue-700: #24518f;   /* koyu temada buton dolgusu (beyaz yazı AA geçer) */
+  --blue-300: #8fb4e0;   /* koyu temada aksan metni */
+  --teal-700: #2f6f8f;   /* yalnız kimlik ekranı gradyanı */
+  --slate-500: #4d7ea8;  /* yalnız kimlik ekranı gradyanı */
+
+  /* Durum renkleri — DOLGU (nokta, şerit, grafik işareti).
+     Bunlar doğrulanmış dataviz paletidir, DEĞİŞTİRİLMEZ. */
+  --green-500: #0ca30c;
+  --amber-500: #fab219;
+  --red-500:   #d03b3b;
+
+  /* Durum renkleri — METİN. Dolgu tonları küçük metinde okunmuyordu:
+     ölçüldü, açık zeminde sarı 1.79:1, yeşil 3.27:1 (eşik 4.5). Aynı anlam,
+     okunur ton. Nokta/şerit hâlâ üstteki dolgu rengini kullanır. */
+  --green-700: #0b7a0b;
+  --amber-800: #96610a;
+  --red-700:   #c02f2f;
+  --green-300: #4ecb5e;
+  --amber-300: #f5c04a;
+  --red-300:   #e56a6a;
+
+  /* İzin türü / anotasyon — kategorik etiket renkleri. Durum DEĞİL:
+     "yıllık izin" iyi ya da kötü bir şey değildir, bir türdür. */
+  --cat-leave-annual: #7ed99a;
+  --cat-leave-sick:   #f7d488;
+  --cat-leave-other:  #cfcdc6;
+  --cat-leave-ink:    #10231a;   /* çiplerin üstündeki koyu yazı */
+  --cat-holiday:  #4fb477;
+  --cat-incident: #e07a5f;
+  --cat-release:  #5b8def;
+
+  /* İK rolü rozeti — rol kimliğidir, sağlık durumu değil; bu yüzden
+     --status-good'u ödünç almaz (yeşil "iyi durumda" anlamına gelirdi). */
+  --role-hr-ink: #1f7a45;
+  --role-hr-bg:  #e6f4ea;
+  --role-hr-ink-dark: #7fd6a0;
+  --role-hr-bg-dark:  #10331f;
+
+  /* Veri serileri — kategorik, durum DEĞİL. */
+  --series-blue:        #2a78d6;
+  --series-blue-light:  #3987e5;
+  --series-violet:      #8b5cf6;
+  --series-violet-light:#a78bfa;
+}
+
+/* =============================================================================
+   2. ANLAMSAL BELİRTEÇLER — bileşenlerin kullandığı isimler (açık tema temel)
+   ========================================================================== */
+:root {
+  /* ---- yüzeyler ve metin ---- */
+  --page: var(--n-50);
+  --surface-1: var(--n-25);
+  --surface-2: rgba(11, 11, 11, 0.05);   /* girinti/hover dolgusu */
+  --grid: var(--n-200);
+  --border: rgba(11, 11, 11, 0.1);
+  --text-primary: var(--n-900);
+  --text-secondary: var(--n-600);
+  --muted: var(--n-500);
+
+  /* ---- marka ---- */
+  --brand: var(--blue-800);          /* aksan metni, kenarlık, aktif durum */
+  --brand-solid: var(--blue-800);    /* birincil buton dolgusu */
+  --brand-soft: color-mix(in srgb, var(--brand) 12%, transparent);
+  --brand-softer: color-mix(in srgb, var(--brand) 6%, transparent);
+  --brand-2: var(--teal-700);        /* yalnız kimlik ekranı atmosferi */
+  --brand-3: var(--slate-500);
+  --brand-gradient: linear-gradient(120deg,
+      var(--brand-3) 0%, var(--blue-800) 45%, var(--blue-900) 100%);
+  --brand-gradient-soft: linear-gradient(120deg,
+      color-mix(in srgb, var(--brand) 16%, transparent),
+      color-mix(in srgb, var(--brand-2) 14%, transparent));
+
+  /* ---- durum ---- */
+  --status-good: var(--green-500);
+  --status-warning: var(--amber-500);
+  --status-critical: var(--red-500);
+  --status-neutral: var(--n-500);
+  --status-good-ink: var(--green-700);
+  --status-warning-ink: var(--amber-800);
+  --status-critical-ink: var(--red-700);
+  --status-neutral-ink: var(--n-500);
+
+  /* Doygun bir dolgunun (marka ya da durum) üstündeki yazı. Tek belirteç:
+     "beyaz mı siyah mı" kararı her bileşende yeniden verilmesin. */
+  --on-solid: var(--n-0);
+  /* Kimlik ekraninin koyu yarisi: ikincil ve ucuncul metin. Ham
+     rgba(255,255,255,0.72) degerleri uc yerde ayri ayri yaziliydi. */
+  --on-dark: var(--n-0);
+  --on-dark-2: color-mix(in srgb, var(--n-0) 72%, transparent);
+  --on-dark-3: color-mix(in srgb, var(--n-0) 55%, transparent);
+  /* Katman perdesi (modal / komut paleti / acilir panel arkasi). */
+  --overlay: color-mix(in srgb, var(--ink-deep) 55%, transparent);
+
+  /* ---- rol ---- */
+  --role-hr-fg: var(--role-hr-ink);
+  --role-hr-bg-soft: var(--role-hr-bg);
+
+  /* ---- veri serileri ---- */
+  --series-1: var(--series-blue);
+  --series-2: var(--series-violet);
+
+  /* ---- tipografi ----
+     Altı adım + iki başlık adımı. Yarım piksel (11.5/12.5/13.5) yok: aynı işi
+     gören üç ayrı boyut, hiyerarşi değil gürültü üretiyordu. rem tabanlı ki
+     tarayıcı yazı boyutu ayarı çalışsın. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs:   0.75rem;    /* 12px — rozet, üst-etiket. Bundan küçüğü yok. */
+  --text-sm:   0.8125rem;  /* 13px — yardımcı metin, tablo hücresi */
+  --text-base: 0.875rem;   /* 14px — gövde */
+  --text-md:   0.9375rem;  /* 15px — öne çıkan gövde, form alanı */
+  --text-lg:   1rem;       /* 16px — bölüm başlığı */
+  --text-xl:   1.25rem;    /* 20px — sayfa başlığı */
+  --text-2xl:  1.5rem;     /* 24px — kart büyük değeri */
+  --text-3xl:  1.875rem;   /* 30px — kimlik ekranı */
+  --leading-tight: 1.25;   /* başlık */
+  --leading-normal: 1.5;   /* gövde */
+  --leading-relaxed: 1.65; /* uzun paragraf */
+  --weight-normal: 400;
+  --weight-medium: 550;
+  --weight-heading: 650;
+
+  /* ---- boşluk (4'ün katları) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---- biçim ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(11, 11, 11, 0.04), 0 1px 3px rgba(11, 11, 11, 0.06);
+  --shadow-2: 0 10px 30px rgba(11, 11, 11, 0.12);
+  --shadow-3: 0 18px 48px -12px rgba(11, 11, 11, 0.22), 0 2px 8px rgba(11, 11, 11, 0.06);
+  --glow-brand: 0 8px 28px -10px color-mix(in srgb, var(--brand) 55%, transparent);
+
+  /* ---- odak ----
+     Odak halkası tek yerden gelir; her bileşen kendi rengini uydurmaz. */
+  --focus-width: 2px;
+  --focus-color: var(--brand);
+  --focus-offset: 2px;
+
+  /* ---- kontrol yüksekliği ----
+     Dokunma hedefi en az 44px (WCAG 2.5.5 / mobil). --control-h görsel
+     yükseklik, --tap-min ise tıklanabilir alanın alt sınırıdır: küçük görünen
+     bir düğme de dolgu ya da ::after ile 44px'e tamamlanır. */
+  --control-h: 40px;
+  --control-h-sm: 36px;
+  --tap-min: 44px;
+
+  /* Yapiskan ust cubugun altinda kalan pay. Kenar cubugu da yapiskan; bu deger
+     olmadan iki yapiskan katman ust uste biniyordu. Yaklasik bir olcudur
+     (ust cubuk iki satir), bu yuzden ISIMLENDIRILMIS tek bir yerde durur. */
+  --shell-offset: 104px;
+
+  /* ---- yüzey dokusu (kart gradyanı; kimlik ekranı kullanır) ---- */
+  --card-bg: linear-gradient(180deg, var(--n-0) 0%,
+      color-mix(in srgb, var(--surface-1) 86%, var(--grid)) 100%);
+  --card-hairline: rgba(255, 255, 255, 0.9);
+
+  /* ---- hareket ----
+     Tek eğri, üç süre. Hareket bilgi taşımadığı yerde kullanılmaz. */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+  --dur-slow: 420ms;
+
+  /* ---- kırılma noktaları (belge amaçlı) ----
+     @media kuralları custom property okuyamaz; ölçüler burada TANIMLI DEĞİL,
+     KAYITLIDIR: mobil <640px, tablet 640–1024px, masaüstü >1024px. Daha önce
+     altı farklı eşik vardı (560/640/720/760/860/1200) ve hangi ekranın nerede
+     kırıldığı kestirilemiyordu. Yeni kurallar yalnız bu ikisini kullanır. */
+}
+
+/* =============================================================================
+   3. KOYU TEMA — yalnız EŞLEME değişir, ham palet değil.
+   İki blok: sistem tercihi (kullanıcı açık seçmediyse) ve açık kullanıcı seçimi.
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --role-hr-fg: var(--role-hr-ink-dark);
+    --role-hr-bg-soft: var(--role-hr-bg-dark);
+    --page: var(--nd-900);
+    --surface-1: var(--nd-800);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --grid: var(--nd-700);
+    --border: rgba(255, 255, 255, 0.1);
+    --text-primary: var(--n-0);
+    --text-secondary: var(--nd-200);
+    --muted: var(--nd-300);
+
+    --brand: var(--blue-300);
+    --brand-solid: var(--blue-700);
+
+    --status-good-ink: var(--green-300);
+    --status-warning-ink: var(--amber-300);
+    --status-critical-ink: var(--red-300);
+    --status-neutral-ink: var(--nd-300);
+    --status-neutral: var(--nd-300);
+
+    --series-1: var(--series-blue-light);
+    --series-2: var(--series-violet-light);
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 12px 34px rgba(0, 0, 0, 0.55);
+    --shadow-3: 0 22px 56px -14px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.5);
+
+    --card-bg: linear-gradient(180deg,
+        color-mix(in srgb, var(--n-0) 5.5%, var(--surface-1)) 0%,
+        var(--surface-1) 58%);
+    --card-hairline: rgba(255, 255, 255, 0.07);
+  }
+}
+
+:root[data-theme="dark"] {
+  --role-hr-fg: var(--role-hr-ink-dark);
+  --role-hr-bg-soft: var(--role-hr-bg-dark);
+  --page: var(--nd-900);
+  --surface-1: var(--nd-800);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --grid: var(--nd-700);
+  --border: rgba(255, 255, 255, 0.1);
+  --text-primary: var(--n-0);
+  --text-secondary: var(--nd-200);
+  --muted: var(--nd-300);
+
+  --brand: var(--blue-300);
+  --brand-solid: var(--blue-700);
+
+  --status-good-ink: var(--green-300);
+  --status-warning-ink: var(--amber-300);
+  --status-critical-ink: var(--red-300);
+  --status-neutral-ink: var(--nd-300);
+  --status-neutral: var(--nd-300);
+
+  --series-1: var(--series-blue-light);
+  --series-2: var(--series-violet-light);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 12px 34px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 22px 56px -14px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.5);
+
+  --card-bg: linear-gradient(180deg,
+      color-mix(in srgb, var(--n-0) 5.5%, var(--surface-1)) 0%,
+      var(--surface-1) 58%);
+  --card-hairline: rgba(255, 255, 255, 0.07);
+}

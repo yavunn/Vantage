@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 from app.api.auth import current_user, require_admin
 from app.core.config import Config, get_config
 from app.core.db import get_session
-from app.core.i18n import lang_from_request, metric_meta, status_labels, tr_error
+from app.core.i18n import (
+    current_lang,
+    lang_from_request,
+    metric_meta,
+    status_labels,
+    tr_error,
+    tr_text,
+)
 from app.metrics.engine import load_team_data
 from app.models import (
     Commit,
@@ -142,6 +149,8 @@ def team_summary(
             prev = overall.get(row.metric_key)
             if prev is None or (row.computed_at and prev.computed_at and row.computed_at > prev.computed_at):
                 overall[row.metric_key] = row
+    from app.services.report import recommendation_payload
+
     recs = session.scalars(
         select(Recommendation).where(
             Recommendation.scope == "team", Recommendation.scope_id == team_id
@@ -151,10 +160,7 @@ def team_summary(
     return {
         "team": {"id": team.id, "name": team.name, "member_count": member_count},
         "metrics": [_metric_payload(r, cfg, lang) for r in overall.values()],
-        "recommendations": [
-            {"rule": r.rule_key, "message": r.message, "severity": r.severity}
-            for r in recs
-        ],
+        "recommendations": [recommendation_payload(r) for r in recs],
         "anonymized": cfg.app.anonymize_individuals,
     }
 
@@ -709,8 +715,8 @@ def developer_summary(
         "overall": overall,
         "commit_alignment": alignment,
         "metrics": metrics,
-        "note": "Bu görünüm yalnızca sizin (ve yöneticinizin) erişimine açıktır; "
-                "kıyas yalnızca kendi geçmişinizle yapılır.",
+        "note": tr_text("Bu görünüm yalnızca sizin (ve yöneticinizin) erişimine açıktır; "
+                        "kıyas yalnızca kendi geçmişinizle yapılır."),
     }
 
 
@@ -766,9 +772,9 @@ def developer_task_links(
         "developer": {"id": dev.id, "display_name": dev.display_name},
         "task_source": _task_source(cfg),
         "tasks": gorevler,
-        "note": "Bağlar tahmindir; 'kesin' olanlar commit mesajında kart numarası "
-                "geçtiği için kuruldu. Bu görünüm yalnızca sizin (ve yöneticinizin) "
-                "erişimine açıktır.",
+        "note": tr_text("Bağlar tahmindir; 'kesin' olanlar commit mesajında kart numarası "
+                        "geçtiği için kuruldu. Bu görünüm yalnızca sizin (ve yöneticinizin) "
+                        "erişimine açıktır."),
     }
 
 
@@ -787,23 +793,25 @@ def _one_on_one_points(summary: dict) -> list[dict]:
             and cur < prev
         )
         if st == "green":
-            wins.append(f"{name}: sağlıklı seyrediyor — takdir et.")
+            wins.append(tr_text("{name}: sağlıklı seyrediyor — takdir et.", name=name))
         elif st == "red":
-            focus.append(f"{name}: zorlanma işareti. Ne engel oluyor, nasıl "
-                         f"destek olabilirim diye birlikte bak.")
+            focus.append(tr_text("{name}: zorlanma işareti. Ne engel oluyor, nasıl destek "
+                                 "olabilirim diye birlikte bak.", name=name))
         elif st == "yellow":
-            focus.append(f"{name}: izlenmeli. Erken konuşmak sorunu büyümeden çözer.")
+            focus.append(tr_text("{name}: izlenmeli. Erken konuşmak sorunu büyümeden çözer.",
+                                 name=name))
         if improved:
-            wins.append(f"{name}: geçen döneme göre iyileşmiş — ilerlemeyi görünür kıl.")
+            wins.append(tr_text("{name}: geçen döneme göre iyileşmiş — ilerlemeyi görünür kıl.",
+                                name=name))
     if not wins:
-        wins.append("Bu dönemde öne çıkan pozitif ve zorlanma yeterli veriyle "
-                    "ölçülemedi — genel gidişatı ve moralı konuş.")
+        wins.append(tr_text("Bu dönemde öne çıkan pozitif ve zorlanma yeterli veriyle "
+                            "ölçülemedi — genel gidişatı ve moralı konuş."))
     return [
-        {"section": "Kutlanacaklar", "tone": "positive", "items": wins},
-        {"section": "Birlikte bakılacaklar", "tone": "support", "items": focus},
-        {"section": "Hatırlatma", "tone": "neutral", "items": [
-            "Bu notlar performans puanı değil; süreç sağlığı ve destek içindir.",
-            "Kıyas yalnızca kişinin kendi geçmişiyledir, başka kişiyle değil.",
+        {"section": tr_text("Kutlanacaklar"), "tone": "positive", "items": wins},
+        {"section": tr_text("Birlikte bakılacaklar"), "tone": "support", "items": focus},
+        {"section": tr_text("Hatırlatma"), "tone": "neutral", "items": [
+            tr_text("Bu notlar performans puanı değil; süreç sağlığı ve destek içindir."),
+            tr_text("Kıyas yalnızca kişinin kendi geçmişiyledir, başka kişiyle değil."),
         ]},
     ]
 
@@ -816,7 +824,10 @@ def developer_one_on_one(
 ):
     """1:1 görüşme hazırlık özeti — bireysel görünümle AYNI yetki kurallarına
     tabidir (kişinin kendisi, yöneticisi ya da admin)."""
-    summary = developer_summary(dev_id, session, user)
+    # Dil AÇIKÇA geçilmeli: developer_summary'nin `lang` parametresi FastAPI
+    # bağımlılığıdır ve doğrudan çağrıda devreye girmez — varsayılana düşünce
+    # İngilizce arayüzde 1:1 özetindeki metrik adları Türkçe kalıyordu.
+    summary = developer_summary(dev_id, session, user, current_lang())
     return {
         "developer": summary["developer"],
         "window_days": summary["window_days"],

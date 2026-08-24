@@ -38,6 +38,38 @@ function LazyFallback() {
   return <div className="app">{t("Yükleniyor…")}</div>;
 }
 
+// Ekran başlığı: "buradayım" + "burada ne yapabilirim".
+//
+// NEDEN TEK YERDE: hiçbir panelde <h1> yoktu ve kullanıcının konumunu anlaması
+// yalnız hangi sekmenin koyu göründüğüne bağlıydı. Başlığı her panele tek tek
+// eklemek yerine sekme durumundan türetiliyor — yeni bir panel eklendiğinde
+// başlığı unutmak mümkün olmasın. Sekme etiketiyle AYNI sözlük anahtarını
+// kullanır; ikisi asla ayrışmaz.
+const SAYFA_ACIKLAMA = {
+  team: "page.team.desc",
+  me: "page.me.desc",
+  projects: "page.projects.desc",
+  leaves: "page.leaves.desc",
+  documents: "page.documents.desc",
+  survey: "page.survey.desc",
+  admin: "page.admin.desc",
+  hr: "page.hr.desc",
+  accounts: "page.accounts.desc",
+  settings: "page.settings.desc",
+};
+
+function PageHead({ tab, t }) {
+  const baslik = t(`nav.${tab}`);
+  const aciklama = SAYFA_ACIKLAMA[tab] ? t(SAYFA_ACIKLAMA[tab]) : "";
+  if (!baslik) return null;
+  return (
+    <header className="page-head">
+      <h1>{baslik}</h1>
+      {aciklama && <p className="page-desc">{aciklama}</p>}
+    </header>
+  );
+}
+
 // Kart sırası: dikkat isteyen üstte, veri yok en altta. Yalnızca GÖSTERİM
 // sırasıdır — hangi metriğin hesaplandığını ya da neyin döndüğünü değiştirmez.
 // Panoda ilk okunan şey "neye bakmalıyım" olsun diye var.
@@ -336,7 +368,22 @@ export default function App() {
     );
   }
 
-  if (error) return <div className="error-box">{t("Hata: {msg}", { msg: error.message })}</div>;
+  if (error) {
+    return (
+      <div className="app">
+        <div className="error-screen" role="alert">
+          <h1>{t("Pano yüklenemedi")}</h1>
+          <p className="error-detail">{error.message}</p>
+          <p className="desc">
+            {t("Bağlantınız koptuysa sayfayı yenilemek yeter. Sorun sürüyorsa yöneticinize bu mesajı iletin.")}
+          </p>
+          <button className="login-btn" onClick={() => window.location.reload()}>
+            {t("Sayfayı yenile")}
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!uiConfig) return <div className="app">{t("Yükleniyor…")}</div>;
 
   const individualAvailable = uiConfig.individual_view_enabled;
@@ -367,6 +414,7 @@ export default function App() {
     // Giriş/kurulum ekranları bu ağacın DIŞINDA (yukarıdaki erken dönüşler):
     // dil değiştirmek yazılmakta olan e-posta/parolayı silmesin.
     <div className="app" key={lang}>
+      <a className="skip-link" href="#icerik">{t("İçeriğe atla")}</a>
       <TopBar
         user={user}
         isAdmin={isAdmin}
@@ -392,6 +440,9 @@ export default function App() {
           onDismiss={() => setSurveyDismissed(true)}
         />
       )}
+
+      <main id="icerik" className="app-main">
+      <PageHead tab={tab} t={t} />
 
       <Suspense fallback={<LazyFallback />}>
         {tab === "survey" && (
@@ -559,14 +610,14 @@ export default function App() {
 
           {summary.metrics.length > 0 && summary.metrics.every((m) => m.status === "insufficient_data") && (
             <div className="empty-guide">
-              <h3>{t("Bu takım için henüz yeterli veri yok")}</h3>
+              <h2>{t("Bu takım için henüz yeterli veri yok")}</h2>
               <p>
                 {isAdmin
                   ? t("Gerçek veri için: kaynağı bağla (config.yaml) → senkron çalıştır. Yönetici paneli → Başlangıç adımlarını izle.")
                   : t("Veri toplandıkça metrikler burada görünecek. Sorun sürerse yöneticine danış.")}
               </p>
               {isAdmin && (
-                <button className="mini" onClick={() => setTab("admin")}>{t("Yönetici paneli → Başlangıç")}</button>
+                <button className="login-btn" onClick={() => setTab("admin")}>{t("Yönetici paneli → Başlangıç")}</button>
               )}
             </div>
           )}
@@ -642,6 +693,8 @@ export default function App() {
           )}
         </>
       )}
+
+      </main>
 
       {drill && (
         <MetricDrilldown

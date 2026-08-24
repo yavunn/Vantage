@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, apiPost } from "../api.js";
 import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
+import Yukleniyor from "./Yukleniyor.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
 import { useT } from "../i18n.jsx";
 
@@ -49,9 +50,17 @@ export default function MyCodeHealth({ user }) {
 
   const linked = user?.developer_id != null;
 
+  // `health === null` hem "yukleniyor" hem "yuklenemedi" demekti; ikisi ayri
+  // sey - biri beklemeyi, oteki bir sorunu anlatir.
+  const [yukleniyor, setYukleniyor] = useState(true);
+
   function load() {
     if (!linked) return;
-    api("/api/me/code-health").then(setHealth).catch(() => setHealth(null));
+    setYukleniyor(true);
+    api("/api/me/code-health")
+      .then(setHealth)
+      .catch(() => setHealth(null))
+      .finally(() => setYukleniyor(false));
   }
   useEffect(load, [linked]);
 
@@ -78,18 +87,24 @@ export default function MyCodeHealth({ user }) {
   }
 
   return (
-    <section className="section">
+    <section className="section my-code-health">
       <h2>{t("Kodum — AI kod sağlığı")}</h2>
       <p className="desc">
         {t("Yalnızca sizin kodunuz (git yazarı = siz). Kıyaslama yok; kendi kodunuzun yapıcı geri bildirimi. Sonuçlar yalnızca size (ve yöneticinize) açıktır.")}
       </p>
       {error && <p className="error-inline">{error.message}</p>}
       {msg && <p className={SINIF[msg.sev]}>{msg.text}</p>}
-      <div className="cards" style={{ maxWidth: 320 }}>
-        <CodeHealthCard health={health} onClick={() => setDrill(true)} />
-      </div>
+      {yukleniyor ? (
+        <Yukleniyor bicim="kart" adet={1} />
+      ) : health ? (
+        <div className="cards">
+          <CodeHealthCard health={health} onClick={() => setDrill(true)} />
+        </div>
+      ) : (
+        <p className="empty-note">{t("Kod sağlığı bilgisi alınamadı. Aşağıdan analizi çalıştırabilirsiniz.")}</p>
+      )}
       <div className="ca-row">
-        <button className="mini" onClick={runNow} disabled={busy}>
+        <button className="login-btn" onClick={runNow} disabled={busy}>
           {busy ? t("Analiz ediliyor…") : t("Kodumu analiz et")}
         </button>
       </div>

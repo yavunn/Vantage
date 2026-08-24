@@ -60,6 +60,11 @@ _COLUMN_PATCHES: dict[str, dict[str, str]] = {
     "code_analysis_audit": {
         "truncated": "BOOLEAN DEFAULT FALSE",
     },
+    "recommendations": {
+        # Öneri metni artık şablon; sayısal değerler burada durur ve çeviri
+        # okuma anında yapılır (bkz. core/texts_en.py).
+        "params": "JSON",
+    },
 }
 
 
@@ -75,7 +80,11 @@ def ensure_schema_patches() -> None:
             for name, ddl in cols.items():
                 if name in existing:
                     continue
-                col_type = "TEXT" if sqlite and "TIMESTAMP" in ddl else ddl
+                # SQLite'ta TIMESTAMP/JSON gibi tipler yok; SQLAlchemy her
+                # ikisini de metin olarak yazar. Ham tip adı bırakılırsa JSON
+                # kolonu NUMERIC affinity alırdı.
+                sqlite_metin = sqlite and ("TIMESTAMP" in ddl or ddl == "JSON")
+                col_type = "TEXT" if sqlite_metin else ddl
                 conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {col_type}'))
 
 

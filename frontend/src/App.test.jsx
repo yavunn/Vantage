@@ -8,7 +8,7 @@
  * kullanıcı giriş yaptıktan SONRA bile tam sayfa "Hata: Oturum geçersiz veya
  * süresi doldu" kutusunda kilitli kalıyordu. Tek çıkış sayfayı yenilemekti.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App.jsx";
@@ -73,6 +73,50 @@ describe("açılışta süresi dolmuş token", () => {
   });
 });
 
+// Oturum açmış pano render'ı iki describe tarafından da kullanılır
+// (dil tazeleme ve kabuk yapısı), bu yüzden modül seviyesinde.
+const oturumAc = () => {
+  localStorage.setItem("vantage_token", "tok");
+  localStorage.setItem(
+    "vantage_user",
+    JSON.stringify({ id: 1, display_name: "Ali", role: "admin" }),
+  );
+};
+
+const RAPOR = (lang) =>
+  mockResponse({
+    body: {
+      metrics: [{
+        key: "cycle_time",
+        name: lang === "en" ? "Cycle Time" : "Cycle Time",
+        description: lang === "en" ? "Average time from work opened to done" : "Ortalama tamamlanma süresi",
+        value: 3, unit: "gün",
+        status: "green",
+        status_label: lang === "en" ? "Flowing" : "Akıyor",
+        data_completeness: 1,
+      }],
+      recommendations: [],
+      series: [],
+      signals: [],
+    },
+  });
+
+function stubPano() {
+  return stubFetch({
+    "/api/auth/setup-status": mockResponse({ body: { needs_setup: false } }),
+    "/api/auth/me": mockResponse({ body: { id: 1, display_name: "Ali", role: "admin" } }),
+    "/api/config/ui": mockResponse({ body: { individual_view_enabled: false, anonymize_individuals: false, metric_thresholds: {} } }),
+    "/api/teams": mockResponse({ body: [{ id: 1, name: "Takım A" }] }),
+    "/api/directory": mockResponse({ body: [] }),
+    "/api/survey/current": mockResponse({ body: { enabled: false } }),
+    "/api/me/notifications": mockResponse({ body: [] }),
+    "/api/annotations": mockResponse({ body: [] }),
+    "/api/teams/1/report": RAPOR,
+    "/api/teams/1/code-health": mockResponse({ body: null }),
+    "/api/teams/1/code-health/series": mockResponse({ body: null }),
+  });
+}
+
 describe("dil değişimi", () => {
   /**
    * Kusur: dil seçici arayüz metinlerini anında çeviriyordu ama SUNUCUDAN gelen
@@ -81,48 +125,6 @@ describe("dil değişimi", () => {
    * unmount olmaz; bu yüzden sekme değiştirip geri gelmek de kurtarmıyordu,
    * kartlar sayfa yenilenene kadar eski dilde kalıyordu.
    */
-  const oturumAc = () => {
-    localStorage.setItem("vantage_token", "tok");
-    localStorage.setItem(
-      "vantage_user",
-      JSON.stringify({ id: 1, display_name: "Ali", role: "admin" }),
-    );
-  };
-
-  const RAPOR = (lang) =>
-    mockResponse({
-      body: {
-        metrics: [{
-          key: "cycle_time",
-          name: lang === "en" ? "Cycle Time" : "Cycle Time",
-          description: lang === "en" ? "Average time from work opened to done" : "Ortalama tamamlanma süresi",
-          value: 3, unit: "gün",
-          status: "green",
-          status_label: lang === "en" ? "Flowing" : "Akıyor",
-          data_completeness: 1,
-        }],
-        recommendations: [],
-        series: [],
-        signals: [],
-      },
-    });
-
-  function stubPano() {
-    return stubFetch({
-      "/api/auth/setup-status": mockResponse({ body: { needs_setup: false } }),
-      "/api/auth/me": mockResponse({ body: { id: 1, display_name: "Ali", role: "admin" } }),
-      "/api/config/ui": mockResponse({ body: { individual_view_enabled: false, anonymize_individuals: false, metric_thresholds: {} } }),
-      "/api/teams": mockResponse({ body: [{ id: 1, name: "Takım A" }] }),
-      "/api/directory": mockResponse({ body: [] }),
-      "/api/survey/current": mockResponse({ body: { enabled: false } }),
-      "/api/me/notifications": mockResponse({ body: [] }),
-      "/api/annotations": mockResponse({ body: [] }),
-      "/api/teams/1/report": RAPOR,
-      "/api/teams/1/code-health": mockResponse({ body: null }),
-      "/api/teams/1/code-health/series": mockResponse({ body: null }),
-    });
-  }
-
   it("sunucudan gelen metinleri de yeni dilde tazeler", async () => {
     oturumAc();
     stubPano();
@@ -207,5 +209,61 @@ describe("oturum düştükten sonra yeniden giriş", () => {
     // "Hata: Oturum geçersiz veya süresi doldu" basılıyordu.
     expect(screen.queryByText(/^Hata:/)).not.toBeInTheDocument();
     expect(screen.getByText("Yükleniyor…")).toBeInTheDocument();
+  });
+});
+
+describe("kabuk yapısı", () => {
+  it("her ekranın kendi başlığı ve içerik bölgesi var", async () => {
+    // Daha önce hiçbir panelde <h1> yoktu: kullanıcının konumunu anlamasının
+    // tek yolu hangi sekmenin koyu göründüğüydü. Başlık sekme durumundan
+    // türetilir, böylece yeni panel eklendiğinde unutulamaz.
+    oturumAc();
+    stubPano();
+
+    render(<LangProvider><App /></LangProvider>);
+
+    const baslik = await screen.findByRole("heading", { level: 1, name: "Takım görünümü" });
+    expect(baslik).toBeInTheDocument();
+    // Marka artık başlık değil — ikisi yarışmamalı.
+    expect(screen.queryByRole("heading", { name: "Vantage" })).not.toBeInTheDocument();
+
+    // Klavye kullanıcısı sekmeleri atlayabilsin; içerik işaretli bir bölge olsun.
+    expect(screen.getByRole("main")).toContainElement(baslik);
+    expect(screen.getByRole("link", { name: "İçeriğe atla" })).toHaveAttribute("href", "#icerik");
+  });
+
+  it("sekme değişince başlık da değişir", async () => {
+    oturumAc();
+    stubPano();
+
+    render(<LangProvider><App /></LangProvider>);
+    await screen.findByRole("heading", { level: 1, name: "Takım görünümü" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Ayarlar" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Ayarlar" })).toBeInTheDocument();
+  });
+});
+
+describe("pano geri bildirimi", () => {
+  it("hata durumunda ne olduğunu VE ne yapılacağını söyler", async () => {
+    // Önceki hâli tek satırlık kırmızı yazıydı ("Hata: Failed to fetch") ve
+    // kullanıcıya hiçbir çıkış yolu bırakmıyordu.
+    oturumAc();
+    stubFetch({
+      "/api/auth/setup-status": mockResponse({ body: { needs_setup: false } }),
+      "/api/auth/me": mockResponse({ body: { id: 1, display_name: "Ali", role: "admin" } }),
+      "/api/config/ui": mockResponse({ ok: false, status: 500, body: { detail: "sunucu hatası" } }),
+      "/api/teams": mockResponse({ body: [] }),
+      "/api/directory": mockResponse({ body: [] }),
+      "/api/survey/current": mockResponse({ body: { enabled: false } }),
+      "/api/me/notifications": mockResponse({ body: [] }),
+    });
+
+    render(<LangProvider><App /></LangProvider>);
+
+    const uyari = await screen.findByRole("alert");
+    expect(within(uyari).getByRole("heading", { level: 1 })).toHaveTextContent("Pano yüklenemedi");
+    expect(within(uyari).getByRole("button", { name: "Sayfayı yenile" })).toBeInTheDocument();
   });
 });

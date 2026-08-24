@@ -525,7 +525,12 @@ class Recommendation(Base):
     scope: Mapped[str] = mapped_column(String(20))
     scope_id: Mapped[int] = mapped_column(Integer)
     rule_key: Mapped[str] = mapped_column(String(100))
+    # ŞABLON metin ({ad} yer tutuculu) + parametreleri. Hazır cümle saklansaydı
+    # öneri, yazıldığı dilde donardı; böyle saklanınca çeviri okuma anında
+    # yapılır (bkz. core/texts_en.py). Eski satırlarda params NULL olabilir —
+    # o zaman metin olduğu gibi gösterilir.
     message: Mapped[str] = mapped_column(Text)
+    params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     severity: Mapped[str] = mapped_column(String(20), default="info")  # info | warning | attention
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 

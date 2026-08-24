@@ -28,6 +28,23 @@ export const EN = {
   "Ara": "Search",
   "Ara…": "Search…",
   "Yenile": "Refresh",
+  "Kod sağlığı bilgisi alınamadı. Aşağıdan analizi çalıştırabilirsiniz.":
+    "Code health data could not be loaded. You can run the analysis below.",
+  "izin yok": "no leave",
+  "az": "low",
+  "orta": "medium",
+  "çok": "high",
+  "Bu görünüm size kapalı: yalnızca kişinin kendisi ve yöneticisi görebilir.":
+    "This view is not open to you: only the person themselves and their manager can see it.",
+  "Bu görünüm yüklenemedi: {msg}": "This view could not be loaded: {msg}",
+  "Pano yüklenemedi": "The dashboard could not be loaded",
+  "Sayfayı yenile": "Reload the page",
+  "Bağlantınız koptuysa sayfayı yenilemek yeter. Sorun sürüyorsa yöneticinize bu mesajı iletin.":
+    "If your connection dropped, reloading is enough. If it keeps happening, send this message to your administrator.",
+  "İçeriğe atla": "Skip to content",
+  "Satır eylemleri": "Row actions",
+  "tanımlı": "set",
+  "tanımsız": "not set",
   "Geri": "Back",
   "İleri": "Next",
   "Devam": "Continue",
@@ -412,6 +429,7 @@ export const EN = {
   "Kendi durumunu değiştiremezsin": "You cannot change your own status",
   "İşe giriş tarihi + yıllık izin hakkı": "Start date + annual leave entitlement",
   "İzin hakkı": "Leave entitlement",
+  "İzni sil": "Delete leave",
   "yeni parola": "new password",
   "Rastgele üret": "Generate randomly",
   "İK yalnızca çalışan (user) parolasını sıfırlayabilir": "HR can only reset employee (user) passwords",
@@ -425,6 +443,7 @@ export const EN = {
   "Geçici parolayı çalışana güvenli bir kanaldan ilet. Kullanıcı ilk girişte değiştirecek.":
     "Share the temporary password with the employee over a secure channel. They'll change it on first sign-in.",
   "İkisini birden kopyala": "Copy both",
+  "E-posta ve parola": "Email and password",
   "mail:{email} şifre:{password}": "mail:{email} password:{password}",
   "İstihdam · {name}": "Employment · {name}",
   "İşe giriş tarihi": "Start date",
@@ -531,6 +550,7 @@ Object.assign(EN, {
   "GitHub token (özel repo)": "GitHub token (private repos)",
   "•••• (tanımlı — değiştirmek için yaz)": "•••• (configured — type to change)",
   'Yalnızca "Projelerim" özel GitHub repoları için PAT.': 'PAT for "My projects" private GitHub repos only.',
+  "•••• (değiştirmek için yaz)": "•••• (type to change)",
   "{n} repo takımsız": "{n} repo(s) have no team",
   "+ Repo ekle": "+ Add repository",
   "Metrik motoru bir takımın commitlerini o takıma bağlı repolardan çeker. Takımsız repo hiçbir metrik üretmez — pano \"veri yetersiz\" gösterir.":

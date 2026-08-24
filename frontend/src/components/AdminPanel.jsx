@@ -9,6 +9,7 @@ import {
   updateEmployee,
 } from "../api.js";
 import AuditPanel from "./AuditPanel.jsx";
+import Yukleniyor from "./Yukleniyor.jsx";
 import CodeAnalysisPanel from "./CodeAnalysisPanel.jsx";
 import IntegrationPanel from "./IntegrationPanel.jsx";
 import TaskLinksPanel from "./TaskLinksPanel.jsx";
@@ -69,8 +70,14 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
   // Yeni hesap / parola sıfırlama sonrası kimlik bilgisi modalı (kopyala araçları).
   const [cred, setCred] = useState(null); // { title, email, password }
 
+  // Hesap listesi gelene kadar tablo bos duruyordu.
+  const [yukleniyor, setYukleniyor] = useState(true);
+
   function refresh() {
-    listEmployees().then(setEmployees).catch((e) => setError(e.message));
+    listEmployees()
+      .then(setEmployees)
+      .catch((e) => setError(e.message))
+      .finally(() => setYukleniyor(false));
   }
   useEffect(refresh, []);
 
@@ -227,7 +234,9 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
   }
 
   return (
-    <div className="admin-panel">
+    // side-panel: Ayarlar ekraniyla PAYLASILAN kenar cubugu kalibi. Ikisi
+    // birebir ayni kurallari iki kez tanimliyordu; artik tek kalip.
+    <div className="admin-panel side-panel">
       {!hrMode && (
         <div className="subtabs">
           <button className={`tab ${subtab === "onboarding" ? "active" : ""}`} onClick={() => setSubtab("onboarding")}>{t("Başlangıç")}</button>
@@ -245,7 +254,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
       {/* Panel gövdesi: kenar çubuğunun yanına oturan tek sütun. Sarmalayıcı
           olmadan alt sekme listesi ve içerik kardeş kalıyordu; ikisini yan yana
           dizmek mümkün değildi. İçerik ve koşullar aynen korundu. */}
-      <div className="admin-body">
+      <div className="admin-body side-body">
 
       {!hrMode && subtab === "onboarding" && <OnboardingPanel onGoto={setSubtab} />}
 
@@ -324,6 +333,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
               </div>
             )}
 
+            {yukleniyor ? <Yukleniyor adet={6} /> : (
             <table className="quality">
               <thead>
                 <tr>
@@ -419,6 +429,7 @@ export default function AdminPanel({ teams, me, onViewPerson, onTeamsChanged, hr
                 })}
               </tbody>
             </table>
+            )}
 
             {pageCount > 1 && (
               <div className="pager">

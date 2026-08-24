@@ -97,7 +97,13 @@ backend/
   scripts/task_link_eval.py    # görev↔commit ilk sıra isabeti (prim sabitleri ölçülür)
   tests/        # metrikler (tam+eksik veri), kurallar, etik uçlar, auth/İK/izin,
                 # anket anonimliği, kod-analiz prompt, projeler, kimlik eşleme
-frontend/       # React dashboard
+frontend/
+  src/
+    styles/
+      00-belirtecler.css   # TEK deger kaynagi: renk, tipografi, bosluk, bicim
+      01-temel.css         # sifirlama, kabuk, takim panosu, tablolar, durumlar
+      02-bilesenler.css    # ekrana ozel bilesenler
+    components/            # React bilesenleri
 config/config.yaml
 ```
 
@@ -315,7 +321,7 @@ değildir** (İlke B):
 | `app.individual_view_enabled` | bireysel görünümü tümden aç/kapat |
 | `sources.git.provider` · `sources.tasks.provider` | adaptör seçimi: `git_log`/`gitlab`, `jira`/`trello`; `fixture` = sentetik demo verisi, `none` = kaynak yok |
 | `sources.tasks.status_mapping` | kaynaktaki serbest metinli kolon/statü adlarını `backlog`/`in_progress`/`done`'a eşler (ör. "Araştırma Konuları" → backlog). **Yalnız bu dosyadan yönetilir** — panelde düzenleme ekranı yoktur, akış zaten kartın Trello'daki listesiyle belirlenir. Eşlenmeyen kolon **WIP'e sayılmaz** (bilinmeyen, "akışta" değildir) ama veri tamlığını düşürür ve senkron bunu uyarı olarak bildirir |
-| `app` · dil | Arayüz TR/EN — seçim kullanıcıya ait, tarayıcı diline BAKILMAZ (İngilizce OS kullanan Türk çalışana arayüz sormadan İngilizce gösterilmemeli). Seçim `Accept-Language` ile sunucuya da gider: metrik adları ve durum etiketleri API'den geldiği için yalnız arayüzü çevirmek panoyu yarı Türkçe bırakırdı |
+| `app` · dil | Arayüz TR/EN — seçim kullanıcıya ait, tarayıcı diline BAKILMAZ (İngilizce OS kullanan Türk çalışana arayüz sormadan İngilizce gösterilmemeli). Seçim `Accept-Language` ile sunucuya da gider: metrik adları, durum etiketleri, bireysel skor notları, 1:1 hazırlık başlıkları ve süreç önerileri API'den geldiği için yalnız arayüzü çevirmek panoyu yarı Türkçe bırakırdı. Öneriler veritabanına **şablon + parametre** olarak yazılır, çeviri okuma anında yapılır (sayı içeren cümle de çevrilebilsin). Çevrilmeyen tek şey çalışma anında ÜRETİLEN düzyazıdır: LLM çıktısı ve senkron uyarıları |
 | `sources.tasks.jira.auth` / `.email` / `.api_style` | Jira **Cloud** e-posta + API token ile `basic` auth ister ve yeni arama ucunu kullanır; `bearer` yalnız Server/Data Center içindir. `api_style: auto` adresten karar verir. Panelden de girilebilir |
 | `sources.tasks.jira.story_points_field` | story point alan kimliği kurulumdan kuruluma değişir; bulunamazsa senkron uyarı verir. Boş bırakılırsa alan hiç okunmaz |
 | `sources.git.scan_all_branches` | `git_log`: yalnız HEAD (varsayılan) ya da `--all` ile tüm dallar |
@@ -410,6 +416,32 @@ metrics:
 | Cuma akşamı deploy + hafta sonu hotfix | riskli deploy penceresi — freeze düşün |
 
 Tüm eşikler config'ten; mesajlar destek dilinde ("kusur değil, görünürlük kaybı").
+Mesaj metni şablon olarak saklanır (`Recommendation.message` + `.params`), böylece
+aynı öneri panoyu Türkçe açan da İngilizce açan da kendi dilinde okur.
+
+## Arayüz: tasarım sistemi
+
+Stil üç dosyadır ve tek yöne akar: **değer → temel → bileşen**. Daha önce beş
+katman vardı ve aynı seçici beşinde birden tanımlı olabiliyordu (`.topbar` tam
+da öyleydi); bir rengi değiştirmek "hangi katman kazanıyor?" sorusunu çözmeyi
+gerektiriyordu.
+
+- **Renk yalnız `00-belirtecler.css`'te.** Ham palet (hex'ler) → anlamsal
+  belirteç (`--surface-1`, `--brand`, `--status-good-ink`) → bileşen. Koyu tema
+  yalnızca EŞLEMEyi değiştirir, değerleri tekrar yazmaz.
+- **Durum renginin iki yüzü var:** `--status-*` dolgudur (nokta, şerit, grafik
+  işareti), `--status-*-ink` metindir. Dolgu tonları küçük metinde okunmuyordu
+  (açık zeminde sarı 1.79:1); ölçülüp ayrıldı. Tüm metin/zemin çiftleri
+  AA (≥4.5:1) geçer.
+- **Marka aksanı ≠ veri rengi.** `--brand` yalnız kabuk/aksan; `--series-*`
+  yalnız veri. İkisinin karışması hem okunurluğu bozuyordu hem de kabuk
+  aksanını grafikteki bir seri gibi gösteriyordu.
+- **Ölçek:** 8 adım tipografi, 4'ün katları boşluk, iki kırılma noktası
+  (mobil <640px, tablet <1024px), dokunmatikte 44px hedef.
+
+Kuralları testler korur (`src/styles/belirtec.test.js`): ham renk yalnız
+belirteç dosyasında, tanımsız belirteç yok, koyu tema ham değer yazmaz, ham
+punto yok, iki eşik. `src/i18n.coverage.test.js` de aynı işi çeviri için yapar.
 
 ## Sentetik kirli veri (test stratejisi)
 

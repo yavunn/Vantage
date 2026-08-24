@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import re
 
+from app.core.i18n import tr_text
+
 _TYPE = re.compile(
     r"^(?P<type>feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
     r"(\((?P<scope>[^)]+)\))?!?:\s*(?P<subject>.*)$",
@@ -76,19 +78,19 @@ def _type_expectation(ctype: str, paths: list[str]) -> tuple[bool, str | None]:
     t = ctype.lower()
     if t == "test":
         if not any(_TEST_PAT.search(p) for p in paths):
-            return False, "`test:` yazılmış ama değişen dosyalar arasında test dosyası yok"
+            return False, tr_text("`test:` yazılmış ama değişen dosyalar arasında test dosyası yok")
     elif t == "docs":
         if not all(_DOC_PAT.search(p) for p in paths):
-            return False, "`docs:` yazılmış ama doküman dışı dosyalar da değişmiş"
+            return False, tr_text("`docs:` yazılmış ama doküman dışı dosyalar da değişmiş")
     elif t == "ci":
         if not any(_CI_PAT.search(p) for p in paths):
-            return False, "`ci:` yazılmış ama CI yapılandırma dosyası değişmemiş"
+            return False, tr_text("`ci:` yazılmış ama CI yapılandırma dosyası değişmemiş")
     elif t == "build":
         if not any(_BUILD_PAT.search(p) or _CI_PAT.search(p) for p in paths):
-            return False, "`build:` yazılmış ama derleme/bağımlılık dosyası değişmemiş"
+            return False, tr_text("`build:` yazılmış ama derleme/bağımlılık dosyası değişmemiş")
     elif t == "style":
         if not any(_STYLE_PAT.search(p) for p in paths):
-            return False, "`style:` yazılmış ama stil dosyası değişmemiş (davranış değişmiş olabilir)"
+            return False, tr_text("`style:` yazılmış ama stil dosyası değişmemiş (davranış değişmiş olabilir)")
     return True, None
 
 
@@ -102,7 +104,8 @@ def review_commit(commit: dict) -> dict:
     if not msg or not paths:
         return {
             "sha": sha, "score": None, "aligned": None, "checked": False,
-            "issues": [], "reason": "Değişen dosya listesi ya da mesaj yok — eşleşme kontrol edilemedi",
+            "issues": [],
+            "reason": tr_text("Değişen dosya listesi ya da mesaj yok — eşleşme kontrol edilemedi"),
         }
 
     first = msg.splitlines()[0].strip()
@@ -126,7 +129,8 @@ def review_commit(commit: dict) -> dict:
                 # Kapsam yolda geçiyor: mesaj zaten hangi modül olduğunu söylüyor.
                 scope_matched = True
             elif scope_parts:
-                issues.append(f"Kapsam `({scope})` yazılmış ama değişen dosya yollarında karşılığı yok")
+                issues.append(tr_text("Kapsam `({scope})` yazılmış ama değişen dosya "
+                                      "yollarında karşılığı yok", scope=scope))
                 penalty += _PENALTY["scope_mismatch"]
 
     # Konu satırı, dokunulan dosyalarla anlamsal olarak bağlantılı mı?
@@ -136,19 +140,20 @@ def review_commit(commit: dict) -> dict:
     if not scope_matched:
         if not subj_tokens:
             # "update", "wip" gibi içeriksiz konu: hiçbir şeye bağlanamaz.
-            issues.append("Konu satırı içerik taşımıyor (ör. 'update') — hangi kodun neden "
-                          "değiştiği mesajdan anlaşılmıyor")
+            issues.append(tr_text("Konu satırı içerik taşımıyor (ör. 'update') — hangi kodun neden "
+                                  "değiştiği mesajdan anlaşılmıyor"))
             penalty += _PENALTY["subject_unrelated"]
         elif not overlap and len(paths) <= 20:
-            issues.append("Mesajdaki sözcükler değişen dosya/modül adlarıyla örtüşmüyor — "
-                          "hangi modülün değiştiği mesajdan anlaşılmıyor")
+            issues.append(tr_text("Mesajdaki sözcükler değişen dosya/modül adlarıyla örtüşmüyor — "
+                                  "hangi modülün değiştiği mesajdan anlaşılmıyor"))
             penalty += _PENALTY["subject_unrelated"]
 
     # Tek mesajla çok geniş değişiklik: mesaj kapsamı temsil edemez
     churn = (commit.get("additions") or 0) + (commit.get("deletions") or 0)
     if len(paths) >= 15 or churn >= 800:
-        issues.append(f"Tek commit'te {len(paths)} dosya / ~{churn} satır — mesaj bu kadar "
-                      "değişikliği tek başına anlatamıyor, bölmek okunurluğu artırır")
+        issues.append(tr_text("Tek commit'te {dosya} dosya / ~{satir} satır — mesaj bu kadar "
+                              "değişikliği tek başına anlatamıyor, bölmek okunurluğu artırır",
+                              dosya=len(paths), satir=churn))
         penalty += _PENALTY["too_broad"]
 
     score = max(0, 100 - penalty)
@@ -170,20 +175,20 @@ def alignment_summary(commits: list[dict], sample_limit: int = 5) -> dict:
     if not checked:
         return {
             "score": None, "checked": 0, "total": len(results), "aligned_ratio": None,
-            "summary": "Mesaj-kod eşleşmesi için değişen dosya bilgisi yok "
-                       "(senkronda changed_files gerekli).",
+            "summary": tr_text("Mesaj-kod eşleşmesi için değişen dosya bilgisi yok "
+                               "(senkronda changed_files gerekli)."),
             "samples": [],
         }
     avg = round(sum(r["score"] for r in checked) / len(checked), 1)
     aligned = sum(1 for r in checked if r["aligned"])
     ratio = round(aligned / len(checked), 2)
     if avg >= 85:
-        summary = "Commit mesajları yazılan kodla büyük ölçüde örtüşüyor."
+        summary = tr_text("Commit mesajları yazılan kodla büyük ölçüde örtüşüyor.")
     elif avg >= 70:
-        summary = "Mesajlar genelde koda uyuyor; birkaç commit'te kapsam mesajdan geniş."
+        summary = tr_text("Mesajlar genelde koda uyuyor; birkaç commit'te kapsam mesajdan geniş.")
     else:
-        summary = ("Mesajlarla değişen kod sık sık ayrışıyor — mesaja hangi modülün ve "
-                   "neden değiştiğini yazmak sonradan aramayı kolaylaştırır.")
+        summary = tr_text("Mesajlarla değişen kod sık sık ayrışıyor — mesaja hangi modülün ve "
+                          "neden değiştiğini yazmak sonradan aramayı kolaylaştırır.")
     samples = sorted((r for r in checked if r["issues"]), key=lambda r: r["score"])[:sample_limit]
     return {
         "score": avg, "checked": len(checked), "total": len(results),

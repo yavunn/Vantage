@@ -30,9 +30,18 @@ from app.models import Recommendation, Team
 
 @dataclass
 class RuleFinding:
+    """Kural motorunun bulgusu.
+
+    `message` RENDERLENMİŞ değil ŞABLON metindir ({ad} yer tutuculu) ve sayısal
+    değerler `params` içinde ayrı durur. Neden: öneri metni veritabanına yazılır
+    ve aylar sonra okunur; hazır cümle olarak saklansaydı okuyanın dili ne
+    olursa olsun yazıldığı dilde donardı. Şablon + parametre saklanınca çeviri
+    OKUMA anında yapılabiliyor (bkz. core/texts_en.py, services/report.py)."""
+
     rule_key: str
     message: str
     severity: str  # info | warning | attention
+    params: dict | None = None
 
 
 def rule_review_bottleneck(data: TeamData, cfg: Config) -> RuleFinding | None:
@@ -44,11 +53,11 @@ def rule_review_bottleneck(data: TeamData, cfg: Config) -> RuleFinding | None:
     if outcome.value is not None and outcome.value >= threshold:
         return RuleFinding(
             "review_bottleneck",
-            f"PR'lar ilk review için ortalama {outcome.value:.1f} gün bekliyor "
-            f"(eşik: {threshold:g} gün). Takım review kapasitesinde sıkışıyor "
-            "olabilir — bir review WIP limiti ya da reviewer rotasyonu denemek "
-            "bekleme süresini kısaltabilir.",
+            "PR'lar ilk review için ortalama {gun} gün bekliyor (eşik: {esik} gün). "
+            "Takım review kapasitesinde sıkışıyor olabilir — bir review WIP limiti ya "
+            "da reviewer rotasyonu denemek bekleme süresini kısaltabilir.",
             "attention",
+            {"gun": f"{outcome.value:.1f}", "esik": f"{threshold:g}"},
         )
     return None
 
@@ -73,10 +82,11 @@ def rule_hotspot_files(data: TeamData, cfg: Config) -> RuleFinding | None:
         listing = ", ".join(f"{f} ({n} fix)" for f, n in hotspots[:3])
         return RuleFinding(
             "hotspot_files",
-            f"Son {window.days} günde aynı dosyalar tekrar tekrar düzeltme aldı: "
-            f"{listing}. Bu modüller refactor ve test coverage yatırımı için "
-            "güçlü adaylar — buraya ayrılacak zaman, gelecekteki fix yükünü azaltır.",
+            "Son {gun} günde aynı dosyalar tekrar tekrar düzeltme aldı: {dosyalar}. "
+            "Bu modüller refactor ve test coverage yatırımı için güçlü adaylar — "
+            "buraya ayrılacak zaman, gelecekteki fix yükünü azaltır.",
             "warning",
+            {"gun": window.days, "dosyalar": listing},
         )
     return None
 
@@ -90,10 +100,11 @@ def rule_wip_overload(data: TeamData, cfg: Config) -> RuleFinding | None:
     if outcome.value is not None and outcome.value >= threshold:
         return RuleFinding(
             "wip_overload",
-            f"Kişi başına ortalama {outcome.value:.1f} açık iş görünüyor "
-            f"(eşik: {threshold:g}). Çok iş başlatılıp az bitiriliyor olabilir — "
-            "takımca bir WIP limiti belirlemek akışı hızlandırabilir.",
+            "Kişi başına ortalama {wip} açık iş görünüyor (eşik: {esik}). Çok iş "
+            "başlatılıp az bitiriliyor olabilir — takımca bir WIP limiti belirlemek "
+            "akışı hızlandırabilir.",
             "attention",
+            {"wip": f"{outcome.value:.1f}", "esik": f"{threshold:g}"},
         )
     return None
 
@@ -119,11 +130,12 @@ def rule_low_process_hygiene(data: TeamData, cfg: Config) -> RuleFinding | None:
     if pct >= threshold:
         return RuleFinding(
             "low_process_hygiene",
-            f"Task'ların %{pct:.0f}'inde estimate girilmemiş. Bu bir kusur "
-            "değil, görünürlük kaybı: planlama sinyalleri eksik kalıyor ve bazı "
-            "metrikler hesaplanamıyor. Kısa bir planlama rutini (örn. haftalık "
-            "estimate turu) süreci görünür kılabilir.",
+            "Task'ların %{yuzde}'inde estimate girilmemiş. Bu bir kusur değil, "
+            "görünürlük kaybı: planlama sinyalleri eksik kalıyor ve bazı metrikler "
+            "hesaplanamıyor. Kısa bir planlama rutini (örn. haftalık estimate turu) "
+            "süreci görünür kılabilir.",
             "info",
+            {"yuzde": f"{pct:.0f}"},
         )
     return None
 
@@ -158,10 +170,11 @@ def rule_risky_deploy_window(data: TeamData, cfg: Config) -> RuleFinding | None:
     if risky >= 2:
         return RuleFinding(
             "risky_deploy_window",
-            f"Son dönemde {risky} kez cuma akşamı deploy'unu hafta sonu "
-            "düzeltmesi izledi. Cuma öğleden sonrası riskli bir deploy penceresi "
-            "olabilir — hafta sonu öncesi kısa bir deploy freeze'i denemeye değer.",
+            "Son dönemde {sayi} kez cuma akşamı deploy'unu hafta sonu düzeltmesi "
+            "izledi. Cuma öğleden sonrası riskli bir deploy penceresi olabilir — "
+            "hafta sonu öncesi kısa bir deploy freeze'i denemeye değer.",
             "warning",
+            {"sayi": risky},
         )
     return None
 
@@ -201,6 +214,7 @@ def run_rules(session: Session, cfg: Config) -> int:
                         scope_id=team.id,
                         rule_key=finding.rule_key,
                         message=finding.message,
+                        params=finding.params or {},
                         severity=finding.severity,
                         created_at=now,
                     )

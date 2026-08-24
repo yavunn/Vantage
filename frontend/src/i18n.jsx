@@ -112,6 +112,29 @@ const STRINGS = {
     "nav.hr": "İK Panosu",
     "nav.accounts": "Hesaplar",
 
+    // --- sayfa başlıkları: ekranın altındaki tek satırlık "burada ne
+    // yapabilirim" cevabı. Sekme etiketiyle aynı yerde durur ki ikisi ayrışmasın.
+    "page.team.desc":
+      "Takımın süreç sağlığı: akış metrikleri, sinyaller ve öneriler. Kişi kırılımı yoktur.",
+    "page.me.desc":
+      "Yalnız size (ve yöneticinize) açık. Kıyas başka kişiyle değil, kendi geçmişinizle yapılır.",
+    "page.projects.desc":
+      "Bağlı depolarınız ve son çözümlenen değişiklikler.",
+    "page.leaves.desc":
+      "İzin talebi oluşturun, takvimde ekibin durumunu görün.",
+    "page.documents.desc":
+      "Bordro ve özlük evrakınızı yükleyin; belgeleriniz yalnız size ve İK'ya açıktır.",
+    "page.survey.desc":
+      "Anonim memnuniyet anketi. Cevaplar kişiye bağlanamaz.",
+    "page.admin.desc":
+      "Hesaplar, takımlar, kaynak bağlantıları ve sistem ayarları.",
+    "page.hr.desc":
+      "İzin, evrak ve kapasite görünümü. Performans metriği içermez.",
+    "page.accounts.desc":
+      "Çalışan rehberi: hesap açma ve parola sıfırlama.",
+    "page.settings.desc":
+      "Profiliniz, parolanız, kaynak kimlikleriniz ve görünüm tercihleri.",
+
     // --- üst çubuk ---
     "top.search": "Ara",
     "top.searchTitle": "Hızlı arama (Ctrl+K)",
@@ -197,6 +220,27 @@ const STRINGS = {
     "nav.settings": "Settings",
     "nav.hr": "HR dashboard",
     "nav.accounts": "Accounts",
+
+    "page.team.desc":
+      "Process health for the team: flow metrics, signals and suggestions. No per-person breakdown.",
+    "page.me.desc":
+      "Visible only to you (and your manager). Comparison is with your own history, never another person.",
+    "page.projects.desc":
+      "Your connected repositories and recently analysed changes.",
+    "page.leaves.desc":
+      "Request time off and see where the team stands on the calendar.",
+    "page.documents.desc":
+      "Upload payroll and personnel documents; yours are visible only to you and HR.",
+    "page.survey.desc":
+      "Anonymous satisfaction survey. Answers cannot be traced back to a person.",
+    "page.admin.desc":
+      "Accounts, teams, source connections and system settings.",
+    "page.hr.desc":
+      "Time off, documents and capacity. Contains no performance metrics.",
+    "page.accounts.desc":
+      "Employee directory: create accounts and reset passwords.",
+    "page.settings.desc":
+      "Your profile, password, source identities and appearance preferences.",
 
     // --- top bar ---
     "top.search": "Search",

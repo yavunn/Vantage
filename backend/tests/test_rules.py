@@ -50,7 +50,9 @@ def test_hotspot_files_tetiklenir(session):
     session.commit()
     finding = rule_hotspot_files(_data(session, team), _cfg())
     assert finding is not None
-    assert "src/legacy/core.py" in finding.message
+    # Metin ŞABLON, dosya listesi params'ta: öneri okuma anında çevrildiği için
+    # hazır cümle saklanmıyor (bkz. services/report.recommendation_payload).
+    assert "src/legacy/core.py" in finding.params["dosyalar"]
     assert "refactor" in finding.message.lower()
 
 

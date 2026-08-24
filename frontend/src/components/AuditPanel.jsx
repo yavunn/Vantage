@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { downloadFile, listAudit } from "../api.js";
 import { toast } from "../toast.js";
+import Yukleniyor from "./Yukleniyor.jsx";
 import { useLang, useT } from "../i18n.jsx";
 
 const ACTION_TR = {
@@ -19,8 +20,15 @@ export default function AuditPanel() {
   const [error, setError] = useState(null);
   const [q, setQ] = useState("");
 
+  // Veri gelene kadar tablo BOS duruyordu: "kayit yok" ile "henuz gelmedi"
+  // ayni goruntuydu.
+  const [yukleniyor, setYukleniyor] = useState(true);
+
   useEffect(() => {
-    listAudit().then(setRows).catch((e) => setError(e.message));
+    listAudit()
+      .then(setRows)
+      .catch((e) => setError(e.message))
+      .finally(() => setYukleniyor(false));
   }, []);
 
   const filtered = rows.filter((r) => {
@@ -48,7 +56,8 @@ export default function AuditPanel() {
         </span>
       </div>
       <p className="desc">{t("Yönetici işlemleri burada kayıt altındadır (hesap verebilirlik). Parola gibi hassas içerik saklanmaz.")}</p>
-      {error && <div className="login-error">{error}</div>}
+      {error && <div className="login-error" role="alert">{error}</div>}
+      {yukleniyor ? <Yukleniyor adet={5} /> : (
       <table className="quality">
         <thead>
           <tr>
@@ -73,6 +82,7 @@ export default function AuditPanel() {
           ))}
         </tbody>
       </table>
+      )}
     </section>
   );
 }

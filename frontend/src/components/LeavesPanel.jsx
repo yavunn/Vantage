@@ -6,6 +6,7 @@ import {
 } from "../api.js";
 import Modal from "./Modal.jsx";
 import { monthKey, ymd } from "../dates.js";
+import Yukleniyor from "./Yukleniyor.jsx";
 import { useLang, useT } from "../i18n.jsx";
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
@@ -61,14 +62,21 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   const year = cursor.getFullYear();
   const mon = cursor.getMonth();
 
+  // Takvim veri gelene kadar bos duruyordu: "bu ay izin yok" ile "henuz
+  // gelmedi" ayirt edilemiyordu.
+  const [yukleniyor, setYukleniyor] = useState(true);
+
   function load() {
-    listLeaves(month).then(setLeaves).catch((e) => setError(e.message));
-    listAnnotations().then(setAnnotations).catch(() => setAnnotations([]));
-    myLeaveRequests().then(setMine).catch(() => setMine([]));
-    if (canManage) {
-      leaveSummary(month).then(setSummary).catch(() => setSummary([]));
-      pendingLeaves().then(setPending).catch(() => setPending([]));
-    }
+    setYukleniyor(true);
+    Promise.allSettled([
+      listLeaves(month).then(setLeaves).catch((e) => setError(e.message)),
+      listAnnotations().then(setAnnotations).catch(() => setAnnotations([])),
+      myLeaveRequests().then(setMine).catch(() => setMine([])),
+      ...(canManage ? [
+        leaveSummary(month).then(setSummary).catch(() => setSummary([])),
+        pendingLeaves().then(setPending).catch(() => setPending([])),
+      ] : []),
+    ]).finally(() => setYukleniyor(false));
   }
   useEffect(load, [month]);
   // Çalışan listesi "Kişi" seçicisini doldurur. Sessizce boş kalırsa yönetici
@@ -259,7 +267,8 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
             <span className="lg other">{t("Diğer")}</span>
           </div>
 
-          <div className="calendar">
+          {yukleniyor && <Yukleniyor adet={4} />}
+          <div className="calendar" aria-busy={yukleniyor || undefined}>
             {WEEKDAYS.map((w) => <div key={w} className="cal-head">{t(w)}</div>)}
             {grid.map((d, i) => (
               <div key={i} className={`cal-cell ${d ? "" : "empty"}`}>
@@ -323,7 +332,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
             </form>
 
             {monthAnnots.length === 0 ? (
-              <p className="desc">{t("{month} ayında işaret yok.", { month: monthName })}</p>
+              <p className="empty-note">{t("{month} ayında işaret yok.", { month: monthName })}</p>
             ) : (
               <ul className="leave-list">
                 {monthAnnots.map((a) => (
@@ -354,7 +363,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   <section className="section">
           <h2>{t("İzin isteklerim ({n})", { n: mine.length })}</h2>
           {mine.length === 0 ? (
-            <p className="desc">{t("Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.")}</p>
+            <p className="empty-note">{t("Henüz izin isteğin yok. Aşağıdan istek gönderebilirsin.")}</p>
           ) : (
             <ul className="leave-list">
               {mine.map((lv) => (
@@ -400,7 +409,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   <section className="section">
             <h2>{t("Bekleyen izin onayları ({n})", { n: pending.length })}</h2>
             {pending.length === 0 ? (
-              <p className="desc">{t("Onay bekleyen izin isteği yok.")}</p>
+              <p className="empty-note">{t("Onay bekleyen izin isteği yok.")}</p>
             ) : (
               <ul className="leave-list">
                 {pending.map((lv) => (
@@ -438,7 +447,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
   <section className="section">
             <h2>{t("Ay özeti (İK)")}</h2>
             {summary.length === 0 ? (
-              <p className="desc">{t("Bu ay izin kaydı yok.")}</p>
+              <p className="empty-note">{t("Bu ay izin kaydı yok.")}</p>
             ) : (
               <table className="quality">
                 <thead>
@@ -504,7 +513,7 @@ export default function LeavesPanel({ user, canManage, teams = [] }) {
             </div>
           )}
           {visibleLeaves.length === 0 ? (
-            <p className="desc">{uniqueLeaves.length === 0 ? t("Bu ay izin kaydı yok.") : t("Filtreye uyan kayıt yok.")}</p>
+            <p className="empty-note">{uniqueLeaves.length === 0 ? t("Bu ay izin kaydı yok.") : t("Filtreye uyan kayıt yok.")}</p>
           ) : (
             <ul className="leave-list">
               {visibleLeaves.map((lv) => (

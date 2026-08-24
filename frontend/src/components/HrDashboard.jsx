@@ -3,6 +3,7 @@ import { monthKey, pad, ymd } from "../dates.js";
 import {
   decideLeave, leaveBalances, leaveSummary, listEmployees, listLeaves, pendingLeaves,
 } from "../api.js";
+import Yukleniyor from "./Yukleniyor.jsx";
 import { useLang, useT } from "../i18n.jsx";
 
 // İK Panosu — kapasite + izin + rehber. Performans/metrik YOK (etik sınır).
@@ -12,6 +13,16 @@ const PROFILE_PREVIEW = 3;
 
 const TYPE_LABEL = { annual: "Yıllık", sick: "Rapor", other: "Diğer" };
 
+
+/** Isı haritası kademesi. Sürekli opaklık yerine dört adım: her adımın
+ *  yazı rengi CSS'te ayrı seçilebilsin ve rakam her tonda okunsun. */
+export function yogunlukSeviyesi(sayi, enYuksek) {
+  if (!sayi) return "yok";
+  const oran = enYuksek > 0 ? sayi / enYuksek : 0;
+  if (oran < 0.34) return "az";
+  if (oran < 0.67) return "orta";
+  return "cok";
+}
 
 export default function HrDashboard() {
   const t = useT();
@@ -30,12 +41,19 @@ export default function HrDashboard() {
   const year = cursor.getFullYear();
   const mon = cursor.getMonth();
 
+  // Bes istek birden: hepsi sonuclanana kadar pano "her sey sifir" gibi
+  // goruntu veriyordu (bugun izinli 0, bekleyen onay 0...).
+  const [yukleniyor, setYukleniyor] = useState(true);
+
   function load() {
-    listEmployees().then(setEmployees).catch((e) => setError(e.message));
-    listLeaves(month).then(setLeaves).catch(() => setLeaves([]));
-    leaveSummary(month).then(setSummary).catch(() => setSummary([]));
-    pendingLeaves().then(setPending).catch(() => setPending([]));
-    leaveBalances(year).then((b) => setBalances(b.balances || [])).catch(() => setBalances([]));
+    setYukleniyor(true);
+    Promise.allSettled([
+      listEmployees().then(setEmployees).catch((e) => setError(e.message)),
+      listLeaves(month).then(setLeaves).catch(() => setLeaves([])),
+      leaveSummary(month).then(setSummary).catch(() => setSummary([])),
+      pendingLeaves().then(setPending).catch(() => setPending([])),
+      leaveBalances(year).then((b) => setBalances(b.balances || [])).catch(() => setBalances([])),
+    ]).finally(() => setYukleniyor(false));
   }
   useEffect(load, [month, year]);
 
@@ -158,16 +176,27 @@ export default function HrDashboard() {
 
   const monthName = cursor.toLocaleDateString(lang === "en" ? "en-US" : "tr-TR", { month: "long", year: "numeric" });
 
+  // Bes istek sonuclanmadan pano "her sey sifir" gibi goruntu veriyordu.
+  if (yukleniyor) {
+    return (
+      <div className="hr-dashboard">
+        <div className="hr-toolbar"><h2>{monthName}</h2></div>
+        <Yukleniyor bicim="kart" adet={4} />
+        <Yukleniyor adet={4} />
+      </div>
+    );
+  }
+
   return (
     <div className="hr-dashboard">
       <div className="hr-toolbar">
-        <h2>{t("İK Panosu")} · {monthName}</h2>
+        <h2>{monthName}</h2>
         <span style={{ flex: 1 }} />
         <button className="mini" onClick={exportCsv}>{t("İK raporu (CSV)")}</button>
         <button className="mini" onClick={() => window.print()}>{t("Yazdır / PDF")}</button>
       </div>
-      {error && <div className="login-error">{error}</div>}
-      {msg && <div className="admin-ok">{msg}</div>}
+      {error && <div className="error-inline" role="alert">{error}</div>}
+      {msg && <div className="ok-inline" role="status">{msg}</div>}
 
       {/* KPI kartları */}
       <div className="hr-kpis">
@@ -306,16 +335,24 @@ export default function HrDashboard() {
             })}
           </div>
         )}
+        <div className="hr-heat-legend" aria-hidden="true">
+          <span><i className="hhl-box hhl-yok" />{t("izin yok")}</span>
+          <span><i className="hhl-box hhl-az" />{t("az")}</span>
+          <span><i className="hhl-box hhl-orta" />{t("orta")}</span>
+          <span><i className="hhl-box hhl-cok" />{t("çok")}</span>
+        </div>
         <div className="hr-heat">
           {heat.map((c, i) => (
             <div
               key={i}
-              // İzinsiz gün marka rengiyle boyanınca ay boyunca hiç izin
-              // olmasa bile ekran "dolu" görünüyordu. Sıfır günler artık
-              // nötr; renk yalnızca gerçek izni gösterir.
-              className={`hr-heat-cell${c === 0 ? " is-zero" : ""}`}
+              // Yoğunluk ZEMİN tonuyla verilir. Önceden hücrenin opaklığı
+              // düşürülüyordu; opaklık yazıyı da solduruyor ve az izinli
+              // günlerde hücredeki rakam okunmuyordu. Ayrıca izinsiz gün
+              // marka rengiyle boyanınca, ay boyunca hiç izin olmasa bile
+              // ekran "dolu" görünüyordu.
+              className="hr-heat-cell"
+              data-yogunluk={yogunlukSeviyesi(c, heatMax)}
               title={t("{day}. gün · {n} kişi izinli", { day: i + 1, n: c })}
-              style={c === 0 ? undefined : { opacity: 0.25 + 0.75 * (c / heatMax) }}
             >
               <span className="hr-heat-day">{i + 1}</span>
               {c > 0 && <span className="hr-heat-count">{c}</span>}

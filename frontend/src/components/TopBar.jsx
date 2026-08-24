@@ -69,7 +69,11 @@ export default function TopBar({
 }) {
   const { t } = useLang();
   const Tab = ({ id, children }) => (
-    <button className={`tab ${tab === id ? "active" : ""}`} onClick={() => onTab(id)}>
+    <button
+      className={`tab ${tab === id ? "active" : ""}`}
+      aria-current={tab === id ? "page" : undefined}
+      onClick={() => onTab(id)}
+    >
       {children}
     </button>
   );
@@ -77,11 +81,12 @@ export default function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-row topbar-row-main">
+        {/* Sözcük işareti, sayfa başlığı DEĞİL: her ekranın kendi <h1>'i var
+            (bkz. App.jsx `.page-head`). İkisi de <h1> olduğunda ekran okuyucu
+            için "buradayım" bilgisi kayboluyordu. */}
         <div className="topbar-brand">
           <BrandMark />
-          <div>
-            <h1>Vantage</h1>
-          </div>
+          <span className="wordmark">Vantage</span>
         </div>
 
         <div className="topbar-user">

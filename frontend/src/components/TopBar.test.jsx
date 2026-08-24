@@ -113,3 +113,20 @@ describe("bağlam ve eylemler", () => {
     expect(screen.queryByText("admin")).not.toBeInTheDocument();
   });
 });
+
+describe("kabuk semantiği", () => {
+  it("marka bir BAŞLIK değil — sayfa başlığı ekranın kendisine ait", () => {
+    // Marka <h1> olduğunda her ekranın <h1>'i onunla yarışıyordu ve ekran
+    // okuyucuda "buradayım" bilgisi kayboluyordu (bkz. App.jsx PageHead).
+    ciz();
+    expect(screen.getByText("Vantage")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Vantage" })).not.toBeInTheDocument();
+  });
+
+  it("aktif sekme yalnız renkle değil, aria-current ile de bildirilir", () => {
+    ciz({ tab: "leaves" });
+    const nav = screen.getByRole("navigation", { name: "Ana gezinme" });
+    const aktif = within(nav).getByRole("button", { current: "page" });
+    expect(aktif).toHaveTextContent("İzinler");
+  });
+});

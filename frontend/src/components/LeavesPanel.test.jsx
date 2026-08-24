@@ -7,6 +7,9 @@
  *  2) "Takvim işaretleri" bölümü yalnız yönetici/İK'ya görünmeli — düz çalışan
  *     şirket geneli tatil ekleyememeli (backend de 403 verir, UI de göstermez).
  */
+import fs from "node:fs";
+import path from "node:path";
+
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -193,5 +196,37 @@ describe("takvim işareti ekleme", () => {
     expect(within(bolum).getByText("Nisan işareti")).toBeInTheDocument();
     // Mayıs işareti ne listede ne takvimde görünmeli (görünen ay Nisan).
     expect(screen.queryByText("Mayıs işareti")).not.toBeInTheDocument();
+  });
+});
+
+describe("izin türü rengi tek kaynaktan", () => {
+  /**
+   * Kusur: aynı izin türü ekranın üç yerinde üç ayrı renkti. "Yıllık" takvimde
+   * yeşil, listede maviydi; "rapor" takvimde kehribar ama listede KIRMIZIYDI —
+   * kırmızı bu üründe "zorlanıyor, yardım gerekebilir" demek, hastalık izni
+   * için yanlış ve suçlayıcı bir sinyal.
+   */
+  const css = fs.readFileSync(
+    path.join(import.meta.dirname, "..", "styles", "02-bilesenler.css"),
+    "utf8",
+  );
+
+  /** `secici { ... }` bloğunun gövdesini döndürür (regex kaçışı olmadan). */
+  function kuralGovdesi(secici) {
+    const i = css.indexOf(secici);   // secici virgulle de bitebilir (ortak kural)
+    if (i < 0) return "";
+    const acilis = css.indexOf("{", i);
+    const kapanis = css.indexOf("}", acilis);
+    return css.slice(acilis, kapanis);
+  }
+
+  it.each([
+    ["annual", "--cat-leave-annual"],
+    ["sick", "--cat-leave-sick"],
+    ["other", "--cat-leave-other"],
+  ])("%s türü çip / nokta / gösterge aynı belirteci kullanır", (tur, belirtec) => {
+    expect(kuralGovdesi(".leave-chip." + tur)).toContain(belirtec);
+    expect(kuralGovdesi(".leave-dot." + tur)).toContain(belirtec);
+    expect(kuralGovdesi(".lg." + tur + "::before")).toContain(belirtec);
   });
 });

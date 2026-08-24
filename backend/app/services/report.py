@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Config
-from app.core.i18n import DEFAULT_LANG, metric_meta, status_labels
+from app.core.i18n import DEFAULT_LANG, metric_meta, status_labels, tr_text
 from app.metrics.engine import (
     HOTFIX_HINTS,
     METRIC_FUNCS,
@@ -106,10 +106,18 @@ def live_report(session: Session, team: Team, days: int, cfg: Config,
         "metrics": metrics,
         "signals": signals,
         "series": _live_series(session, team, days, cfg, lang),
-        "recommendations": [
-            {"rule": r.rule_key, "message": r.message, "severity": r.severity}
-            for r in recs
-        ],
+        "recommendations": [recommendation_payload(r) for r in recs],
+    }
+
+
+def recommendation_payload(rec) -> dict:
+    """Öneri satırı → API gövdesi. Metin ŞABLON olarak saklanır, çeviri ve
+    parametre yerleştirme burada yapılır: pano hangi dilde açılırsa öneri o
+    dilde okunur (params'ı olmayan eski satırlar olduğu gibi geçer)."""
+    return {
+        "rule": rec.rule_key,
+        "message": tr_text(rec.message, **(rec.params or {})),
+        "severity": rec.severity,
     }
 
 
