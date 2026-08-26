@@ -122,7 +122,9 @@ def test_baglam_tasmasi_kullaniciya_net_sebep_olur():
     from app.services.code_analysis import classify_error
 
     mesaj = classify_error(ContextOverflowError("uç prompt'un yalnız 2050 token'ını gördü"))
-    assert "context_tokens" in mesaj
+    assert "bağlam sınırı" in mesaj
+    # Sebep kullanıcıya gider: config alan adı değil, nereden düzelteceği yazar.
+    assert "context_tokens" not in mesaj
 
 
 def test_token_tahmini_olculen_orana_yakin():

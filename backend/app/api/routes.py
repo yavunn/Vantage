@@ -882,8 +882,8 @@ def ai_advice(team_id: int, session: Session = Depends(get_session)):
     advisor = build_advisor(cfg)
     if advisor is None:
         raise HTTPException(503, tr_error(
-            "LLM öneri katmanı kapalı (config: llm.enabled). On-prem kısıtı "
-            "gereği varsayılan olarak hiçbir veri dış servise gönderilmez."
+            "LLM öneri katmanı kapalı. On-prem kısıtı gereği varsayılan olarak "
+            "hiçbir veri dış servise gönderilmez — açtırmak için yöneticinize başvurun."
         ))
     team = session.get(Team, team_id)
     if team is None:
@@ -929,8 +929,8 @@ def ask_team(
     cfg = get_config()
     if not cfg.rag.enabled:
         raise HTTPException(503, tr_error(
-            "RAG asistanı kapalı (config: rag.enabled). On-prem kısıtı gereği "
-            "varsayılan olarak kapalıdır."
+            "RAG asistanı kapalı. On-prem kısıtı gereği varsayılan olarak kapalıdır "
+            "— açtırmak için yöneticinize başvurun."
         ))
     team = session.get(Team, team_id)
     if team is None:

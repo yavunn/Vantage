@@ -589,8 +589,8 @@ def classify_error(e: Exception) -> str:
     # eksik girdiye dayanıyor" durumudur ve SESSİZ kalmamalı — sonuç üretilse
     # bile güvenilir değildir.
     if isinstance(e, ContextOverflowError):
-        return (f"Yerel uç prompt'un tamamını görmedi ({e}). llm.local.context_tokens "
-                "değerini ya da sunucunun bağlam sınırını büyütün.")
+        return (f"Yerel model prompt'un tamamını görmedi ({e}). AI Sağlayıcı bölümünden "
+                "modelin bağlam sınırını büyütün.")
     # Yerel uçta şema garantisi yok: modelin biçim hatası, "model bulunamadı"
     # gibi bir altyapı hatasıyla karışmasın diye EN BAŞTA ve tipe göre eşlenir
     # (metin eşleşmesi 'model' kelimesine takılıyordu).
@@ -606,7 +606,8 @@ def classify_error(e: Exception) -> str:
     if "rate limit" in msg or "429" in msg or "overloaded" in msg or "529" in msg:
         return "AI hız limiti/aşırı yük — biraz sonra tekrar dene."
     if "connect" in msg or "connection" in msg or "timeout" in msg or "refused" in msg:
-        return "AI sunucusuna bağlanılamadı (yerel LLM kapalı olabilir — base_url'i kontrol et)."
+        return ("AI sunucusuna bağlanılamadı — yerel model sunucusu kapalı olabilir; "
+                "AI Sağlayıcı bölümündeki sunucu adresini kontrol et.")
     if "not_found" in msg or "404" in msg or "model" in msg:
         return "AI modeli bulunamadı — model adını kontrol et."
     return f"AI çağrısı başarısız: {type(e).__name__}."
@@ -832,8 +833,9 @@ def _diff_iterator(cfg: Config, repo_cfg: dict, warnings: list[str]):
         )
 
     warnings.append(
-        f"Repo '{ad}': yerel 'path' tanımlı değil ve kaynak sağlayıcısı "
-        f"('{saglayici or 'tanımsız'}') diff üretemiyor — kod analizi bu repo için atlandı."
+        f"Repo '{ad}': ne yerel klasör ne de uzak depo adresi tanımlı "
+        f"(seçili kaynak: {saglayici or 'tanımsız'}) — kod analizi bu repo için atlandı. "
+        "Depo ayarlarından birini girin."
     )
     return None
 
@@ -849,13 +851,15 @@ def run_code_analysis(session: Session, cfg: Config,
     analyzer = build_analyzer(cfg)
     if analyzer is None:
         return {"status": "disabled", "analyzed": 0,
-                "note": "llm.enabled + code_analysis.enabled açık değil (analiz bekliyor)"}
+                "note": "AI kod analizi kapalı — yönetici panelinden bir AI sağlayıcı "
+                        "seçilene kadar analiz yapılmaz."}
 
     target_emails = _developer_git_emails(session, only_developer_id) if only_developer_id else None
     if only_developer_id and not target_emails:
         return {"status": "no_identity", "analyzed": 0,
-                "note": "Bu kişinin git e-postası tanımlı değil (developer.external_ids['git']). "
-                        "Atıf yapılamaz — veri kaynağı gerekli."}
+                "note": "Bu kişinin git commit e-postası bağlı değil; hangi kodun ona ait "
+                        "olduğu bilinemiyor. Yönetici panelindeki kişi listesinden git "
+                        "e-postası eklenmeli."}
 
     ca = cfg.code_analysis
     budget = ca.max_files_per_run
@@ -918,8 +922,8 @@ def run_code_analysis(session: Session, cfg: Config,
     if usable_repos == 0:
         out["status"] = "no_source"
         out["note"] = source_warnings[-1] if source_warnings else (
-            "Kod analizi için diff üretilebilecek repo yok — sources.git.repos "
-            "altında yerel 'path' ya da uzak 'slug' tanımlı olmalı."
+            "Analiz edilebilecek bir kod deposu yok — yönetici panelinden en az bir "
+            "depoya yerel klasör ya da uzak depo adresi tanımlanmalı."
         )
         return out
     # Hiç yeni analiz olmadı ama LLM çağrıları hata verdiyse: sessiz "0 yeni"

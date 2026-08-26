@@ -76,7 +76,11 @@ _DESC_EN = {
     "Haftalık AI kod analizi composite trendi": "Weekly AI code analysis composite trend",
 }
 
-_NOTE_EN = "AI code analysis is off (llm.enabled + code_analysis.enabled)."
+# Kapalı modül notu kullanıcıya gider: config alan adı değil, ne olduğu ve
+# kimin ne yapacağı yazar.
+_NOTE_TR = "AI kod analizi kapalı — bir AI sağlayıcı seçilene kadar skor üretilmez."
+_NOTE_EN = ("AI code analysis is off — no score is produced until an AI provider "
+            "is selected.")
 
 
 def _dim_labels(lang: str) -> dict:
@@ -159,7 +163,7 @@ def _health_payload(files: list[CodeAnalysis], enabled: bool, name: str, lang: s
             "value": None, "status": "insufficient_data",
             "status_label": status_labels["insufficient_data"],
             "sample_size": 0, "data_completeness": 0.0, "enabled": enabled,
-            "note": None if enabled else _NOTE_EN if lang == "en" else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
+            "note": None if enabled else (_NOTE_EN if lang == "en" else _NOTE_TR),
             "modules": [],
         }
     composite = sum(f.composite for f in files) / len(files)
@@ -220,7 +224,7 @@ def team_code_health(session: Session, team_id: int, cfg: Config, lang: str = "t
             "status_label": status_labels["insufficient_data"],
             "sample_size": 0, "data_completeness": 0.0,
             "enabled": enabled,
-            "note": None if enabled else _NOTE_EN if lang == "en" else "AI kod analizi kapalı (llm.enabled + code_analysis.enabled).",
+            "note": None if enabled else (_NOTE_EN if lang == "en" else _NOTE_TR),
             "modules": [],
         }
 

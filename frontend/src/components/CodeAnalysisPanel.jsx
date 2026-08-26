@@ -4,6 +4,7 @@ import { toast } from "../toast.js";
 import CodeHealthCard from "./CodeHealthCard.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
 import { useT } from "../i18n.jsx";
+import { durumMesaji } from "../codeStatus.js";
 
 // AI kod analizi ayarları (admin). Rubrik ağırlıkları + analiz limitleri.
 // Hariç klasörler (node_modules, dist, vendor…) burada YOK: ayar değil, arka
@@ -19,6 +20,9 @@ const DIM_LABELS = {
   conventions: "Konvansiyon",
 };
 
+// Durum kutusunun sınıfı: uyarı/hata yeşil kutuda çıkmasın.
+const SINIF = { ok: "ok-inline", warn: "warn-inline", error: "error-inline" };
+
 // Baş yöneticinin seçebileceği AI sağlayıcılar (kart etiketleri).
 const PROVIDER_META = {
   none: { label: "Kapalı", hint: "AI analizi yapılmaz" },
@@ -31,6 +35,8 @@ export default function CodeAnalysisPanel({ me }) {
   const isOwner = !!(me && me.is_owner);
   const [cfg, setCfg] = useState(null);
   const [error, setError] = useState(null);
+  // msg = {sev, text}. Eskiden düz metindi ve kutu her zaman yeşil
+  // "ok-inline" idi: "git e-postası yok" gibi UYARILAR başarı gibi görünüyordu.
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [devs, setDevs] = useState([]);
@@ -78,11 +84,11 @@ export default function CodeAnalysisPanel({ me }) {
     setRunningDev(dev.id); setMsg(null); setError(null);
     try {
       const r = await apiPost(`/api/admin/code-analysis/run-developer/${dev.id}`, {});
-      const okmsg = t("{name}: {detail}", {
-        name: dev.display_name,
-        detail: r.status === "ok" ? t("{n} yeni, {c} önbellek", { n: r.analyzed, c: r.cached }) : (r.note || JSON.stringify(r)),
-      });
-      setMsg(okmsg); toast(okmsg, r.status === "ok" ? "ok" : "info");
+      const { sev, text } = durumMesaji(t, r, { yonetici: true });
+      const okmsg = t("{name}: {detail}", { name: dev.display_name, detail: text });
+      setMsg({ sev, text: okmsg });
+      // Toast yalnız ok | error | info bilir; "warn" orada bilgi tonuna düşer.
+      toast(okmsg, sev === "warn" ? "info" : sev);
       loadDevs();
       loadOverview();
       loadAudit();
@@ -102,7 +108,7 @@ export default function CodeAnalysisPanel({ me }) {
     setError(null); setMsg(null);
     try {
       await apiPatch(`/api/admin/developers/${dev.id}/git-email`, { git_email: val });
-      setMsg(t("{name}: git e-postası kaydedildi.", { name: dev.display_name })); toast(t("git e-postası kaydedildi"), "ok");
+      setMsg({ sev: "ok", text: t("{name}: git e-postası kaydedildi.", { name: dev.display_name }) }); toast(t("git e-postası kaydedildi"), "ok");
       setGitEdit((g) => { const n = { ...g }; delete n[dev.id]; return n; });
       loadDevs();
     } catch (e) { setError(e); toast(e.message, "error"); }
@@ -133,7 +139,7 @@ export default function CodeAnalysisPanel({ me }) {
       if (keys.local) payload.local_api_key = keys.local;
       await updateLlmProvider(payload);
       setKeys({ claude: "", local: "" });
-      setMsg(t("AI sağlayıcı kaydedildi.")); toast(t("AI sağlayıcı kaydedildi"), "ok");
+      setMsg({ sev: "ok", text: t("AI sağlayıcı kaydedildi.") }); toast(t("AI sağlayıcı kaydedildi"), "ok");
       loadProvider();
       load(); // genel bölüm aktif model/anahtar durumunu tazelesin
       return true;
@@ -150,7 +156,7 @@ export default function CodeAnalysisPanel({ me }) {
         max_files_per_run: Number(cfg.max_files_per_run),
         max_diff_lines: Number(cfg.max_diff_lines),
       });
-      setMsg(t("Kaydedildi.")); toast(t("Ayarlar kaydedildi"), "ok");
+      setMsg({ sev: "ok", text: t("Kaydedildi.") }); toast(t("Ayarlar kaydedildi"), "ok");
       load();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
@@ -160,11 +166,9 @@ export default function CodeAnalysisPanel({ me }) {
     try {
       toast(t("Analiz başladı…"), "info");
       const r = await apiPost("/api/admin/code-analysis/run", {});
-      const m = r.status === "ok"
-        ? t("Analiz tamam: {n} yeni, {c} önbellek.", { n: r.analyzed, c: r.cached ?? 0 })
-        : (r.note || t("Analiz bitti"));
-      setMsg(m);
-      toast(m, r.status === "ok" ? "ok" : (r.status === "error" ? "error" : "info"));
+      const { sev, text } = durumMesaji(t, r, { yonetici: true });
+      setMsg({ sev, text });
+      toast(text, sev === "warn" ? "info" : sev);
       loadAudit(); loadOverview();
     } catch (e) { setError(e); toast(e.message, "error"); } finally { setBusy(false); }
   }
@@ -186,7 +190,7 @@ export default function CodeAnalysisPanel({ me }) {
           {t("GitLab/GitHub diff API'lerinden çekme henüz yok — uzak-repo diff'i analiz edilmez.")}
         </p>
         {error && <p className="error-inline">{error.message}</p>}
-        {msg && <p className="ok-inline">{msg}</p>}
+        {msg && <p className={SINIF[msg.sev] || "ok-inline"}>{msg.text}</p>}
         {(busy || runningDev != null) && (
           <div className="progress-indeterminate" aria-label={t("İşlem sürüyor")}><div /></div>
         )}

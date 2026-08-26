@@ -70,6 +70,11 @@ const STRINGS = {
     "code.disabled": "AI kod analizi bu kurulumda kapalı — yöneticinize başvurun.",
     "code.noSource": "Analiz edilebilecek bir kod deposu tanımlı değil — yöneticinize başvurun.",
     "code.failed": "Analiz tamamlanamadı.",
+    // Aynı durumlar yöneticiye: düzeltme kendi panelinde, "yöneticinize
+    // başvurun" demek anlamsız olurdu.
+    "code.admin.noIdentity": "Bu kişinin git commit e-postası bağlı değil, bu yüzden hangi kodun ona ait olduğu bilinemiyor. Aşağıdaki “Tüm kişiler” tablosundan ekleyebilirsiniz.",
+    "code.admin.disabled": "AI kod analizi kapalı — analiz için önce bir AI sağlayıcı seçin.",
+    "code.admin.noSource": "Analiz edilebilecek bir kod deposu tanımlı değil — Kaynaklar bölümünden depo ekleyin.",
     "login.backToLogin": "← Girişe dön",
 
     // --- şifremi unuttum (3 adım) ---
@@ -179,6 +184,9 @@ const STRINGS = {
     "code.disabled": "AI code analysis is turned off in this installation — contact your administrator.",
     "code.noSource": "No code repository is configured for analysis — contact your administrator.",
     "code.failed": "The analysis could not be completed.",
+    "code.admin.noIdentity": "This person's git commit email is not linked, so we cannot tell which code is theirs. You can add it in the “All people” table below.",
+    "code.admin.disabled": "AI code analysis is off — pick an AI provider first.",
+    "code.admin.noSource": "No code repository is configured for analysis — add one under Sources.",
     "login.backToLogin": "← Back to sign in",
 
     // --- forgot password (3 steps) ---

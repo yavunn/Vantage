@@ -161,7 +161,7 @@ def analyze_task(session: Session, cfg: Config, task_id: int,
     if advisor is None:
         return TaskAnalysis(
             status="disabled", task_id=task_id,
-            reason=tr_error("LLM katmanı kapalı (config: llm.enabled) — analiz üretilemez."),
+            reason=tr_error("LLM katmanı kapalı — analiz üretilemez."),
         )
 
     context, _masked = build_context(task, commits)

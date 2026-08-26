@@ -32,7 +32,7 @@ def reindex(session: Session, cfg: Config,
     if provider is None:
         stats["warnings"].append(
             "RAG açık ama embedding sağlayıcısı kurulamadı "
-            f"(rag.embedding.provider: {cfg.rag.embedding.provider}) — indeksleme atlandı."
+            f"(seçili sağlayıcı: {cfg.rag.embedding.provider}) — indeksleme atlandı."
         )
         return stats
 

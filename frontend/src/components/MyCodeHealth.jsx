@@ -5,40 +5,12 @@ import CodeHealthCard from "./CodeHealthCard.jsx";
 import Yukleniyor from "./Yukleniyor.jsx";
 import CodeHealthDrilldown from "./CodeHealthDrilldown.jsx";
 import { useT } from "../i18n.jsx";
+import { durumMesaji } from "../codeStatus.js";
 
 // Kullanıcının KENDİ kodunun AI sağlığı. Kıyas yok — kendi kodunun geri
 // bildirimi. "Kodumu analiz et" ile isteğe bağlı çalıştırır.
 
 const SINIF = { ok: "ok-inline", warn: "warn-inline", error: "error-inline" };
-
-/** Sunucunun DURUM KODUNU kullanıcıya dönük mesaja çevirir.
- *
- * Ham `note` alanı geliştiriciye bakar ("developer.external_ids['git']",
- * "sources.git.repos altında yerel 'path'…") ve arayüzde gösterilmez: kullanıcı
- * ne olduğunu ve ne yapacağını okumalı, veritabanı alan adını değil.
- *
- * `error` istisna: `classify_error` orada zaten kullanıcıya dönük NET bir sebep
- * üretiyor (bakiye yetersiz, anahtar geçersiz, hız limiti) — onu göstermek en
- * yararlısı ve durumu istemcide tahmin etmek mümkün değil.
- *
- * Tanınmayan durumda mesaj GENEL kalır; eskiden `JSON.stringify(r)` ile ham
- * yanıt ekrana dökülüyordu. */
-function durumMesaji(t, r) {
-  switch (r.status) {
-    case "ok":
-      return { sev: "ok", text: t("Analiz tamam: {n} yeni, {c} önbellek.", { n: r.analyzed, c: r.cached }) };
-    case "no_identity":
-      return { sev: "warn", text: t("code.noIdentity") };
-    case "disabled":
-      return { sev: "warn", text: t("code.disabled") };
-    case "no_source":
-      return { sev: "warn", text: t("code.noSource") };
-    case "error":
-      return { sev: "error", text: r.note || t("code.failed") };
-    default:
-      return { sev: "warn", text: t("code.failed") };
-  }
-}
 
 export default function MyCodeHealth({ user }) {
   const t = useT();

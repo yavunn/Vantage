@@ -159,24 +159,24 @@ ERRORS_EN: dict[str, str] = {
     "İş bulunamadı": "Task not found",
     "Commit bulunamadı": "Commit not found",
     "days yalnızca {list} olabilir": "days can only be {list}",
-    "LLM öneri katmanı kapalı (config: llm.enabled). On-prem kısıtı "
-    "gereği varsayılan olarak hiçbir veri dış servise gönderilmez.":
-        "The LLM advice layer is disabled (config: llm.enabled). Under the on-prem "
-        "constraint, no data is sent to external services by default.",
-    "RAG asistanı kapalı (config: rag.enabled). On-prem kısıtı gereği "
-    "varsayılan olarak kapalıdır.":
-        "The RAG assistant is disabled (config: rag.enabled). It's off by default "
-        "under the on-prem constraint.",
+    "LLM öneri katmanı kapalı. On-prem kısıtı gereği varsayılan olarak "
+    "hiçbir veri dış servise gönderilmez — açtırmak için yöneticinize başvurun.":
+        "The LLM advice layer is off. Under the on-prem constraint, no data is sent "
+        "to external services by default — ask your administrator to turn it on.",
+    "RAG asistanı kapalı. On-prem kısıtı gereği varsayılan olarak kapalıdır "
+    "— açtırmak için yöneticinize başvurun.":
+        "The RAG assistant is off. It's off by default under the on-prem constraint "
+        "— ask your administrator to turn it on.",
     "RAG cevabı üretilemedi": "Couldn't generate a RAG answer",
     "Analiz üretilemedi": "Couldn't generate the analysis",
 
     # --- RAG cevap üretimi (app/services/rag/query.py) — sabit "reason" kümesi,
     # AI'nin serbest metin çıktısı DEĞİL: kodun kendi ürettiği durum açıklaması.
-    "RAG katmanı kapalı (config: rag.enabled).": "The RAG layer is disabled (config: rag.enabled).",
-    "Embedding sağlayıcısı kurulamadı (rag.embedding.provider: {provider}).":
-        "Couldn't set up the embedding provider (rag.embedding.provider: {provider}).",
-    "LLM katmanı kapalı (config: llm.enabled) — cevap üretilemez.":
-        "The LLM layer is disabled (config: llm.enabled) — no answer can be generated.",
+    "RAG katmanı kapalı.": "The RAG layer is off.",
+    "Embedding sağlayıcısı kurulamadı (seçili sağlayıcı: {provider}).":
+        "Couldn't set up the embedding provider (selected provider: {provider}).",
+    "LLM katmanı kapalı — cevap üretilemez.":
+        "The LLM layer is off — no answer can be generated.",
     "Soru vektöre çevrilemedi ({err}) — embedding sağlayıcısı erişilebilir mi?":
         "Couldn't convert the question to a vector ({err}) — is the embedding provider reachable?",
     "Bu soruyla yeterince ilgili kayıt bulunamadı. Senkron çalıştı mı, "
@@ -192,6 +192,6 @@ ERRORS_EN: dict[str, str] = {
     "dayanmaz — önce önerilen bağları onaylayın.":
         "There's no confirmed commit link for this task. Analysis doesn't rely on "
         "guesses — confirm the suggested links first.",
-    "LLM katmanı kapalı (config: llm.enabled) — analiz üretilemez.":
-        "The LLM layer is disabled (config: llm.enabled) — no analysis can be generated.",
+    "LLM katmanı kapalı — analiz üretilemez.":
+        "The LLM layer is off — no analysis can be generated.",
 }

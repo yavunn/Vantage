@@ -155,9 +155,9 @@ def local_chat(
         raise ContextOverflowError(
             f"uç prompt'un yalnız {prompt_tokens} token'ını gördü "
             f"(en az {alt_sinir} olmalıydı, gönderilen ~{gonderilen} tahmini); "
-            f"bağlam penceresi küçük olabilir — llm.local.context_tokens "
-            f"({local.context_tokens}) ve sunucunun kendi sınırını "
-            "(Ollama: OLLAMA_CONTEXT_LENGTH) kontrol edin"
+            f"bağlam penceresi küçük olabilir — AI Sağlayıcı bölümündeki bağlam "
+            f"sınırını ({local.context_tokens} token) ve model sunucusunun kendi "
+            "sınırını (Ollama: OLLAMA_CONTEXT_LENGTH) kontrol edin"
         )
 
     return LocalChatResult(

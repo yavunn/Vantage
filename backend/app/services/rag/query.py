@@ -108,7 +108,7 @@ def answer(
         session.commit()
 
     if not cfg.rag.enabled:
-        return RagAnswer(status="disabled", reason=tr_error("RAG katmanı kapalı (config: rag.enabled)."))
+        return RagAnswer(status="disabled", reason=tr_error("RAG katmanı kapalı."))
 
     if provider is None:
         from app.services.rag.embedding import build_embedding_provider
@@ -118,7 +118,7 @@ def answer(
         return RagAnswer(
             status="error",
             reason=tr_error(
-                "Embedding sağlayıcısı kurulamadı (rag.embedding.provider: {provider}).",
+                "Embedding sağlayıcısı kurulamadı (seçili sağlayıcı: {provider}).",
                 provider=cfg.rag.embedding.provider,
             ),
         )
@@ -130,7 +130,7 @@ def answer(
         _audit("error")
         return RagAnswer(
             status="error",
-            reason=tr_error("LLM katmanı kapalı (config: llm.enabled) — cevap üretilemez."),
+            reason=tr_error("LLM katmanı kapalı — cevap üretilemez."),
         )
 
     try:

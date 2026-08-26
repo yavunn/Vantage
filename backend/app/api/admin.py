@@ -849,7 +849,9 @@ def onboarding_status(session: Session = Depends(get_session), _: User = Depends
     steps = [
         {"key": "source", "done": real_source,
          "label": "Gerçek veri kaynağı bağla",
-         "hint": "config.yaml sources.git.provider: git_log/gitlab (şu an fixture)." if not real_source else "Bağlı."},
+         "hint": ("Şu an örnek (fixture) veri gösteriliyor — Yönetici paneli → "
+                  "Entegrasyon ekranından gerçek bir git kaynağı bağlayın.")
+                 if not real_source else "Bağlı."},
         {"key": "sync", "done": bool(has_commits or has_metrics),
          "label": "Senkron çalıştır",
          "hint": "Yönetici paneli → Entegrasyon → Senkronla (veya CLI sync)." if not (has_commits or has_metrics) else f"{has_commits} commit çekildi."},

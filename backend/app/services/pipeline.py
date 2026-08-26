@@ -38,8 +38,8 @@ def unmapped_status_warnings(session, cfg) -> list[str]:
     return [
         f"{len(unmapped)} kolon hiçbir kategoriye eşlenmemiş "
         f"({', '.join(unmapped[:5])}{'…' if len(unmapped) > 5 else ''}) — bu kolonlardaki "
-        "işler WIP hesabına girmedi ve veri tamlığını düşürüyor. Eşleme: "
-        "config sources.tasks.status_mapping ya da Entegrasyon ekranı."
+        "işler WIP hesabına girmedi ve veri tamlığını düşürüyor. Eşlemeyi "
+        "Yönetici paneli → Entegrasyon ekranından yapabilirsiniz."
     ]
 
 

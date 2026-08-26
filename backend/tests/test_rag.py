@@ -352,7 +352,11 @@ def test_ask_ucu_rag_kapaliyken_503(client, session):
                     headers={"Authorization": f"Bearer {token}"})
 
     assert r.status_code == 503
-    assert "rag.enabled" in r.json()["detail"]
+    # Sebep kullanıcıya gider: config alan adı değil, kapalı olduğu ve kime
+    # başvuracağı yazar.
+    detay = r.json()["detail"]
+    assert "RAG asistanı kapalı" in detay
+    assert "rag.enabled" not in detay
 
 
 def test_ask_ucu_baska_takima_403(client, session):
